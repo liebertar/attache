@@ -15,13 +15,31 @@ runtime owns it.
 
 ---
 
-## Why a runtime and not a framework
+## The problem
 
-Neural policies are non-deterministic. You cannot certify their output the way you certify
-a PLC. The only way to deploy one against real money or real motors is to stop trying to
-constrain the policy and start constraining what may be committed.
+Three agents on a factory floor. Safety says stop the machine. Operations says the deadline
+matters, keep running. Maintenance says order a $340 part. All three are reasonable.
+**Who decides?**
 
-That layer is missing today:
+Today nobody does, so nobody gives agents real authority and a human checks everything.
+
+## The approach
+
+A corporate card. Employees do not touch the company account — they request a charge.
+Under the limit it clears; over it, a manager looks. Either way there is a record of who
+asked and who approved.
+
+Attaché is that system for agents. An agent cannot act. It files a request with a cost and
+a blast radius attached. The runtime checks the limit, resolves conflicts, executes what
+passes, and records who committed what. Agent code has no `execute()`.
+
+## Why it is needed
+
+An AI can answer differently to the same situation twice. Nothing can certify that it will
+never be wrong. To put something uncertifiable in front of real machines or real money, you
+stop policing what the model thinks and put a fence around what it can actually do.
+
+That fence does not exist yet:
 
 | Layer | Answers |
 |---|---|
