@@ -32,6 +32,41 @@ Guardrails block bad calls. Attaché chooses among good ones.
 
 ---
 
+## Architecture
+
+```
+        configs/robot.yaml            configs/finance.yaml
+                 └──────────┬──────────────────┘
+                            │  assets, subsystems, resources, authority
+   ┌────────────────────────▼────────────────────────┐
+   │                     runtime                     │
+   │                                                 │
+   │   lock table        exclusive resources         │
+   │   arbiter           only when proposals contend │
+   │   authority         cost_usd, blast_radius      │
+   │   commit            the one path outward        │
+   │   ledger            append-only, why-chain      │
+   └───┬───────────────────────────────────┬─────────┘
+       │                                   │
+  asset agents                         adapters
+  rules → Nano → Super → propose       gpio · payments · kubectl
+       │                                   │
+   NeMo Relay                          the world
+   scopes, tracing, middleware         a motor stops
+                                       a refund posts
+       │
+   Tavily
+   what the fleet cannot know from inside itself
+```
+
+| Component | Responsibility |
+|---|---|
+| `runtime` | locks, arbitration, authority, commit, ledger |
+| `agent` | observe on rules, escalate to a model, propose — never execute |
+| `adapters` | the only code that touches the world; called by commit alone |
+| `configs` | what the domain is and what the limits are |
+| `ui` | the approval screen a human sees when a limit is crossed |
+
 ## Domain independence
 
 The runtime knows nothing about motors or refunds. Domains are config.
