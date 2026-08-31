@@ -2,131 +2,134 @@
 
 **Agents can propose. Only the runtime can commit.**
 
-A decision-authority runtime for fleets of long-lived agents bound to real assets —
-machines, accounts, nodes. Agents observe and propose. The runtime holds the locks,
-arbitrates conflicting proposals, checks each against an authority envelope denominated
-in money and blast radius, executes the ones that pass, and writes an append-only record
-of who committed what and why.
+*[English](README.en.md)*
 
-Agents have no `execute()`. There is exactly one code path to the real world, and the
-runtime owns it.
+실제 자산 — 기계, 계정, 노드 — 에 묶여 오래 살아가는 에이전트들을 위한 **결정 권한 런타임**.
+
+에이전트는 관찰하고 제안한다. 락을 잡고, 충돌하는 제안을 중재하고, 각 제안을 금액과 폭발 반경으로
+표현된 권한 봉투에 비추어 검사하고, 통과한 것만 실행하고, 누가 무엇을 왜 커밋했는지 남기는 것은
+런타임의 일이다.
+
+**에이전트에는 `execute()`가 없다.** 현실로 나가는 코드 경로는 정확히 하나이고, 그 경로는 런타임이 소유한다.
 
 ---
 
-## Why a runtime and not a framework
+## 왜 프레임워크가 아니라 런타임인가
 
-Neural policies are non-deterministic. You cannot certify their output the way you certify
-a PLC. The only way to deploy one against real money or real motors is to stop trying to
-constrain the policy and start constraining what may be committed.
+신경망 정책은 비결정적이다. PLC 래더 로직처럼 출력을 인증할 방법이 없다. 그런 정책을 실제 돈이나
+실제 모터에 붙여 배포하는 길은 하나뿐이다 — **정책을 제약하려 하지 말고, 무엇이 커밋될 수 있는지를 제약한다.**
 
-That layer is missing today:
+지금 그 층이 비어 있다.
 
-| Layer | Answers |
+| 층 | 답하는 질문 |
 |---|---|
-| MCP / A2A | how agents reach tools |
-| NVIDIA NeMo Relay | what happens during a single call — block, retry, route, trace |
-| **Attaché** | **who may propose, who wins a conflict, how much is autonomous, who committed** |
-| Policy pack | the numbers, per domain |
+| MCP / A2A | 에이전트가 도구에 어떻게 닿는가 |
+| NVIDIA NeMo Relay | 호출 하나가 실행되는 동안 무엇을 하는가 — 차단·재시도·라우팅·추적 |
+| **Attaché** | **누가 제안할 수 있는가, 충돌하면 누가 이기는가, 얼마까지 자동인가, 누가 커밋했는가** |
+| Policy pack | 도메인별 숫자 |
 
-Guardrails block bad calls. Attaché chooses among good ones.
+가드레일은 나쁜 호출을 막는다. Attaché는 **정당한 제안들 중 하나를 고른다.**
 
 ---
 
-## Architecture
+## 아키텍처
 
 ```
         configs/robot.yaml            configs/finance.yaml
                  └──────────┬──────────────────┘
-                            │  assets, subsystems, resources, authority
+                            │  자산 · 서브시스템 · 자원 · 권한
    ┌────────────────────────▼────────────────────────┐
    │                     runtime                     │
    │                                                 │
-   │   lock table        exclusive resources         │
-   │   arbiter           only when proposals contend │
-   │   authority         cost_usd, blast_radius      │
-   │   commit            the one path outward        │
-   │   ledger            append-only, why-chain      │
+   │   lock table        배타적 자원 점유표            │
+   │   arbiter           제안이 충돌할 때만 기동        │
+   │   authority         cost_usd · blast_radius     │
+   │   commit            바깥으로 나가는 단 하나의 경로  │
+   │   ledger            추가 전용 · 근거 체인          │
    └───┬───────────────────────────────────┬─────────┘
        │                                   │
   asset agents                         adapters
-  rules → Nano → Super → propose       gpio · payments · kubectl
+  규칙 → Nano → Super → 제안             gpio · payments · kubectl
        │                                   │
-   NeMo Relay                          the world
-   scopes, tracing, middleware         a motor stops
-                                       a refund posts
+   NeMo Relay                          현실
+   스코프 · 추적 · 미들웨어                모터가 멈춘다
+                                       환불이 나간다
        │
    Tavily
-   what the fleet cannot know from inside itself
+   클러스터 안에서는 알 수 없는 것
 ```
 
-| Component | Responsibility |
+| 컴포넌트 | 책임 |
 |---|---|
-| `runtime` | locks, arbitration, authority, commit, ledger |
-| `agent` | observe on rules, escalate to a model, propose — never execute |
-| `adapters` | the only code that touches the world; called by commit alone |
-| `configs` | what the domain is and what the limits are |
-| `ui` | the approval screen a human sees when a limit is crossed |
-
-## Domain independence
-
-The runtime knows nothing about motors or refunds. Domains are config.
-
-```
-attache run configs/robot.yaml      # a motor stops
-attache run configs/finance.yaml    # a refund is approved
-```
-
-Same binary. Same commit path. Same ledger.
+| `runtime` | 락, 중재, 권한, 커밋, 원장 |
+| `agent` | 규칙으로 관찰하고, 필요할 때 모델로 올리고, 제안한다. 실행하지 않는다 |
+| `adapters` | 현실을 건드리는 유일한 코드. 커밋만이 호출한다 |
+| `configs` | 도메인이 무엇이고 한도가 얼마인지 |
+| `ui` | 한도를 넘었을 때 사람이 보는 승인 화면 |
 
 ---
 
-## Path of one proposal
+## 도메인 독립
+
+런타임은 모터도 환불도 모른다. 도메인은 설정이다.
 
 ```
-asset agent ── rules, always on, no model call
-     │  anomaly → small model → diagnosis (+ external evidence via Tavily)
+attache run configs/robot.yaml      # 모터가 멈춘다
+attache run configs/finance.yaml    # 환불이 승인된다
+```
+
+같은 바이너리. 같은 커밋 경로. 같은 원장.
+
+---
+
+## 제안 하나가 지나가는 길
+
+```
+자산 에이전트 ── 규칙으로 상시 감시, 모델 호출 없음
+     │  이상 → 소형 모델 → 진단 (+ Tavily로 외부 근거)
      ▼
   propose(action, cost_usd, blast_radius, evidence)
-════════════ runtime boundary — agents have no execute() ════════════
+════════════ 런타임 경계 — 에이전트에는 execute() 가 없다 ════════════
      ▼
-  resource lock ──contended──► arbitrate (large model, only on conflict)
+  자원 락 확인 ──점유 중──► 중재 (대형 모델, 충돌할 때만)
      ▼
-  authority check ──over limit──► human approval
+  권한 검사 ──한도 초과──► 사람 승인
      ▼
-  COMMIT ──────────────────────► the world (GPIO / API / kubectl)
+  커밋 ──────────────────► 현실 (GPIO / API / kubectl)
      ▼
   ledger.jsonl  { committed_by: runtime, from, evidence, limit_checked }
 ```
 
 ---
 
-## Escalation ladder
+## 에스컬레이션 사다리
 
-Most subsystems never call a model. Cost is the design constraint, not an afterthought.
+대부분의 서브시스템은 모델을 부르지 않는다. 비용은 나중에 최적화할 것이 아니라 설계 제약이다.
 
-| Tier | Runs | Model |
+| 티어 | 언제 도는가 | 모델 |
 |---|---|---|
-| rules | always | none |
-| subsystem | on rule trip | Nemotron 3 Nano — 30B total / 3B active |
-| asset | on anomaly | Nemotron 3 Super — 100B / 10B active |
-| arbitration | on conflict only | Nemotron 3 Ultra — 550B / 55B active |
+| 규칙 | 항상 | 없음 |
+| 서브시스템 | 규칙이 트립할 때 | Nemotron 3 Nano — 30B 총 / 3B 활성 |
+| 자산 | 이상 판정 시 | Nemotron 3 Super — 100B / 10B 활성 |
+| 중재 | 제안이 충돌할 때만 | Nemotron 3 Ultra — 550B / 55B 활성 |
 
-Served on Nebius Token Factory.
+Nebius Token Factory에서 서빙.
 
 ---
 
-## Primitives
+## 원시
 
 `asset` · `subsystem` · `signal` · `resource` · `proposal` · `commit` · `escalation` · `authority`
 
-Audit is not a ninth primitive. It is an invariant: every commit carries the chain that produced it.
+감사 추적은 아홉 번째 원시가 아니라 **불변식**이다. 모든 커밋은 자신을 만든 체인을 함께 들고 다닌다.
 
 ---
 
-## Status
+## 상태
 
-Early. Built for the Nebius x NVIDIA Global AI Hackathon 2026, Physical AI track.
+초기. Nebius × NVIDIA Global AI Hackathon 2026, Physical AI 트랙.
+대회 관련 정리는 [HACKATHON.md](HACKATHON.md).
 
-## License
+## 라이선스
 
 Apache-2.0
