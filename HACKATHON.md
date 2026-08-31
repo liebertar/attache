@@ -42,8 +42,20 @@ Nebius × NVIDIA Global AI Hackathon 2026.
 
 ## 상금
 
-$20,000 / $10,000 / $6,000 · 트랙별 Jetson Orin Nano ×4 ·
-Best Use of Tavily $3,000 · 도시 우승 $500 ×20 · 피드백 $100 ×10
+Devpost 공식 페이지 기준.
+
+| 상 | 내용 | 인원 |
+|---|---|---|
+| 대상 | $20,000 | 1 |
+| 2위 | $10,000 | 1 |
+| 3위 | $6,000 | 1 |
+| Best Use of Tavily | $3,000 | 1 |
+| 트랙 우승 ×4 | NVIDIA Jetson Orin Nano | 각 1 |
+| 도시 우승 | $500 | 20 |
+| Most Valuable Feedback | $100 + NVIDIA swag pack | 10 |
+
+현금 총액 $50,000+. Bloom(서울 공동주최)과 Luma 페이지에는 상금 정보가 없고 Devpost로 위임돼 있다.
+**중복 수상 가능 여부는 규칙에 명시가 없다.**
 
 ## 확인 필요
 
