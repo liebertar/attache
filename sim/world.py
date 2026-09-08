@@ -18,6 +18,9 @@ DEPOT = (50.0, 8.0)
 ORIGIN_LAT, ORIGIN_LON = 37.5040, 127.0720
 SPAN_LAT, SPAN_LON = 0.0130, 0.0220
 CRUISE_ALT_M = 90.0
+CLIMB_RATE_M = 4.0      # 틱당 상승
+DESCENT_RATE_M = 3.0    # 틱당 하강
+APPROACH_RADIUS = 12.0  # 이 안에 들어오면 내려가기 시작합니다
 
 
 def to_latlon(x: float, y: float) -> tuple[float, float]:
@@ -54,6 +57,7 @@ class Vehicle:
     cargo: bool = False
     vibration: float = 0.0
     autonomy_health: float = 1.0
+    alt: float = 0.0
     state: str = "cruising"
     assigned_pad: str | None = None
     charge_mode: str = "normal"
@@ -64,7 +68,7 @@ class Vehicle:
         latitude, longitude = to_latlon(self.x, self.y)
         data["lat"] = round(latitude, 6)
         data["lon"] = round(longitude, 6)
-        data["alt_m"] = 0.0 if self.state in ("landed", "charging", "grounded") else CRUISE_ALT_M
+        data["alt_m"] = round(self.alt, 1)
         data["battery"] = round(self.battery, 1)
         data["vibration"] = round(self.vibration, 2)
         data["autonomy_health"] = round(self.autonomy_health, 2)
@@ -188,8 +192,10 @@ class World:
         if vehicle.state == "charging":
             gain = 5.0 if vehicle.charge_mode == "fast" else 2.0
             vehicle.battery = min(100.0, vehicle.battery + gain)
+            vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
             return
         if vehicle.state in ("stranded", "diverted", "grounded"):
+            vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
             return
 
         vehicle.battery -= 0.3
@@ -208,7 +214,13 @@ class World:
 
         target = PADS.get(vehicle.assigned_pad) if vehicle.assigned_pad else DEPOT
         self._move_toward(vehicle, target)
-        if vehicle.state == "approaching" and vehicle.assigned_pad and self._at(vehicle, target):
+        self._hold_altitude(vehicle, target)
+        if (
+            vehicle.state == "approaching"
+            and vehicle.assigned_pad
+            and self._at(vehicle, target)
+            and vehicle.alt <= 1.0
+        ):
             vehicle.state = "landed"
 
     def _move_toward(self, vehicle: Vehicle, target: tuple[float, float]) -> None:
@@ -219,6 +231,22 @@ class World:
         step = min(2.2, distance)
         vehicle.x += dx / distance * step
         vehicle.y += dy / distance * step
+
+    @staticmethod
+    def _hold_altitude(vehicle: Vehicle, target: tuple[float, float]) -> None:
+        """뜨고 내리는 구간을 실제로 그립니다. 3D 로 보면 이게 전부입니다."""
+        if vehicle.state == "landed":
+            vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
+            return
+        distance = (
+            (target[0] - vehicle.x) ** 2 + (target[1] - vehicle.y) ** 2
+        ) ** 0.5
+        if vehicle.state == "approaching" and distance < APPROACH_RADIUS:
+            glide = CRUISE_ALT_M * (distance / APPROACH_RADIUS)
+            vehicle.alt = max(0.0, min(vehicle.alt, glide), vehicle.alt - DESCENT_RATE_M)
+            vehicle.alt = min(vehicle.alt, glide)
+            return
+        vehicle.alt = min(CRUISE_ALT_M, vehicle.alt + CLIMB_RATE_M)
 
     @staticmethod
     def _at(vehicle: Vehicle, target: tuple[float, float]) -> bool:
