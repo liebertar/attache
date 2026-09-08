@@ -55,7 +55,7 @@ class GuardedAgent:
             return  # 방금 거절당한 걸 계속 들이밀지 않습니다
         self.cooldown[proposal.action] = time.time() + self.repeat_s
         decision = post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
-        if decision and decision.get("verdict") in ("denied", "human"):
+        if decision and decision.get("verdict") in ("denied", "human", "queued"):
             self.cooldown[proposal.action] = time.time() + self.denial_s
         if decision and decision.get("verdict") == "denied":
             if decision.get("policy_hit"):

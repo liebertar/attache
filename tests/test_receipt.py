@@ -86,3 +86,58 @@ class LedgerTruthTest(unittest.TestCase):
         self.assertTrue(closed[0]["decision"]["committed"],
                         "결과는 done 인데 실행 안 했다고 적혀 있습니다")
         self.assertIsNotNone(closed[0]["decision"]["ledger_id"])
+
+
+class AirspaceTest(unittest.TestCase):
+    """실제 FAA 격자를 읽고 쓰는지."""
+
+    def test_real_faa_cells_are_loaded(self):
+        from sim.world import AIRSPACE
+
+        volumes = AIRSPACE.all()
+        self.assertGreater(len(volumes), 50, "FAA 격자를 못 읽었습니다")
+        self.assertTrue(any(v.rule == "forbidden" for v in volumes))
+        self.assertTrue(any(v.rule == "ceiling" for v in volumes))
+        self.assertTrue(all(v.source.startswith("FAA") for v in volumes))
+
+    def test_a_zero_foot_cell_becomes_a_ban_not_a_ceiling(self):
+        """천장 0ft 는 '낮게 날아라'가 아니라 '허가 없이는 못 난다'입니다."""
+        from sim.world import AIRSPACE
+
+        zeros = [v for v in AIRSPACE.all() if v.tags.get("ceiling_ft") == 0]
+        self.assertTrue(zeros)
+        for volume in zeros:
+            self.assertEqual(volume.rule, "forbidden")
+            self.assertIsNone(volume.ceiling_m)
+
+    def test_the_runtime_refuses_a_route_through_restricted_airspace(self):
+        import tempfile
+
+        from attache.core.geo import Volume
+        from attache.core.models import Verdict
+        from attache.runtime.service import Runtime
+        from sim.world import Simulation as Sim
+
+        simulation = Sim()
+        snapshot = simulation.worlds["guarded"].snapshot(0)
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
+            runtime = Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)
+        for raw in snapshot["volumes"]:
+            runtime.airspace.add(Volume.from_dict(raw))
+
+        forbidden = next(v for v in runtime.airspace.all() if v.rule == "forbidden")
+        centre = (
+            sum(p[0] for p in forbidden.polygon) / len(forbidden.polygon),
+            sum(p[1] for p in forbidden.polygon) / len(forbidden.polygon),
+        )
+        runtime.pad_coords = {"pad:X": centre}
+        runtime.telemetry = {"taxi-a": {"lat": centre[0] + 0.02, "lon": centre[1] + 0.02}}
+
+        decision = runtime.file({
+            "asset_id": "taxi-a", "action": "reserve_pad", "resource": "pad:X",
+            "params": {"pad": "pad:X"}, "cost_usd": 28.0,
+            "blast_radius": "schedule", "rationale": "배터리 낮음",
+        })
+        self.assertIs(decision.verdict, Verdict.DENIED)
+        self.assertEqual(decision.policy_hit, "airspace")
+        self.assertIn("지납니다", decision.reason)

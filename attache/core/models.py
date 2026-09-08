@@ -10,8 +10,9 @@ BLAST_RANK = {"none": 0, "schedule": 1, "cargo": 2, "passenger": 3, "public": 4}
 
 
 class Verdict(str, Enum):
-    AUTO = "auto"
-    HUMAN = "human"
+    AUTO = "auto"        # 한도 안. 실행됩니다
+    QUEUED = "queued"    # 자원 배정을 기다리는 중. 아직 아무 일도 안 일어났습니다
+    HUMAN = "human"      # 사람이 봐야 합니다
     DENIED = "denied"
 
 

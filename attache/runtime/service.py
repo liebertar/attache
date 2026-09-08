@@ -6,6 +6,7 @@ import time
 
 from attache.adapters import build as build_adapter
 from attache.core import config as config_module
+from attache.core.geo import Airspace, Volume
 from attache.core.http import JsonServer, get_json
 from attache.core.models import Decision, Proposal, Verdict
 from attache.llm.client import TieredLlm
@@ -32,9 +33,11 @@ class Runtime:
         self.committer = Committer(self.adapter, self.locks, self.ledger, self.authority)
 
         self.sim_url = sim_url
+        self.pad_coords: dict[str, tuple[float, float]] = {}
         self.window_s = window_s
         self.tick = 0
         self.telemetry: dict = {}
+        self.airspace = Airspace()
         self._contended: dict[str, list[tuple[Proposal, Decision, float]]] = {}
         self._awaiting_human: dict[str, Proposal] = {}
         self._decisions: dict[str, Decision] = {}
@@ -54,6 +57,14 @@ class Runtime:
             # 같은 신청이 연달아 오면 한 번만 나갑니다. 아니면 중복 청구가 됩니다.
             decision = Decision(proposal.id, Verdict.DENIED, "직전에 같은 신청이 실행됐습니다")
             self._decisions[proposal.id] = decision
+            return decision
+
+        blocked = self.plan_route(proposal)
+        if blocked:
+            decision = Decision(proposal.id, Verdict.DENIED, blocked, policy_hit="airspace",
+                                forbids=proposal.resource)
+            self._decisions[proposal.id] = decision
+            self.ledger.close_entry(self.ledger.open_entry(proposal, decision), "denied")
             return decision
 
         decision = self.authority.evaluate(proposal, asset, self.tick)
@@ -80,17 +91,56 @@ class Runtime:
             return decision
         return self._queue_or_commit(proposal, decision)
 
+    def plan_route(self, proposal: Proposal) -> str | None:
+        """경로가 지나는 공역을 봅니다. 못 가면 이유를, 갈 수 있으면 합법 고도를.
+
+        직결 배선에는 이 자리가 없습니다. 기체마다 각자 공역 데이터를 받아 각자 계산해야
+        하고, 그러면 각자 다른 답을 냅니다. 여기서는 한 군데서 한 번 계산합니다.
+        """
+        if proposal.action != "reserve_pad" or not self.airspace.all():
+            return None
+        here = self.telemetry.get(proposal.asset_id) or {}
+        target = self.pad_coords.get(proposal.resource)
+        if target is None or here.get("lat") is None:
+            return None
+
+        ceilings = []
+        for step in range(21):
+            fraction = step / 20.0
+            lat = here["lat"] + (target[0] - here["lat"]) * fraction
+            lon = here["lon"] + (target[1] - here["lon"]) * fraction
+            for volume in self.airspace.all():
+                if volume.rule == "forbidden" and volume.covers(lat, lon):
+                    return f"경로가 {volume.name} 을 지납니다 ({volume.reason})"
+            ceiling = self.airspace.ceiling_at(lat, lon)
+            if ceiling is not None:
+                ceilings.append(ceiling)
+
+        if ceilings:
+            legal = round(min(ceilings), 1)
+            proposal.params = {**proposal.params, "alt_m": legal}
+            proposal.rationale += f" · 경로 최저 천장 {legal:.0f}m"
+        return None
+
     def _queue_or_commit(self, proposal: Proposal, decision: Decision) -> Decision:
         if not proposal.resource:
             committed = self.committer.commit(proposal, decision)
             if committed.committed:
                 self._recent_commits[(proposal.asset_id, proposal.action)] = self.tick
             return committed
+
         with self._guard:
-            self._contended.setdefault(proposal.resource, []).append(
-                (proposal, decision, time.time())
+            waiting = self._contended.setdefault(proposal.resource, [])
+            standing = next(
+                (d for p, d, _ in waiting if p.asset_id == proposal.asset_id), None
             )
-        decision.reason = f"{proposal.resource} 배정 대기"
+            if standing is not None:
+                # 이미 줄을 서 있습니다. 같은 기체가 같은 자원으로 두 번 서지 않습니다.
+                return standing
+            waiting.append((proposal, decision, time.time()))
+
+        decision.verdict = Verdict.QUEUED
+        decision.reason = f"{proposal.resource} 배정을 기다리는 중"
         return decision
 
     def approve(self, proposal_id: str, actor: str, allow: bool) -> Decision | None:
@@ -135,6 +185,8 @@ class Runtime:
             for proposal, decision, _ in waiting:
                 if proposal.id == winner.id:
                     decision.arbiter = how if len(candidates) > 1 else None
+                    decision.verdict = Verdict.AUTO
+                    decision.reason = f"{resource} 배정됨"
                     self.committer.commit(proposal, decision)
                     if decision.committed:
                         self._recent_commits[(proposal.asset_id, proposal.action)] = self.tick
@@ -151,6 +203,15 @@ class Runtime:
         if state:
             self.tick = state.get("tick", self.tick)
             self.telemetry = state.get("assets", {})
+
+        if not self.airspace.all():
+            world = get_json(f"{self.sim_url}/state?world=guarded") or {}
+            for raw in world.get("volumes", []):
+                self.airspace.add(Volume.from_dict(raw))
+            self.pad_coords = {
+                name: (at["lat"], at["lon"])
+                for name, at in (world.get("pad_coords") or {}).items()
+            }
 
         bulletins = get_json(f"{self.sim_url}/bulletins?world=guarded") or {}
         known = {p.id for p in self.policies.all()}

@@ -57,8 +57,8 @@ class GuardedSide:
             if snapshot["tick"] < self.cooldown.get((asset_id, proposal.action), 0):
                 continue
             decision = self.runtime.file(proposal.to_dict())
-            if decision.verdict in (Verdict.DENIED, Verdict.HUMAN):
-                self.cooldown[(asset_id, proposal.action)] = snapshot["tick"] + 30
+            if decision.verdict in (Verdict.DENIED, Verdict.HUMAN, Verdict.QUEUED):
+                self.cooldown[(asset_id, proposal.action)] = snapshot["tick"] + 12
             if decision.verdict is Verdict.DENIED:
                 if decision.policy_hit:
                     # 자원이 막힌 걸 행동이 막힌 걸로 배우면 영영 신청을 못 합니다
@@ -142,6 +142,14 @@ def run(tmp_ledger: str):
     runtime.adapter = adapter
     runtime.committer.adapter = adapter
 
+    from attache.core.geo import Volume
+
+    for raw in guarded_world.snapshot(0)["volumes"]:
+        runtime.airspace.add(Volume.from_dict(raw))
+    runtime.pad_coords = {
+        name: (at["lat"], at["lon"])
+        for name, at in guarded_world.snapshot(0)["pad_coords"].items()
+    }
     guarded = GuardedSide(runtime)
     direct = DirectSide(simulation.worlds["direct"])
 

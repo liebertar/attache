@@ -6,30 +6,42 @@
 <title>Attaché — 기단 지도</title>
 <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.css" rel="stylesheet">
 <style>
-  :root{--panel:rgba(14,20,25,.9);--line:#243038;--text:#e6eef2;--dim:#8fa0ab;
-        --good:#18b3a6;--bad:#e2703a;--warn:#e8b03a}
+  :root{--panel:rgba(12,17,21,.92);--line:#2a3740;--text:#e9f0f4;--dim:#93a4af;
+        --guard:#3d8bff;--direct:#ff7a3d;--zone:#ff3b30;--warn:#e8b03a;--ok:#18b3a6}
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:#0b0f12;color:var(--text);
-       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif}
+  html,body{margin:0;height:100%;background:#0a0e11;color:var(--text);
+       font:13px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif}
   #map{position:absolute;inset:0}
   .card{position:absolute;background:var(--panel);border:1px solid var(--line);
-        border-radius:10px;padding:12px 14px;backdrop-filter:blur(8px)}
-  #head{top:14px;left:14px;max-width:330px}
-  #head h1{margin:0 0 4px;font-size:15px}
-  #head p{margin:0;color:var(--dim);font-size:12px}
-  #score{top:14px;right:14px;min-width:280px}
-  #score table{width:100%;border-collapse:collapse;font-size:12px}
-  #score th{text-align:right;font-weight:600;color:var(--dim);padding:0 0 6px}
-  #score th:first-child{text-align:left}
-  #score td{padding:5px 0;border-top:1px solid var(--line);
-            text-align:right;font-variant-numeric:tabular-nums}
-  #score td:first-child{text-align:left;color:var(--dim)}
-  .zero{color:var(--good);font-weight:600} .hit{color:var(--bad);font-weight:600}
-  #legend{bottom:14px;left:14px;font-size:12px;color:var(--dim)}
-  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
-  #banner{bottom:14px;right:14px;max-width:340px;border-color:var(--warn);display:none;
-          font-size:12px}
-  a{color:var(--good)}
+        border-radius:10px;padding:11px 13px;backdrop-filter:blur(10px)}
+  #head{top:12px;left:12px;width:300px}
+  #head h1{margin:0 0 3px;font-size:14px;letter-spacing:.2px}
+  #head p{margin:0;color:var(--dim);font-size:11.5px}
+  #score{top:12px;right:12px;width:290px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{text-align:right;color:var(--dim);font-weight:600;padding:0 0 5px;font-size:10.5px}
+  th:first-child{text-align:left}
+  td{padding:4px 0;border-top:1px solid var(--line);text-align:right;
+     font-variant-numeric:tabular-nums;font-weight:600}
+  td:first-child{text-align:left;color:var(--dim);font-weight:400}
+  .g{color:var(--guard)} .d{color:var(--direct)}
+  .zero{color:var(--ok)} .hit{color:var(--zone)}
+  #acts{right:12px;top:250px;width:290px;max-height:38vh;overflow:auto}
+  #acts h2,#head h2{margin:0 0 7px;font-size:10.5px;color:var(--dim);letter-spacing:.7px}
+  .ev{padding:5px 0;border-top:1px solid var(--line);font-size:11.5px;line-height:1.45}
+  .ev:first-child{border-top:0}
+  .ev b{font-weight:600}
+  .tag{display:inline-block;padding:0 5px;border-radius:4px;font-size:10px;
+       margin-right:5px;font-weight:600}
+  .t-auto{background:rgba(24,179,166,.18);color:var(--ok)}
+  .t-deny{background:rgba(255,59,48,.18);color:var(--zone)}
+  .t-human{background:rgba(232,176,58,.18);color:var(--warn)}
+  #legend{bottom:12px;left:12px;font-size:11.5px;color:var(--dim);line-height:1.9}
+  .k{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;
+     vertical-align:-1px}
+  #banner{bottom:12px;right:12px;width:330px;border-color:var(--zone);display:none;
+          font-size:11.5px}
+  a{color:var(--ok);text-decoration:none}
 </style>
 </head>
 <body>
@@ -37,22 +49,30 @@
 
 <div class="card" id="head">
   <h1>같은 기단, 다른 배선</h1>
-  <p>같은 씨앗 · 같은 에이전트 코드. 파란 쪽은 런타임에 신청서를 내고,
-     주황 쪽은 조종장치를 직접 만집니다. tick <b id="tick">0</b></p>
-  <p style="margin-top:6px"><a href="index.html">승인 화면으로</a></p>
+  <p>같은 씨앗 · 같은 감지 코드 · 같은 신청서 작성기.
+     <span class="g">파랑</span>은 런타임에 신청하고
+     <span class="d">주황</span>은 조종장치를 직접 만집니다.</p>
+  <p style="margin-top:5px">tick <b id="tick">0</b> ·
+     <a href="index.html">승인 화면 →</a></p>
 </div>
 
 <div class="card" id="score">
   <table>
-    <thead><tr><th>&nbsp;</th><th>런타임</th><th>직접</th></tr></thead>
+    <thead><tr><th>&nbsp;</th><th class="g">런타임</th><th class="d">직접</th></tr></thead>
     <tbody id="rows"></tbody>
   </table>
 </div>
 
+<div class="card" id="acts">
+  <h2>런타임이 한 일</h2>
+  <div id="feed"><div class="ev" style="color:var(--dim)">아직 없음</div></div>
+</div>
+
 <div class="card" id="legend">
-  <span class="dot" style="background:#4da3ff"></span>런타임을 거치는 기체
-  &nbsp;&nbsp;<span class="dot" style="background:#e2703a"></span>직접 만지는 기체
-  &nbsp;&nbsp;<span class="dot" style="background:#e8b03a"></span>착륙 패드
+  <div><span class="k" style="background:var(--guard)"></span>런타임을 거치는 기체</div>
+  <div><span class="k" style="background:var(--direct)"></span>직접 만지는 기체</div>
+  <div><span class="k" style="background:var(--warn)"></span>착륙 패드</div>
+  <div><span class="k" style="background:var(--zone);opacity:.55"></span>비행금지 구역</div>
 </div>
 
 <div class="card" id="banner"></div>
@@ -60,142 +80,223 @@
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script>
 const SIM = `http://${location.hostname}:8100`;
+const RT  = `http://${location.hostname}:8000`;
+const POLL_MS = 500;
+
 const ROWS = [
-  ["pad_conflicts","착륙 패드 충돌"],
-  ["post_recall_violations","리콜 이후 금지 행동"],
+  ["pad_conflicts",              "착륙 패드 충돌"],
+  ["zone_incursions",            "비행금지 구역 침범"],
+  ["zone_dwell_ticks",           "구역 안에 머문 시간"],
+  ["post_recall_violations",     "리콜 이후 금지 행동"],
   ["unapproved_passenger_actions","승객 영향 무단 실행"],
-  ["unrecorded_actions","기록 없는 실행"],
+  ["unrecorded_actions",         "기록 없는 실행"],
 ];
 
 const map = new maplibregl.Map({
   container: "map",
-  // 키가 필요 없는 무료 벡터 타일. 인터넷이 없으면 index.html 의 2D 화면을 쓰세요.
   style: "https://tiles.openfreemap.org/styles/positron",
-  center: [127.0830, 37.5105],
-  zoom: 15.1, pitch: 62, bearing: 24, attributionControl: {compact: true},
+  center: [127.0830, 37.5105], zoom: 15.1, pitch: 62, bearing: 24,
+  attributionControl: {compact: true},
 });
 
 const empty = () => ({type:"FeatureCollection", features:[]});
+// 폴링은 0.5초인데 화면은 60fps 입니다. 그 사이를 채워야 안 끊겨 보입니다.
+const motion = new Map();
+
+function droneIcon(colour){
+  const size = 40, c = document.createElement("canvas");
+  c.width = c.height = size;
+  const g = c.getContext("2d");
+  g.translate(size/2, size/2);
+  g.fillStyle = colour;
+  g.strokeStyle = "rgba(10,14,17,.85)";
+  g.lineWidth = 2;
+  // 네 개의 로터 팔
+  for (const [dx,dy] of [[-1,-1],[1,-1],[1,1],[-1,1]]){
+    g.beginPath(); g.arc(dx*10, dy*10, 5, 0, 7); g.fill(); g.stroke();
+  }
+  g.beginPath(); g.moveTo(0,-13); g.lineTo(8,9); g.lineTo(0,4); g.lineTo(-8,9);
+  g.closePath(); g.fill(); g.stroke();
+  return g.getImageData(0,0,size,size);
+}
+
+function ring(lat, lon, metres, points = 72){
+  const coords = [];
+  for (let i = 0; i <= points; i++){
+    const angle = (i / points) * 2 * Math.PI;
+    const dLat = (metres * Math.cos(angle)) / 111320;
+    const dLon = (metres * Math.sin(angle)) / (111320 * Math.cos(lat * Math.PI/180));
+    coords.push([lon + dLon, lat + dLat]);
+  }
+  return {type:"Feature", geometry:{type:"Polygon", coordinates:[coords]}, properties:{}};
+}
 
 map.on("load", () => {
-  addBuildings();
-  for (const [id, colour] of [["guarded","#4da3ff"], ["direct","#e2703a"]]) {
-    map.addSource(id, {type:"geojson", data: empty()});
+  if (map.getSource("openmaptiles")){
+    const firstLabel = map.getStyle().layers.find(l => l.type === "symbol")?.id;
     map.addLayer({
-      id: `${id}-halo`, type:"circle", source:id,
-      filter:["==",["get","landed"], false],
-      paint:{"circle-radius":16,"circle-color":colour,"circle-opacity":0.14},
-    });
-    map.addLayer({
-      id: `${id}-dot`, type:"circle", source:id,
+      id:"apartments", type:"fill-extrusion", source:"openmaptiles",
+      "source-layer":"building", minzoom:13,
       paint:{
-        "circle-radius":["case",["get","dead"],5,7],
-        "circle-color":["case",["get","dead"],"#5a3232",colour],
-        "circle-stroke-width":2,
-        "circle-stroke-color":["case",["get","conflict"],"#ff4d4d","#0b0f12"],
+        "fill-extrusion-color":["interpolate",["linear"],
+          ["coalesce",["get","render_height"],10],
+          0,"#e3eaee", 20,"#cfdae1", 60,"#b4c4ce", 120,"#9aadba"],
+        "fill-extrusion-height":["coalesce",["get","render_height"],10],
+        "fill-extrusion-base":["coalesce",["get","render_min_height"],0],
+        "fill-extrusion-opacity":.92,
       },
-    });
-    map.addLayer({
-      id: `${id}-label`, type:"symbol", source:id,
-      layout:{
-        "text-field":["concat",["get","id"],"  ",["get","battery"],"%"],
-        "text-size":11, "text-offset":[0,1.5], "text-anchor":"top",
-        "text-font":["Noto Sans Regular"],
-      },
-      paint:{"text-color":"#e6eef2","text-halo-color":"#0b0f12","text-halo-width":1.4},
-    });
+    }, firstLabel);
   }
 
-  map.addSource("pads", {type:"geojson", data: empty()});
-  map.addLayer({
-    id:"pads-ring", type:"circle", source:"pads",
-    paint:{"circle-radius":22,"circle-color":"#e8b03a","circle-opacity":0.12,
-           "circle-stroke-width":1.5,"circle-stroke-color":"#e8b03a"},
-  });
-  map.addLayer({
-    id:"pads-label", type:"symbol", source:"pads",
-    layout:{"text-field":["get","name"],"text-size":11,"text-font":["Noto Sans Regular"]},
-    paint:{"text-color":"#e8b03a","text-halo-color":"#0b0f12","text-halo-width":1.2},
-  });
+  // 비행금지 구역 — 런타임이 무엇을 강제하고 있는지 눈에 보여야 합니다
+  map.addSource("zone", {type:"geojson", data: empty()});
+  map.addLayer({id:"zone-fill", type:"fill", source:"zone",
+    paint:{"fill-color":"#ff3b30","fill-opacity":.16}});
+  map.addLayer({id:"zone-line", type:"line", source:"zone",
+    paint:{"line-color":"#ff3b30","line-width":2,"line-dasharray":[3,2]}});
 
-  refresh(); setInterval(refresh, 500);
+  map.addSource("pads", {type:"geojson", data: empty()});
+  map.addLayer({id:"pads-ring", type:"circle", source:"pads",
+    paint:{"circle-radius":20,
+      "circle-color":["case",["has","holder"],"#18b3a6","#e8b03a"],
+      "circle-opacity":.14,"circle-stroke-width":1.5,
+      "circle-stroke-color":["case",["has","holder"],"#18b3a6","#e8b03a"]}});
+  map.addLayer({id:"pads-label", type:"symbol", source:"pads",
+    layout:{"text-field":["coalesce",["get","label"],["get","pad"]],
+            "text-size":11,"text-font":["Noto Sans Regular"],"text-offset":[0,2.2]},
+    paint:{"text-color":"#e8b03a","text-halo-color":"#0a0e11","text-halo-width":1.3}});
+
+  for (const [id, colour] of [["guarded","#3d8bff"], ["direct","#ff7a3d"]]){
+    map.addImage(`drone-${id}`, droneIcon(colour), {pixelRatio:2});
+    map.addSource(`${id}-trail`, {type:"geojson", data: empty()});
+    map.addLayer({id:`${id}-trail-line`, type:"line", source:`${id}-trail`,
+      paint:{"line-color":colour,"line-width":2,"line-opacity":.45}});
+    map.addSource(id, {type:"geojson", data: empty()});
+    map.addLayer({id:`${id}-icon`, type:"symbol", source:id,
+      layout:{"icon-image":`drone-${id}`,"icon-size":.55,
+              "icon-rotate":["get","heading"],"icon-rotation-alignment":"map",
+              "icon-allow-overlap":true,
+              "text-field":["concat",["get","id"],"  ",["get","battery"],"%"],
+              "text-size":10.5,"text-offset":[0,1.6],"text-anchor":"top",
+              "text-font":["Noto Sans Regular"],"text-allow-overlap":true},
+      paint:{"text-color":colour,"text-halo-color":"#0a0e11","text-halo-width":1.4}});
+  }
+
+  poll(); setInterval(poll, POLL_MS);
+  requestAnimationFrame(draw);
 });
 
-function addBuildings(){
-  // 아파트 단지를 세웁니다. 기체 고도가 눈에 들어오려면 지형에 높이가 있어야 합니다.
-  if (!map.getSource("openmaptiles")) return;
-  const firstLabel = map.getStyle().layers.find(l => l.type === "symbol")?.id;
-  map.addLayer({
-    id:"apartments", type:"fill-extrusion", source:"openmaptiles",
-    "source-layer":"building", minzoom: 13,
-    paint:{
-      "fill-extrusion-color":[
-        "interpolate",["linear"],["coalesce",["get","render_height"],10],
-        0,"#dfe6ea", 20,"#cdd8de", 60,"#b6c5ce", 120,"#9fb1bd",
-      ],
-      "fill-extrusion-height":["coalesce",["get","render_height"],10],
-      "fill-extrusion-base":["coalesce",["get","render_min_height"],0],
-      "fill-extrusion-opacity":0.92,
-    },
-  }, firstLabel);
+let latest = null, trails = {guarded:{}, direct:{}};
+
+function draw(){
+  requestAnimationFrame(draw);
+  if (!latest) return;
+  const now = performance.now();
+  for (const world of ["guarded","direct"]){
+    const features = [];
+    for (const v of Object.values(latest.worlds[world].assets)){
+      const key = `${world}:${v.id}`;
+      const m = motion.get(key);
+      if (!m) continue;
+      const t = Math.min(1, (now - m.at) / POLL_MS);
+      features.push({
+        type:"Feature",
+        geometry:{type:"Point", coordinates:[
+          m.fromLon + (m.toLon - m.fromLon) * t,
+          m.fromLat + (m.toLat - m.fromLat) * t,
+        ]},
+        properties:{id:v.id, battery:Math.round(v.battery), heading:v.heading ?? 0},
+      });
+    }
+    map.getSource(world)?.setData({type:"FeatureCollection", features});
+  }
 }
 
-function toFeatures(snapshot){
-  const crowded = {};
-  Object.values(snapshot.assets).forEach(v => {
-    if (["landed","charging"].includes(v.state) && v.assigned_pad)
-      crowded[v.assigned_pad] = (crowded[v.assigned_pad] || 0) + 1;
-  });
-  return {
-    type:"FeatureCollection",
-    features: Object.values(snapshot.assets).map(v => ({
-      type:"Feature",
-      geometry:{type:"Point", coordinates:[v.lon, v.lat]},
-      properties:{
-        id:v.id, battery:Math.round(v.battery),
-        landed:["landed","charging","grounded"].includes(v.state),
-        dead:v.state === "grounded",
-        conflict:(crowded[v.assigned_pad] || 0) > 1,
-      },
-    })),
-  };
-}
-
-async function refresh(){
-  let data;
-  try { data = await fetch(`${SIM}/compare`).then(r => r.json()); }
-  catch { return; }
-
+async function poll(){
+  let data, runtime = null;
+  try { data = await fetch(`${SIM}/compare`).then(r => r.json()); } catch { return; }
+  try { runtime = await fetch(`${RT}/state`).then(r => r.json()); } catch {}
+  latest = data;
   document.getElementById("tick").textContent = data.tick;
-  for (const name of ["guarded","direct"])
-    map.getSource(name)?.setData(toFeatures(data.worlds[name]));
 
+  const now = performance.now();
+  for (const world of ["guarded","direct"]){
+    const trailFeatures = [];
+    for (const v of Object.values(data.worlds[world].assets)){
+      const key = `${world}:${v.id}`;
+      const previous = motion.get(key);
+      motion.set(key, {
+        fromLat: previous ? previous.toLat : v.lat,
+        fromLon: previous ? previous.toLon : v.lon,
+        toLat: v.lat, toLon: v.lon, at: now,
+      });
+      const line = (trails[world][v.id] ||= []);
+      line.push([v.lon, v.lat]);
+      if (line.length > 90) line.shift();
+      if (line.length > 1)
+        trailFeatures.push({type:"Feature", geometry:{type:"LineString", coordinates:[...line]},
+                            properties:{}});
+    }
+    map.getSource(`${world}-trail`)?.setData(
+      {type:"FeatureCollection", features:trailFeatures});
+  }
+
+  const zone = data.worlds.guarded.zone;
+  if (zone && zone.active)
+    map.getSource("zone")?.setData(
+      {type:"FeatureCollection", features:[ring(zone.lat, zone.lon, zone.radius_m)]});
+
+  const holders = {};
+  for (const [resource, hold] of Object.entries(runtime?.locks || {}))
+    holders[resource] = hold.asset_id;
   const pads = data.worlds.guarded.pad_coords || {};
-  map.getSource("pads")?.setData({
-    type:"FeatureCollection",
+  map.getSource("pads")?.setData({type:"FeatureCollection",
     features: Object.entries(pads).map(([name, at]) => ({
-      type:"Feature",
-      geometry:{type:"Point", coordinates:[at.lon, at.lat]},
-      properties:{name: name.replace("pad:","")},
-    })),
-  });
+      type:"Feature", geometry:{type:"Point", coordinates:[at.lon, at.lat]},
+      properties: holders[name]
+        ? {pad:name.replace("pad:",""), holder:holders[name],
+           label:`${name.replace("pad:","")} · ${holders[name]}`}
+        : {pad:name.replace("pad:",""), label:name.replace("pad:","")},
+    }))});
 
   const g = data.worlds.guarded.scoreboard, d = data.worlds.direct.scoreboard;
   document.getElementById("rows").innerHTML = ROWS.map(([key,label]) =>
     `<tr><td>${label}</td>
          <td class="${g[key]?'hit':'zero'}">${g[key]}</td>
-         <td class="${d[key]?'hit':'zero'}">${d[key]}</td></tr>`
-  ).join("") +
-  `<tr><td>기단 지출 (한도 $${data.worlds.guarded.fleet_limit})</td>
-       <td class="${g.over_fleet_limit_usd?'hit':'zero'}">$${g.spend_usd.toFixed(0)}</td>
-       <td class="${d.over_fleet_limit_usd?'hit':'zero'}">$${d.spend_usd.toFixed(0)}</td></tr>`;
+         <td class="${d[key]?'hit':'zero'}">${d[key]}</td></tr>`).join("") +
+    `<tr><td>기단 지출 (한도 $${data.worlds.guarded.fleet_limit})</td>
+         <td class="${g.over_fleet_limit_usd?'hit':'zero'}">$${g.spend_usd.toFixed(0)}</td>
+         <td class="${d.over_fleet_limit_usd?'hit':'zero'}">$${d.spend_usd.toFixed(0)}</td></tr>`;
+
+  if (runtime) renderFeed(runtime);
 
   if (data.recall_tick != null){
     const banner = document.getElementById("banner");
     banner.style.display = "block";
-    banner.textContent = `리콜 공지 (tick ${data.recall_tick}) — robotaxi-v3 급속충전 금지. `
-      + `파란 쪽은 공지가 들어온 순간부터 거부되고, 주황 쪽은 기체마다 따로 확인해서 따릅니다.`;
+    banner.innerHTML = `<b>리콜 공지</b> (tick ${data.recall_tick}) — robotaxi-v3 급속충전 금지.<br>
+      파란 쪽은 공지가 들어온 순간부터 거부됩니다.
+      주황 쪽은 기체마다 따로 확인할 때까지 계속합니다.`;
   }
+}
+
+const TAG = {auto:["t-auto","실행"], denied:["t-deny","거부"], human:["t-human","사람에게"]};
+
+function renderFeed(runtime){
+  const seen = new Set(), lines = [];
+  for (const entry of runtime.ledger){
+    if (entry.outcome === "pending" || seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    const p = entry.proposal, d = entry.decision;
+    const [cls, word] = TAG[d.verdict] || ["t-auto", d.verdict];
+    const who = d.approved_by ? ` · ${d.approved_by}` : "";
+    const how = d.arbiter ? ` · 중재 ${d.arbiter}` : "";
+    lines.push(`<div class="ev"><span class="tag ${cls}">${word}</span>
+      <b>${p.asset_id}</b> ${p.action}${p.cost_usd ? ` $${p.cost_usd.toFixed(0)}` : ""}
+      <div style="color:var(--dim)">${d.reason}${who}${how}</div></div>`);
+    if (lines.length >= 12) break;
+  }
+  document.getElementById("feed").innerHTML =
+    lines.join("") || '<div class="ev" style="color:var(--dim)">아직 없음</div>';
 }
 </script>
 </body>

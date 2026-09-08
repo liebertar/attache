@@ -6,18 +6,28 @@ nothing holds the rules. Both worlds run the same code from the same seed; the o
 difference is who is allowed to call act().
 """
 
+import json
+import math
+import os
 import random
 import time
+from pathlib import Path
 from dataclasses import asdict, dataclass, field
 
-PADS = {"pad:P1": (25.0, 45.0), "pad:P2": (75.0, 45.0)}
-DEPOT = (50.0, 8.0)
+from attache.core.geo import Airspace, Volume
 
-# 격자를 실제 위경도로 옮깁니다. 서울 잠실, 한강변 아파트 단지 상공입니다.
-# 이래야 SITL 이 보내오는 진짜 좌표와 같은 지도 위에 그릴 수 있습니다.
-ORIGIN_LAT, ORIGIN_LON = 37.5040, 127.0720
-SPAN_LAT, SPAN_LON = 0.0130, 0.0220
+# 위치는 진짜 FAA 격자를 보고 골랐습니다. 둘 다 합법 경로가 있고, 경로 최저 천장은 61m
+# 입니다. 기본 순항 고도 90m 로 그냥 날면 규정 위반이 됩니다 — 그게 오른쪽 세계입니다.
+PADS = {"pad:P1": (20.0, 45.0), "pad:P2": (55.0, 20.0)}
+DEPOT = (95.0, 52.0)
+
+# 뉴욕. 브루클린과 로어맨해튼 상공입니다.
+# 여기를 고른 이유는 FAA 가 격자마다 허용 고도를 공개하기 때문입니다.
+# configs/airspace/nyc.json 이 그 실제 데이터이고, scripts/fetch_airspace.py 가 받아옵니다.
+ORIGIN_LAT, ORIGIN_LON = 40.6800, -74.0300
+SPAN_LAT, SPAN_LON = 0.1000, 0.1000
 CRUISE_ALT_M = 90.0
+LOITER_ALT_M = 45.0  # 승인 전 대기 고도
 CLIMB_RATE_M = 4.0      # 틱당 상승
 DESCENT_RATE_M = 3.0    # 틱당 하강
 APPROACH_RADIUS = 12.0  # 이 안에 들어오면 내려가기 시작합니다
@@ -37,14 +47,40 @@ COSTS = {
 
 RECALL_TICK = 158
 
-# 병원 응급헬기가 뜬다고 갑자기 상공이 닫힙니다. 착륙 패드 P2 가 그 안에 있습니다.
+# 상시 공역. 한 동네 안에서도 허용 고도가 갈립니다 — 실제 데이터가 그렇게 생겼습니다.
+# FAA UAS Facility Map 은 격자마다 천장이 다르고, ED-269 구역은 하한·상한을 갖습니다.
+AIRSPACE_FILE = os.getenv(
+    "AIRSPACE_FILE", str(Path(__file__).resolve().parent.parent / "configs/airspace/nyc.json")
+)
+
+
+def load_volumes() -> list[dict]:
+    """FAA UAS Facility Map. 격자마다 허용 고도가 다릅니다.
+
+    천장 0ft 는 고도 제한이 아니라 '허가 없이는 못 난다'는 뜻이라 금지로 옮겨 담습니다.
+    """
+    try:
+        return json.loads(Path(AIRSPACE_FILE).read_text(encoding="utf-8"))["volumes"]
+    except (OSError, KeyError, json.JSONDecodeError):
+        return []
+
+
+STANDING_VOLUMES = load_volumes()
+
+
+# 병원 응급헬기가 뜬다고 갑자기 상공이 닫힙니다. 착륙 패드 P1 이 그 안에 있습니다.
 # 이게 리콜과 같은 얘기의 공간판입니다. 금지가 언제 도착하고 누가 강제하느냐.
 ZONE_TICK = 12
 ZONE = {
     "id": "nofly-2026-09-hospital",
     "kind": "zone",
     "forbid_resource": "pad:P1",
-    "reason": "병원 응급헬기 이착륙. 상공 비행금지",
+    "reason": "응급헬기 이착륙. 상공 비행금지",
+    "name": "병원 헬리패드 상공",
+    "polygon": [[40.7010, -74.0160], [40.7010, -74.0040],
+                [40.7090, -74.0040], [40.7090, -74.0160]],
+    "floor_m": 0, "ceiling_m": None, "reference": "AGL",
+    "rule": "forbidden", "source": "예시 데이터",
     "centre": (25.0, 45.0),
     "radius": 16.0,
 }
@@ -55,6 +91,9 @@ RECALL = {
     "applies_to": {"model": "robotaxi-v3"},
     "reason": "robotaxi-v3 급속충전 중 배터리 발화 사례. 급속충전 금지",
 }
+
+
+AIRSPACE = Airspace()
 
 
 @dataclass
@@ -75,6 +114,9 @@ class Vehicle:
     charge_mode: str = "normal"
     spend: float = 0.0
     in_zone: bool = False
+    over_ceiling: bool = False
+    heading: float = 0.0
+    cruise_alt: float = LOITER_ALT_M
 
     def public(self) -> dict:
         data = asdict(self)
@@ -83,6 +125,7 @@ class Vehicle:
         data["lon"] = round(longitude, 6)
         data["alt_m"] = round(self.alt, 1)
         data["battery"] = round(self.battery, 1)
+        data["heading"] = round(self.heading, 1)
         data["vibration"] = round(self.vibration, 2)
         data["autonomy_health"] = round(self.autonomy_health, 2)
         data["spend"] = round(self.spend, 2)
@@ -94,6 +137,8 @@ class Scoreboard:
     pad_conflicts: int = 0
     zone_incursions: int = 0
     zone_dwell_ticks: int = 0
+    ceiling_breaches: int = 0
+    airspace_violations: int = 0
     refused_without_receipt: int = 0
     spend_usd: float = 0.0
     over_fleet_limit_usd: float = 0.0
@@ -109,6 +154,10 @@ class Scoreboard:
         data["spend_usd"] = round(self.spend_usd, 2)
         data["over_fleet_limit_usd"] = round(self.over_fleet_limit_usd, 2)
         return data
+
+
+for _raw in STANDING_VOLUMES:
+    AIRSPACE.add(Volume.from_dict(_raw))
 
 
 def fresh_fleet(seed: int) -> list[Vehicle]:
@@ -177,12 +226,15 @@ class World:
         if action == "reserve_pad":
             vehicle.assigned_pad = params["pad"]
             vehicle.state = "approaching"
+            # 승인된 순항 고도. 안 주면 기본값으로 납니다 — 그게 규정 위반일 수 있습니다.
+            vehicle.cruise_alt = float(params.get("alt_m") or CRUISE_ALT_M)
         elif action in ("charge", "fast_charge"):
             vehicle.state = "charging"
             vehicle.charge_mode = "fast" if action == "fast_charge" else "normal"
         elif action == "depart":
             vehicle.assigned_pad = None
             vehicle.state = "cruising"
+            vehicle.cruise_alt = LOITER_ALT_M
             vehicle.vibration = 0.0  # 패드에 있는 동안 정비를 받았습니다
         elif action == "divert_ground":
             # 접근을 끊고 대기로 돌아갑니다. 착륙이 아니라 회항입니다.
@@ -214,6 +266,7 @@ class World:
             self._advance(vehicle, tick)
         self._detect_pad_conflicts(tick)
         self._detect_zone_incursions(tick)
+        self._detect_ceiling_breaches(tick)
 
     def _advance(self, vehicle: Vehicle, tick: int) -> None:
         if vehicle.state == "charging":
@@ -258,6 +311,8 @@ class World:
         step = min(2.2, distance)
         vehicle.x += dx / distance * step
         vehicle.y += dy / distance * step
+        # 화면 북쪽이 y 감소 방향입니다
+        vehicle.heading = (math.degrees(math.atan2(dx, -dy))) % 360.0
 
     @staticmethod
     def _hold_altitude(vehicle: Vehicle, target: tuple[float, float]) -> None:
@@ -269,11 +324,15 @@ class World:
             (target[0] - vehicle.x) ** 2 + (target[1] - vehicle.y) ** 2
         ) ** 0.5
         if vehicle.state == "approaching" and distance < APPROACH_RADIUS:
-            glide = CRUISE_ALT_M * (distance / APPROACH_RADIUS)
+            glide = vehicle.cruise_alt * (distance / APPROACH_RADIUS)
             vehicle.alt = max(0.0, min(vehicle.alt, glide), vehicle.alt - DESCENT_RATE_M)
             vehicle.alt = min(vehicle.alt, glide)
             return
-        vehicle.alt = min(CRUISE_ALT_M, vehicle.alt + CLIMB_RATE_M)
+        ceiling = vehicle.cruise_alt
+        if vehicle.alt > ceiling:
+            vehicle.alt = max(ceiling, vehicle.alt - DESCENT_RATE_M)
+        else:
+            vehicle.alt = min(ceiling, vehicle.alt + CLIMB_RATE_M)
 
     @staticmethod
     def _at(vehicle: Vehicle, target: tuple[float, float]) -> bool:
@@ -314,6 +373,28 @@ class World:
                 self._log(tick, "비행금지 구역 침범", f"{vehicle.id} 가 병원 상공에 들어감")
             vehicle.in_zone = inside
 
+    def _detect_ceiling_breaches(self, tick: int) -> None:
+        """실제 FAA 격자를 어겼나. 금지 칸 진입과 천장 초과는 다른 위반입니다."""
+        for vehicle in self.vehicles.values():
+            if vehicle.state in ("grounded", "landed", "charging"):
+                vehicle.over_ceiling = False
+                continue
+            latitude, longitude = to_latlon(vehicle.x, vehicle.y)
+            breach = AIRSPACE.breach(latitude, longitude, vehicle.alt)
+            if breach is None:
+                vehicle.over_ceiling = False
+                continue
+            if not vehicle.over_ceiling:
+                if breach.rule == "forbidden":
+                    self.score.airspace_violations += 1
+                    self._log(tick, "금지 공역 진입",
+                              f"{vehicle.id}: {breach.breach(latitude, longitude, vehicle.alt)}")
+                else:
+                    self.score.ceiling_breaches += 1
+                    self._log(tick, "허용 고도 초과",
+                              f"{vehicle.id}: {breach.breach(latitude, longitude, vehicle.alt)}")
+            vehicle.over_ceiling = True
+
     def _log(self, tick: int, kind: str, text: str) -> None:
         self.events.append({"tick": tick, "kind": kind, "text": text, "at": time.time()})
         del self.events[: max(0, len(self.events) - 40)]
@@ -322,6 +403,12 @@ class World:
         return {
             "world": self.name,
             "tick": tick,
+            "volumes": [v.to_dict() for v in AIRSPACE.all()] + (
+                [{k: v for k, v in ZONE.items()
+                  if k in ("id", "name", "polygon", "floor_m", "ceiling_m",
+                           "reference", "rule", "reason", "source")}]
+                if tick >= ZONE_TICK else []
+            ),
             "zone": {
                 **{k: v for k, v in ZONE.items() if k != "centre"},
                 "lat": to_latlon(*ZONE["centre"])[0],
