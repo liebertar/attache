@@ -58,5 +58,7 @@ class Committer:
         elif proposal.resource:
             self.locks.release(proposal.resource, proposal.asset_id)
 
-        self.ledger.close_entry(entry, "done" if ok else f"failed: {result.get('error')}")
+        self.ledger.close_entry(
+            entry, "done" if ok else f"failed: {result.get('error')}", decision
+        )
         return decision

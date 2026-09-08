@@ -19,7 +19,15 @@ class Ledger:
         self._append(entry.to_dict())
         return entry
 
-    def close_entry(self, entry: LedgerEntry, outcome: str) -> None:
+    def close_entry(self, entry: LedgerEntry, outcome: str,
+                    decision: Decision | None = None) -> None:
+        """실행이 끝난 뒤의 결정문을 다시 담습니다.
+
+        열 때 찍은 사본은 아직 실행 전 상태입니다. 그대로 닫으면 원장이
+        "결과는 done 인데 실행은 안 했다"고 적힙니다. 기록이 거짓이면 기록이 아닙니다.
+        """
+        if decision is not None:
+            entry.decision = decision.to_dict()
         entry.outcome = outcome
         self._append(entry.to_dict())
 
