@@ -1,141 +1,13 @@
 {
  "source": "FAA UAS Facility Map (UAS Data Delivery System)",
  "fetched_bbox": [
-  -74.03,
-  40.68,
-  -73.93,
-  40.78
+  -74.025,
+  40.7,
+  -73.94,
+  40.79
  ],
- "count": 83,
+ "count": 76,
  "volumes": [
-  {
-   "id": "uasfm-170132",
-   "name": "KLGA 격자 400ft",
-   "polygon": [
-    [
-     40.6750067840001,
-     -73.941672602
-    ],
-    [
-     40.683340119,
-     -73.941672602
-    ],
-    [
-     40.683340119,
-     -73.933339267
-    ],
-    [
-     40.6750067840001,
-     -73.933339267
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 121.9,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 400ft (122m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 400,
-    "effective": "1/26/2023"
-   }
-  },
-  {
-   "id": "uasfm-170133",
-   "name": "KLGA 격자 400ft",
-   "polygon": [
-    [
-     40.6750067840001,
-     -73.933339267
-    ],
-    [
-     40.683340119,
-     -73.933339267
-    ],
-    [
-     40.683340119,
-     -73.925005932
-    ],
-    [
-     40.6750067840001,
-     -73.925005932
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 121.9,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 400ft (122m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 400,
-    "effective": "1/26/2023"
-   }
-  },
-  {
-   "id": "uasfm-170318",
-   "name": "KLGA 격자 200ft",
-   "polygon": [
-    [
-     40.683340119,
-     -73.941672602
-    ],
-    [
-     40.6916734540001,
-     -73.941672602
-    ],
-    [
-     40.6916734540001,
-     -73.933339267
-    ],
-    [
-     40.683340119,
-     -73.933339267
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 61.0,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 200ft (61m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 200,
-    "effective": "1/26/2023"
-   }
-  },
-  {
-   "id": "uasfm-170319",
-   "name": "KLGA 격자 200ft",
-   "polygon": [
-    [
-     40.683340119,
-     -73.933339267
-    ],
-    [
-     40.6916734540001,
-     -73.933339267
-    ],
-    [
-     40.6916734540001,
-     -73.925005932
-    ],
-    [
-     40.683340119,
-     -73.925005932
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 61.0,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 200ft (61m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 200,
-    "effective": "1/26/2023"
-   }
-  },
   {
    "id": "uasfm-170507",
    "name": "KLGA 격자 200ft",
@@ -155,38 +27,6 @@
     [
      40.6916734540001,
      -73.933339267
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 61.0,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 200ft (61m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 200,
-    "effective": "1/26/2023"
-   }
-  },
-  {
-   "id": "uasfm-170508",
-   "name": "KLGA 격자 200ft",
-   "polygon": [
-    [
-     40.6916734540001,
-     -73.933339267
-    ],
-    [
-     40.700006789,
-     -73.933339267
-    ],
-    [
-     40.700006789,
-     -73.925005932
-    ],
-    [
-     40.6916734540001,
-     -73.925005932
     ]
    ],
    "floor_m": 0.0,
@@ -297,38 +137,6 @@
    }
   },
   {
-   "id": "uasfm-170706",
-   "name": "KLGA 격자 200ft",
-   "polygon": [
-    [
-     40.700006789,
-     -73.933339267
-    ],
-    [
-     40.7083401240001,
-     -73.933339267
-    ],
-    [
-     40.7083401240001,
-     -73.925005932
-    ],
-    [
-     40.700006789,
-     -73.925005932
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 61.0,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 200ft (61m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 200,
-    "effective": "1/26/2023"
-   }
-  },
-  {
    "id": "uasfm-170916",
    "name": "KLGA 격자 400ft",
    "polygon": [
@@ -411,38 +219,6 @@
     [
      40.7083401240001,
      -73.933339267
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 61.0,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 200ft (61m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 200,
-    "effective": "1/26/2023"
-   }
-  },
-  {
-   "id": "uasfm-170919",
-   "name": "KLGA 격자 200ft",
-   "polygon": [
-    [
-     40.7083401240001,
-     -73.933339267
-    ],
-    [
-     40.716673459,
-     -73.933339267
-    ],
-    [
-     40.716673459,
-     -73.925005932
-    ],
-    [
-     40.7083401240001,
-     -73.925005932
     ]
    ],
    "floor_m": 0.0,
@@ -617,38 +393,6 @@
    }
   },
   {
-   "id": "uasfm-171135",
-   "name": "KLGA 격자 100ft",
-   "polygon": [
-    [
-     40.716673459,
-     -73.933339267
-    ],
-    [
-     40.7250067940001,
-     -73.933339267
-    ],
-    [
-     40.7250067940001,
-     -73.925005932
-    ],
-    [
-     40.716673459,
-     -73.925005932
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 30.5,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 100ft (30m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 100,
-    "effective": "1/26/2023"
-   }
-  },
-  {
    "id": "uasfm-171358",
    "name": "KLGA 격자 400ft",
    "polygon": [
@@ -795,38 +539,6 @@
     [
      40.7250067940001,
      -73.933339267
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 30.5,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 100ft (30m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 100,
-    "effective": "1/26/2023"
-   }
-  },
-  {
-   "id": "uasfm-171363",
-   "name": "KLGA 격자 100ft",
-   "polygon": [
-    [
-     40.7250067940001,
-     -73.933339267
-    ],
-    [
-     40.7333401290001,
-     -73.933339267
-    ],
-    [
-     40.7333401290001,
-     -73.925005932
-    ],
-    [
-     40.7250067940001,
-     -73.925005932
     ]
    ],
    "floor_m": 0.0,
@@ -1061,38 +773,6 @@
    "source": "FAA UAS Facility Map",
    "tags": {
     "ceiling_ft": 0,
-    "effective": "1/26/2023"
-   }
-  },
-  {
-   "id": "uasfm-171591",
-   "name": "KLGA 격자 50ft",
-   "polygon": [
-    [
-     40.7333401290001,
-     -73.933339267
-    ],
-    [
-     40.741673464,
-     -73.933339267
-    ],
-    [
-     40.741673464,
-     -73.925005932
-    ],
-    [
-     40.7333401290001,
-     -73.925005932
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 15.2,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 50ft (15m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 50,
     "effective": "1/26/2023"
    }
   },
@@ -1353,38 +1033,6 @@
    }
   },
   {
-   "id": "uasfm-171813",
-   "name": "KLGA 격자 50ft",
-   "polygon": [
-    [
-     40.741673464,
-     -73.933339267
-    ],
-    [
-     40.7500067990001,
-     -73.933339267
-    ],
-    [
-     40.7500067990001,
-     -73.925005932
-    ],
-    [
-     40.741673464,
-     -73.925005932
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 15.2,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 50ft (15m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 50,
-    "effective": "1/26/2023"
-   }
-  },
-  {
    "id": "uasfm-172014",
    "name": "KLGA 격자 0ft",
    "polygon": [
@@ -1641,38 +1289,6 @@
    }
   },
   {
-   "id": "uasfm-172022",
-   "name": "KLGA 격자 0ft",
-   "polygon": [
-    [
-     40.7500067990001,
-     -73.933339267
-    ],
-    [
-     40.758340134,
-     -73.933339267
-    ],
-    [
-     40.758340134,
-     -73.925005932
-    ],
-    [
-     40.7500067990001,
-     -73.925005932
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": null,
-   "reference": "AGL",
-   "rule": "forbidden",
-   "reason": "허가 없이 비행 불가 (UASFM 0ft)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 0,
-    "effective": "1/26/2023"
-   }
-  },
-  {
    "id": "uasfm-172217",
    "name": "KLGA 격자 0ft",
    "polygon": [
@@ -1883,38 +1499,6 @@
     [
      40.758340134,
      -73.941672602
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": null,
-   "reference": "AGL",
-   "rule": "forbidden",
-   "reason": "허가 없이 비행 불가 (UASFM 0ft)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 0,
-    "effective": "1/26/2023"
-   }
-  },
-  {
-   "id": "uasfm-172224",
-   "name": "KLGA 격자 0ft",
-   "polygon": [
-    [
-     40.758340134,
-     -73.933339267
-    ],
-    [
-     40.7666734690001,
-     -73.933339267
-    ],
-    [
-     40.7666734690001,
-     -73.925005932
-    ],
-    [
-     40.758340134,
-     -73.925005932
     ]
    ],
    "floor_m": 0.0,
@@ -2185,38 +1769,6 @@
    }
   },
   {
-   "id": "uasfm-172461",
-   "name": "KLGA 격자 100ft",
-   "polygon": [
-    [
-     40.7666734690001,
-     -73.933339267
-    ],
-    [
-     40.775006804,
-     -73.933339267
-    ],
-    [
-     40.775006804,
-     -73.925005932
-    ],
-    [
-     40.7666734690001,
-     -73.925005932
-    ]
-   ],
-   "floor_m": 0.0,
-   "ceiling_m": 30.5,
-   "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 100ft (30m AGL)",
-   "source": "FAA UAS Facility Map",
-   "tags": {
-    "ceiling_ft": 100,
-    "effective": "1/26/2023"
-   }
-  },
-  {
    "id": "uasfm-172703",
    "name": "KLGA 격자 0ft",
    "polygon": [
@@ -2441,34 +1993,258 @@
    }
   },
   {
-   "id": "uasfm-172711",
-   "name": "KLGA 격자 100ft",
+   "id": "uasfm-172968",
+   "name": "KLGA 격자 0ft",
    "polygon": [
     [
-     40.775006804,
-     -73.933339267
+     40.7833401390001,
+     -73.9916726119999
+    ],
+    [
+     40.791673474,
+     -73.9916726119999
+    ],
+    [
+     40.791673474,
+     -73.983339277
     ],
     [
      40.7833401390001,
-     -73.933339267
-    ],
-    [
-     40.7833401390001,
-     -73.925005932
-    ],
-    [
-     40.775006804,
-     -73.925005932
+     -73.983339277
     ]
    ],
    "floor_m": 0.0,
-   "ceiling_m": 30.5,
+   "ceiling_m": null,
    "reference": "AGL",
-   "rule": "ceiling",
-   "reason": "허용 고도 100ft (30m AGL)",
+   "rule": "forbidden",
+   "reason": "허가 없이 비행 불가 (UASFM 0ft)",
    "source": "FAA UAS Facility Map",
    "tags": {
-    "ceiling_ft": 100,
+    "ceiling_ft": 0,
+    "effective": "1/26/2023"
+   }
+  },
+  {
+   "id": "uasfm-172969",
+   "name": "KLGA 격자 400ft",
+   "polygon": [
+    [
+     40.7833401390001,
+     -73.983339277
+    ],
+    [
+     40.791673474,
+     -73.983339277
+    ],
+    [
+     40.791673474,
+     -73.9750059419999
+    ],
+    [
+     40.7833401390001,
+     -73.9750059419999
+    ]
+   ],
+   "floor_m": 0.0,
+   "ceiling_m": 121.9,
+   "reference": "AGL",
+   "rule": "ceiling",
+   "reason": "허용 고도 400ft (122m AGL)",
+   "source": "FAA UAS Facility Map",
+   "tags": {
+    "ceiling_ft": 400,
+    "effective": "1/26/2023"
+   }
+  },
+  {
+   "id": "uasfm-172970",
+   "name": "KLGA 격자 400ft",
+   "polygon": [
+    [
+     40.7833401390001,
+     -73.9750059419999
+    ],
+    [
+     40.791673474,
+     -73.9750059419999
+    ],
+    [
+     40.791673474,
+     -73.966672607
+    ],
+    [
+     40.7833401390001,
+     -73.966672607
+    ]
+   ],
+   "floor_m": 0.0,
+   "ceiling_m": 121.9,
+   "reference": "AGL",
+   "rule": "ceiling",
+   "reason": "허용 고도 400ft (122m AGL)",
+   "source": "FAA UAS Facility Map",
+   "tags": {
+    "ceiling_ft": 400,
+    "effective": "1/26/2023"
+   }
+  },
+  {
+   "id": "uasfm-172971",
+   "name": "KLGA 격자 400ft",
+   "polygon": [
+    [
+     40.7833401390001,
+     -73.966672607
+    ],
+    [
+     40.791673474,
+     -73.966672607
+    ],
+    [
+     40.791673474,
+     -73.958339272
+    ],
+    [
+     40.7833401390001,
+     -73.958339272
+    ]
+   ],
+   "floor_m": 0.0,
+   "ceiling_m": 121.9,
+   "reference": "AGL",
+   "rule": "ceiling",
+   "reason": "허용 고도 400ft (122m AGL)",
+   "source": "FAA UAS Facility Map",
+   "tags": {
+    "ceiling_ft": 400,
+    "effective": "1/26/2023"
+   }
+  },
+  {
+   "id": "uasfm-172972",
+   "name": "KLGA 격자 400ft",
+   "polygon": [
+    [
+     40.7833401390001,
+     -73.958339272
+    ],
+    [
+     40.791673474,
+     -73.958339272
+    ],
+    [
+     40.791673474,
+     -73.950005937
+    ],
+    [
+     40.7833401390001,
+     -73.950005937
+    ]
+   ],
+   "floor_m": 0.0,
+   "ceiling_m": 121.9,
+   "reference": "AGL",
+   "rule": "ceiling",
+   "reason": "허용 고도 400ft (122m AGL)",
+   "source": "FAA UAS Facility Map",
+   "tags": {
+    "ceiling_ft": 400,
+    "effective": "1/26/2023"
+   }
+  },
+  {
+   "id": "uasfm-172973",
+   "name": "KLGA 격자 300ft",
+   "polygon": [
+    [
+     40.7833401390001,
+     -73.950005937
+    ],
+    [
+     40.791673474,
+     -73.950005937
+    ],
+    [
+     40.791673474,
+     -73.941672602
+    ],
+    [
+     40.7833401390001,
+     -73.941672602
+    ]
+   ],
+   "floor_m": 0.0,
+   "ceiling_m": 91.4,
+   "reference": "AGL",
+   "rule": "ceiling",
+   "reason": "허용 고도 300ft (91m AGL)",
+   "source": "FAA UAS Facility Map",
+   "tags": {
+    "ceiling_ft": 300,
+    "effective": "1/26/2023"
+   }
+  },
+  {
+   "id": "uasfm-172979",
+   "name": "KTEB 격자 400ft",
+   "polygon": [
+    [
+     40.7833401390001,
+     -74.025005952
+    ],
+    [
+     40.791673474,
+     -74.025005952
+    ],
+    [
+     40.791673474,
+     -74.016672617
+    ],
+    [
+     40.7833401390001,
+     -74.016672617
+    ]
+   ],
+   "floor_m": 0.0,
+   "ceiling_m": 121.9,
+   "reference": "AGL",
+   "rule": "ceiling",
+   "reason": "허용 고도 400ft (122m AGL)",
+   "source": "FAA UAS Facility Map",
+   "tags": {
+    "ceiling_ft": 400,
+    "effective": "1/26/2023"
+   }
+  },
+  {
+   "id": "uasfm-333768",
+   "name": "KTEB 격자 400ft",
+   "polygon": [
+    [
+     40.7833401390001,
+     -74.016672617
+    ],
+    [
+     40.791673474,
+     -74.016672617
+    ],
+    [
+     40.791673474,
+     -74.008339282
+    ],
+    [
+     40.7833401390001,
+     -74.008339282
+    ]
+   ],
+   "floor_m": 0.0,
+   "ceiling_m": 121.9,
+   "reference": "AGL",
+   "rule": "ceiling",
+   "reason": "허용 고도 400ft (122m AGL)",
+   "source": "FAA UAS Facility Map",
+   "tags": {
+    "ceiling_ft": 400,
     "effective": "1/26/2023"
    }
   },
@@ -2633,34 +2409,34 @@
    }
   },
   {
-   "id": "uasfm-371100",
-   "name": "KTEB 격자 400ft",
+   "id": "uasfm-358680",
+   "name": "KLGA 격자 300ft",
    "polygon": [
     [
-     40.775006804,
-     -74.0333392869999
+     40.7833401390001,
+     -73.941672602
+    ],
+    [
+     40.791673474,
+     -73.941672602
+    ],
+    [
+     40.791673474,
+     -73.933339267
     ],
     [
      40.7833401390001,
-     -74.0333392869999
-    ],
-    [
-     40.7833401390001,
-     -74.025005952
-    ],
-    [
-     40.775006804,
-     -74.025005952
+     -73.933339267
     ]
    ],
    "floor_m": 0.0,
-   "ceiling_m": 121.9,
+   "ceiling_m": 91.4,
    "reference": "AGL",
    "rule": "ceiling",
-   "reason": "허용 고도 400ft (122m AGL)",
+   "reason": "허용 고도 300ft (91m AGL)",
    "source": "FAA UAS Facility Map",
    "tags": {
-    "ceiling_ft": 400,
+    "ceiling_ft": 300,
     "effective": "1/26/2023"
    }
   }

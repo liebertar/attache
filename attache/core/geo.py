@@ -27,7 +27,7 @@ class Volume:
     tags: dict = field(default_factory=dict)
 
     def covers(self, lat: float, lon: float) -> bool:
-        return point_in_polygon(lat, lon, self.polygon)
+        return bool(self.polygon) and point_in_polygon(lat, lon, self.polygon)
 
     def contains(self, lat: float, lon: float, alt_m: float) -> bool:
         if not self.covers(lat, lon):
@@ -38,7 +38,12 @@ class Volume:
 
     def breach(self, lat: float, lon: float, alt_m: float) -> str | None:
         """이 좌표·고도가 이 구역의 규칙을 어기는가. 어기면 왜인지 한 줄로."""
-        if not self.covers(lat, lon):
+        if self.polygon and not self.covers(lat, lon):
+            return None
+        if not self.polygon:
+            # 폴리곤 없는 구역은 기본 상한처럼 어디에나 걸리는 규칙입니다
+            if self.rule == "ceiling" and self.ceiling_m is not None and alt_m > self.ceiling_m:
+                return f"{self.name} 초과 ({alt_m:.0f}m > {self.ceiling_m:.0f}m)"
             return None
         if self.rule == "forbidden":
             if self.ceiling_m is None or self.floor_m <= alt_m <= self.ceiling_m:
@@ -100,11 +105,18 @@ def box(lat_min: float, lon_min: float, lat_max: float, lon_max: float):
     return [(lat_min, lon_min), (lat_min, lon_max), (lat_max, lon_max), (lat_max, lon_min)]
 
 
+# Part 107 기본 상한. 격자가 없는 곳은 규칙이 없는 게 아니라 이 값이 적용됩니다.
+# 400 ft AGL = 121.92 m. 이걸 빼먹으면 아무 데나 마음껏 나는 것처럼 모델링됩니다.
+DEFAULT_CEILING_M = 121.9
+
+
 class Airspace:
     """활성 구역 묶음. 신청과 위치를 둘 다 여기에 물어봅니다."""
 
-    def __init__(self, volumes: list[Volume] | None = None):
+    def __init__(self, volumes: list[Volume] | None = None,
+                 default_ceiling_m: float | None = DEFAULT_CEILING_M):
         self._volumes: dict[str, Volume] = {v.id: v for v in (volumes or [])}
+        self.default_ceiling_m = default_ceiling_m
 
     def add(self, volume: Volume) -> None:
         self._volumes[volume.id] = volume
@@ -123,6 +135,12 @@ class Airspace:
         for volume in ordered:
             if volume.breach(lat, lon, alt_m):
                 return volume
+        if self.default_ceiling_m is not None and alt_m > self.default_ceiling_m:
+            return Volume(
+                id="part107-default", name="Part 107 기본 상한",
+                polygon=[], ceiling_m=self.default_ceiling_m, rule="ceiling",
+                reason="격자가 없는 곳의 기본 상한 400ft AGL", source="14 CFR 107.51",
+            )
         return None
 
     def ceiling_at(self, lat: float, lon: float) -> float | None:
@@ -131,4 +149,6 @@ class Airspace:
             v.ceiling_m for v in self._volumes.values()
             if v.rule == "ceiling" and v.covers(lat, lon) and v.ceiling_m is not None
         ]
+        if self.default_ceiling_m is not None:
+            ceilings.append(self.default_ceiling_m)
         return min(ceilings) if ceilings else None

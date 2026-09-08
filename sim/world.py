@@ -21,11 +21,13 @@ from attache.core.geo import Airspace, Volume
 PADS = {"pad:P1": (20.0, 45.0), "pad:P2": (55.0, 20.0)}
 DEPOT = (95.0, 52.0)
 
-# 뉴욕. 브루클린과 로어맨해튼 상공입니다.
+# 맨해튼. 배터리파크에서 센트럴파크 북단까지, 이스트강 건너 롱아일랜드시티까지.
 # 여기를 고른 이유는 FAA 가 격자마다 허용 고도를 공개하기 때문입니다.
+# 맨해튼은 전부 금지가 아닙니다. 격자의 40% 가 400ft(122m)까지 허용되고,
+# 24% 는 허가 없이 못 납니다. 한 블록 건너 천장이 바뀝니다.
 # configs/airspace/nyc.json 이 그 실제 데이터이고, scripts/fetch_airspace.py 가 받아옵니다.
-ORIGIN_LAT, ORIGIN_LON = 40.6800, -74.0300
-SPAN_LAT, SPAN_LON = 0.1000, 0.1000
+ORIGIN_LAT, ORIGIN_LON = 40.7000, -74.0250
+SPAN_LAT, SPAN_LON = 0.0900, 0.0850
 CRUISE_ALT_M = 90.0
 LOITER_ALT_M = 45.0  # 승인 전 대기 고도
 CLIMB_RATE_M = 4.0      # 틱당 상승
