@@ -1,4 +1,4 @@
-# docker compose up --build  →  http://localhost:3000
+# docker compose up --build  →  http://localhost:3100
 #
 # 이 파일 자체가 설명입니다. guarded 에이전트는 world 망에 없어서 조종장치에 닿을
 # 길이 없고, direct 에이전트는 world 망에 있어서 직접 만집니다. 코드는 같습니다.
@@ -8,6 +8,16 @@ x-build-agent: &build-agent
     context: .
     dockerfile: docker/Dockerfile
     target: agent
+  env_file:
+    - path: .env
+      required: false
+  restart: unless-stopped
+
+x-build-direct: &build-direct
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: agent-direct
   env_file:
     - path: .env
       required: false
@@ -57,45 +67,45 @@ services:
       context: .
       dockerfile: docker/Dockerfile
       target: ui
-    ports: ["3000:3000"]
+    ports: ["3100:3000"]
     networks: [fleet]
     depends_on: [runtime]
 
   # --- 런타임을 거치는 세계 -------------------------------------------------
   guarded-taxi-a:
     <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: taxi-a, MODE: guarded, RUNTIME_URL: "http://runtime:8000" }
+    environment: { <<: *llm, ASSET_ID: taxi-a, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
   guarded-drone-b:
     <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: drone-b, MODE: guarded, RUNTIME_URL: "http://runtime:8000" }
+    environment: { <<: *llm, ASSET_ID: drone-b, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
   guarded-taxi-c:
     <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: taxi-c, MODE: guarded, RUNTIME_URL: "http://runtime:8000" }
+    environment: { <<: *llm, ASSET_ID: taxi-c, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
   # --- 조종장치를 직접 만지는 세계 (지금 대부분의 배선) ---------------------
   direct-taxi-a:
-    <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: taxi-a, MODE: direct, SIM_URL: "http://sim:8100" }
+    <<: *build-direct
+    environment: { <<: *llm, ASSET_ID: taxi-a, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 
   direct-drone-b:
-    <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: drone-b, MODE: direct, SIM_URL: "http://sim:8100" }
+    <<: *build-direct
+    environment: { <<: *llm, ASSET_ID: drone-b, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 
   direct-taxi-c:
-    <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: taxi-c, MODE: direct, SIM_URL: "http://sim:8100" }
+    <<: *build-direct
+    environment: { <<: *llm, ASSET_ID: taxi-c, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 

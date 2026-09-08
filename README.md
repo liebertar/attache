@@ -264,7 +264,7 @@ Tavily도 같은 규칙입니다. 날씨, 리콜 공지, 요금표를 밖에서 
 ## 직접 돌려보세요
 
 ```
-docker compose up --build     →  http://localhost:3000
+docker compose up --build     →  http://localhost:3100
 ```
 
 키가 없어도 그냥 돕니다(규칙 기반). `.env`에 Nebius 키를 넣으면 Nemotron이 신청서를 쓰고

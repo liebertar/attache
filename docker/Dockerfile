@@ -13,13 +13,29 @@ COPY attache/__init__.py /app/attache/__init__.py
 COPY attache/core /app/attache/core
 COPY attache/llm /app/attache/llm
 COPY attache/agent /app/attache/agent
-RUN test ! -e /app/attache/adapters && test ! -e /app/attache/runtime
+RUN test ! -e /app/attache/adapters \
+ && test ! -e /app/attache/runtime \
+ && test ! -e /app/direct_agent
 CMD ["python", "-m", "attache.agent.loop"]
+
+# ---------------------------------------------------------------------------
+# agent-direct: 오늘 대부분의 배선. 조종장치 클라이언트를 스스로 들고 있습니다.
+# 위 이미지와 다른 이미지라는 게 요점입니다.
+# ---------------------------------------------------------------------------
+FROM base AS agent-direct
+RUN pip install --no-cache-dir pymavlink==2.4.49
+COPY attache/__init__.py /app/attache/__init__.py
+COPY attache/core /app/attache/core
+COPY attache/llm /app/attache/llm
+COPY attache/agent /app/attache/agent
+COPY direct_agent /app/direct_agent
+CMD ["python", "-m", "direct_agent.loop"]
 
 # ---------------------------------------------------------------------------
 # runtime: 유일하게 adapters 를 가진 이미지
 # ---------------------------------------------------------------------------
 FROM base AS runtime
+RUN pip install --no-cache-dir pymavlink==2.4.49
 COPY attache /app/attache
 COPY configs /app/configs
 CMD ["python", "-m", "attache.runtime.service"]

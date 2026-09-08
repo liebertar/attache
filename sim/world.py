@@ -13,6 +13,16 @@ from dataclasses import asdict, dataclass, field
 PADS = {"pad:P1": (25.0, 45.0), "pad:P2": (75.0, 45.0)}
 DEPOT = (50.0, 8.0)
 
+# 격자를 실제 위경도로 옮깁니다. 서울 잠실, 한강변 아파트 단지 상공입니다.
+# 이래야 SITL 이 보내오는 진짜 좌표와 같은 지도 위에 그릴 수 있습니다.
+ORIGIN_LAT, ORIGIN_LON = 37.5040, 127.0720
+SPAN_LAT, SPAN_LON = 0.0130, 0.0220
+CRUISE_ALT_M = 90.0
+
+
+def to_latlon(x: float, y: float) -> tuple[float, float]:
+    return ORIGIN_LAT + (1.0 - y / 60.0) * SPAN_LAT, ORIGIN_LON + (x / 100.0) * SPAN_LON
+
 COSTS = {
     "reserve_pad": 28.0,
     "charge": 22.0,
@@ -51,6 +61,10 @@ class Vehicle:
 
     def public(self) -> dict:
         data = asdict(self)
+        latitude, longitude = to_latlon(self.x, self.y)
+        data["lat"] = round(latitude, 6)
+        data["lon"] = round(longitude, 6)
+        data["alt_m"] = 0.0 if self.state in ("landed", "charging", "grounded") else CRUISE_ALT_M
         data["battery"] = round(self.battery, 1)
         data["vibration"] = round(self.vibration, 2)
         data["autonomy_health"] = round(self.autonomy_health, 2)
@@ -229,6 +243,12 @@ class World:
             "world": self.name,
             "tick": tick,
             "pads": PADS,
+            "pad_coords": {
+                name: {"lat": round(lat, 6), "lon": round(lon, 6)}
+                for name, (lat, lon) in (
+                    (n, to_latlon(px, py)) for n, (px, py) in PADS.items()
+                )
+            },
             "depot": DEPOT,
             "assets": {vid: v.public() for vid, v in self.vehicles.items()},
             "scoreboard": self.score.public(),

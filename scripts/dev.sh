@@ -18,9 +18,9 @@ for asset in taxi-a drone-b taxi-c; do
   ASSET_ID=$asset MODE=direct  SIM_URL=http://localhost:8100     python3 -m attache.agent.loop &
 done
 
-( cd ui && python3 -m http.server 3000 >/dev/null 2>&1 ) &
+( cd ui && python3 -m http.server 3100 >/dev/null 2>&1 ) &
 echo
-echo "  화면: http://localhost:3000"
+echo "  화면: http://localhost:3100"
 echo "  런타임: http://localhost:8000/state   세계: http://localhost:8100/compare"
 echo
 wait

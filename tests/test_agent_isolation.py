@@ -5,7 +5,7 @@ import pathlib
 import unittest
 
 AGENT_DIR = pathlib.Path(__file__).resolve().parent.parent / "attache" / "agent"
-FORBIDDEN = ("attache.runtime", "attache.adapters")
+FORBIDDEN = ("attache.runtime", "attache.adapters", "direct_agent", "pymavlink")
 
 
 class IsolationTest(unittest.TestCase):
@@ -24,16 +24,25 @@ class IsolationTest(unittest.TestCase):
                         offenders.append(f"{path.name}: {name}")
         self.assertEqual(offenders, [], f"에이전트가 실행 경로를 import 했습니다: {offenders}")
 
-    def test_agent_image_copies_neither(self):
+    def test_guarded_image_carries_no_way_to_act(self):
         dockerfile = (AGENT_DIR.parent.parent / "docker" / "Dockerfile").read_text()
-        stage = dockerfile.split("AS agent")[1].split("FROM base AS runtime")[0]
+        stage = dockerfile.split("FROM base AS agent\n")[1].split("FROM base AS")[0]
         copied = [line for line in stage.splitlines() if line.startswith("COPY ")]
         self.assertTrue(copied)
         for line in copied:
-            self.assertNotIn("attache/adapters", line)
-            self.assertNotIn("attache/runtime", line)
+            for forbidden in ("attache/adapters", "attache/runtime", "direct_agent"):
+                self.assertNotIn(forbidden, line)
+        self.assertNotIn("pymavlink", stage)
         # 빌드가 스스로도 확인하게 해둡니다
         self.assertIn("test ! -e /app/attache/adapters", stage)
+        self.assertIn("test ! -e /app/direct_agent", stage)
+
+    def test_both_wirings_share_the_same_brain(self):
+        """직결 쪽을 못나게 만들지 않았다는 걸 코드로 못박아 둡니다."""
+        direct = (AGENT_DIR.parent.parent / "direct_agent" / "loop.py").read_text()
+        for shared in ("from attache.agent.detect import detect",
+                       "from attache.agent.propose import COSTS, Proposer"):
+            self.assertIn(shared, direct)
 
 
 if __name__ == "__main__":
