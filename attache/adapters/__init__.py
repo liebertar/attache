@@ -11,4 +11,8 @@ def build(kind: str, **kwargs):
         from attache.adapters.mavlink_fleet import from_env
 
         return from_env()
+    if kind == "flockwave":
+        from attache.adapters.flockwave import from_env
+
+        return from_env()
     return FleetSimAdapter(kwargs["sim_url"], world=kwargs.get("world", "guarded"))
