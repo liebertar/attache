@@ -1,5 +1,5 @@
 # 런타임은 착륙 패드가 뭔지 모릅니다. 이 파일이 분야를 정합니다.
-name: city-fleet
+name: manhattan-delivery
 
 resources:
   - pad:P1
@@ -12,8 +12,8 @@ authority:
   fleet_usd: 720
   # 이 영향 범위는 무조건 사람이 봅니다
   human_required_blast:
-    - passenger
     - public
+    - passenger
   # 이 행동은 비용과 무관하게 사람이 봅니다
   human_required_actions:
     - disengage_autonomy

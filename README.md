@@ -412,8 +412,8 @@ python3 scripts/what_if.py --ledger .run/history.jsonl --per-asset 120
   새로 사람에게   9      ← 자동으로 나가던 결정 9건이 승인 대기가 됩니다
   막혔을 지출    0
 
-  taxi-a  reserve_pad  $28  auto → human   기체 한도 초과: $141 > $120
-  taxi-a  charge       $22  auto → human   기체 한도 초과: $135 > $120
+  drone-01  reserve_pad  $28  auto → human   기체 한도 초과: $141 > $120
+  drone-01  charge       $22  auto → human   기체 한도 초과: $135 > $120
 ```
 
 ```

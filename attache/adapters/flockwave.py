@@ -45,7 +45,7 @@ class FlockwaveAdapter:
     def __init__(self, host: str, port: int = DEFAULT_PORT,
                  uav_ids: dict[str, str] | None = None,
                  timeout_s: float = 5.0):
-        """uav_ids: {"taxi-a": "SIM-00", ...} — 우리 이름과 Skybrush 기체 이름의 대응."""
+        """uav_ids: {"drone-01": "SIM-00", ...} — 우리 이름과 Skybrush 기체 이름의 대응."""
         self.host = host
         self.port = port
         self.uav_ids = uav_ids or {}
@@ -230,7 +230,7 @@ class FlockwaveAdapter:
 
 
 def from_env() -> "FlockwaveAdapter":
-    """FLOCKWAVE_HOST, FLOCKWAVE_PORT, UAV_IDS='taxi-a=SIM-00,drone-b=SIM-01'"""
+    """FLOCKWAVE_HOST, FLOCKWAVE_PORT, UAV_IDS='drone-01=SIM-00,drone-02=SIM-01'"""
     raw = os.environ.get("UAV_IDS", "")
     ids = dict(pair.split("=", 1) for pair in raw.split(",") if "=" in pair)
     return FlockwaveAdapter(

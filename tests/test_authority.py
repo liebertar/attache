@@ -8,7 +8,7 @@ from attache.runtime.policy import PolicyBook
 
 def make(**kwargs) -> Proposal:
     base = dict(
-        asset_id="taxi-a", action="charge", cost_usd=12.0,
+        asset_id="drone-01", action="charge", cost_usd=12.0,
         blast_radius="none", rationale="배터리 낮음",
     )
     return Proposal(**{**base, **kwargs})
@@ -26,14 +26,14 @@ class AuthorityTest(unittest.TestCase):
             ),
             self.policies,
         )
-        self.asset = {"model": "robotaxi-v3"}
+        self.asset = {"model": "dv-x500"}
 
     def test_clears_under_limit(self):
         self.assertIs(self.authority.evaluate(make(), self.asset, 0).verdict, Verdict.AUTO)
 
     def test_policy_denies_before_any_limit(self):
         self.policies.add(Policy("recall-1", "발화 사례", forbid_action="fast_charge",
-                                 applies_to={"model": "robotaxi-v3"}))
+                                 applies_to={"model": "dv-x500"}))
         decision = self.authority.evaluate(
             make(action="fast_charge", cost_usd=0.0), self.asset, 0
         )
@@ -42,9 +42,9 @@ class AuthorityTest(unittest.TestCase):
 
     def test_policy_ignores_other_models(self):
         self.policies.add(Policy("recall-1", "발화 사례", forbid_action="fast_charge",
-                                 applies_to={"model": "robotaxi-v3"}))
+                                 applies_to={"model": "dv-x500"}))
         decision = self.authority.evaluate(
-            make(action="fast_charge"), {"model": "hexa-2"}, 0
+            make(action="fast_charge"), {"model": "dv-hexa"}, 0
         )
         self.assertIs(decision.verdict, Verdict.AUTO)
 
@@ -57,12 +57,12 @@ class AuthorityTest(unittest.TestCase):
 
     def test_fleet_limit_binds_before_per_asset_limits_are_reached(self):
         # 기체당 200, 기체 셋이면 600. 기단 한도 500 에서 먼저 걸립니다.
-        for asset in ("taxi-a", "drone-b"):
+        for asset in ("drone-01", "drone-02"):
             for _ in range(10):
                 proposal = make(asset_id=asset, cost_usd=20.0)
                 if self.authority.evaluate(proposal, self.asset, 0).verdict is Verdict.AUTO:
                     self.authority.record_spend(proposal)
-        decision = self.authority.evaluate(make(asset_id="taxi-c", cost_usd=200.0),
+        decision = self.authority.evaluate(make(asset_id="drone-03", cost_usd=200.0),
                                            self.asset, 0)
         self.assertIs(decision.verdict, Verdict.HUMAN)
         self.assertEqual(decision.authority_hit, "fleet_usd")

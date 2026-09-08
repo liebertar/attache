@@ -8,14 +8,15 @@ from attache.agent.detect import Concern
 from attache.core.models import Proposal
 from attache.llm.client import LlmTier, TieredLlm, parse_json_object
 
-ALLOWED_ACTIONS = {"reserve_pad", "charge", "fast_charge", "divert_ground",
+ALLOWED_ACTIONS = {"decline_job", "fly_route", "reserve_pad", "charge", "fast_charge", "divert_ground",
                    "disengage_autonomy", "depart"}
 
-COSTS = {"reserve_pad": 28.0, "charge": 22.0, "fast_charge": 60.0,
+COSTS = {"decline_job": 0.0, "fly_route": 12.0, "reserve_pad": 28.0, "charge": 22.0, "fast_charge": 60.0,
          "divert_ground": 35.0, "disengage_autonomy": 0.0, "depart": 0.0}
 
-BLAST = {"reserve_pad": "schedule", "charge": "none", "fast_charge": "none",
-         "divert_ground": "cargo", "disengage_autonomy": "passenger", "depart": "none"}
+BLAST = {"decline_job": "none", "fly_route": "schedule", "reserve_pad": "schedule", "charge": "none",
+         "fast_charge": "none", "divert_ground": "cargo",
+         "disengage_autonomy": "public", "depart": "none"}
 
 SYSTEM = (
     "You watch one uncrewed vehicle. You cannot act. You may only fill in a request form "
@@ -29,7 +30,9 @@ def by_rule(
     concern: Concern, telemetry: dict, pad: str, banned: frozenset[str] = frozenset()
 ) -> Proposal:
     asset_id = telemetry.get("id", "?")
-    if concern.kind == "charged":
+    if concern.kind == "needs_route":
+        action, chosen_pad = "fly_route", None
+    elif concern.kind == "charged":
         action, chosen_pad = "depart", None
     elif concern.kind == "autonomy_fault":
         action, chosen_pad = "disengage_autonomy", None

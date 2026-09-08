@@ -1,0 +1,4167 @@
+{
+ "source": "OpenStreetMap (Overpass API), ODbL",
+ "note": "맨해튼 배달지. 물류 기지는 브루클린 네이비야드.",
+ "count": 832,
+ "addresses": [
+  {
+   "label": "1 5th Avenue",
+   "lat": 40.745898,
+   "lon": -73.986688
+  },
+  {
+   "label": "1 7th Avenue South",
+   "lat": 40.729705,
+   "lon": -74.004852
+  },
+  {
+   "label": "1 Bleecker Street",
+   "lat": 40.725407,
+   "lon": -73.99239
+  },
+  {
+   "label": "1 Bowling Green",
+   "lat": 40.704027,
+   "lon": -74.013747
+  },
+  {
+   "label": "1 Central Park West",
+   "lat": 40.76897,
+   "lon": -73.981667
+  },
+  {
+   "label": "1 Columbus Place",
+   "lat": 40.768771,
+   "lon": -73.985311
+  },
+  {
+   "label": "1 Front Street",
+   "lat": 40.702586,
+   "lon": -73.993235
+  },
+  {
+   "label": "1 Hanover Street",
+   "lat": 40.705451,
+   "lon": -74.008801
+  },
+  {
+   "label": "1 Madison Avenue",
+   "lat": 40.740965,
+   "lon": -73.98764
+  },
+  {
+   "label": "1 Union Square West",
+   "lat": 40.736694,
+   "lon": -73.990036
+  },
+  {
+   "label": "1 Water Street",
+   "lat": 40.703183,
+   "lon": -73.994707
+  },
+  {
+   "label": "1 Whitehall Street",
+   "lat": 40.703922,
+   "lon": -74.013006
+  },
+  {
+   "label": "10 Columbus Circle",
+   "lat": 40.768819,
+   "lon": -73.982397
+  },
+  {
+   "label": "10 Hanover Square",
+   "lat": 40.704771,
+   "lon": -74.008836
+  },
+  {
+   "label": "10 Manhattan Avenue",
+   "lat": 40.7952,
+   "lon": -73.963778
+  },
+  {
+   "label": "10 West 46th Street",
+   "lat": 40.756294,
+   "lon": -73.979965
+  },
+  {
+   "label": "10-08 49th Avenue",
+   "lat": 40.743062,
+   "lon": -73.953127
+  },
+  {
+   "label": "100 Frost Street",
+   "lat": 40.717638,
+   "lon": -73.94777
+  },
+  {
+   "label": "100 Maiden Lane",
+   "lat": 40.706722,
+   "lon": -74.00698
+  },
+  {
+   "label": "100 West 33rd Street",
+   "lat": 40.748897,
+   "lon": -73.98876
+  },
+  {
+   "label": "100 West 77th Street",
+   "lat": 40.780806,
+   "lon": -73.978254
+  },
+  {
+   "label": "100 West 84th Street",
+   "lat": 40.78522,
+   "lon": -73.973765
+  },
+  {
+   "label": "102 Mott Street",
+   "lat": 40.717363,
+   "lon": -73.997305
+  },
+  {
+   "label": "102 North End Avenue",
+   "lat": 40.714742,
+   "lon": -74.015169
+  },
+  {
+   "label": "102 West 96th Street",
+   "lat": 40.792881,
+   "lon": -73.968059
+  },
+  {
+   "label": "103 Orchard Street",
+   "lat": 40.718784,
+   "lon": -73.990027
+  },
+  {
+   "label": "103 Prince Street",
+   "lat": 40.725039,
+   "lon": -73.999153
+  },
+  {
+   "label": "103 West 96th Street",
+   "lat": 40.793203,
+   "lon": -73.967844
+  },
+  {
+   "label": "104 West 96th Street",
+   "lat": 40.792916,
+   "lon": -73.968131
+  },
+  {
+   "label": "105 West 55th Street",
+   "lat": 40.763284,
+   "lon": -73.978586
+  },
+  {
+   "label": "106 Liberty Street",
+   "lat": 40.709676,
+   "lon": -74.011915
+  },
+  {
+   "label": "107 Chambers Street",
+   "lat": 40.715112,
+   "lon": -74.008107
+  },
+  {
+   "label": "108 Roebling Street",
+   "lat": 40.715684,
+   "lon": -73.955994
+  },
+  {
+   "label": "1090 Amsterdam Avenue",
+   "lat": 40.805276,
+   "lon": -73.962431
+  },
+  {
+   "label": "11 East 36th Street",
+   "lat": 40.749465,
+   "lon": -73.982715
+  },
+  {
+   "label": "110 Pearl Street",
+   "lat": 40.704607,
+   "lon": -74.009116
+  },
+  {
+   "label": "111 8th Avenue",
+   "lat": 40.740881,
+   "lon": -74.002087
+  },
+  {
+   "label": "111 Beekman Street",
+   "lat": 40.707815,
+   "lon": -74.00335
+  },
+  {
+   "label": "1120 6th Avenue",
+   "lat": 40.755908,
+   "lon": -73.983022
+  },
+  {
+   "label": "1123 Broadway",
+   "lat": 40.743233,
+   "lon": -73.98928
+  },
+  {
+   "label": "114 Morningside Drive",
+   "lat": 40.809909,
+   "lon": -73.957307
+  },
+  {
+   "label": "116 Nassau Avenue",
+   "lat": 40.724267,
+   "lon": -73.948911
+  },
+  {
+   "label": "118A Eldridge Street",
+   "lat": 40.718294,
+   "lon": -73.991778
+  },
+  {
+   "label": "119 56th Street",
+   "lat": 40.764065,
+   "lon": -73.978258
+  },
+  {
+   "label": "12 Gratta",
+   "lat": 40.705356,
+   "lon": -73.932574
+  },
+  {
+   "label": "120 West 51st Street",
+   "lat": 40.760711,
+   "lon": -73.980769
+  },
+  {
+   "label": "120 West 97th Street",
+   "lat": 40.793964,
+   "lon": -73.968532
+  },
+  {
+   "label": "1212 5th Avenue",
+   "lat": 40.791536,
+   "lon": -73.952908
+  },
+  {
+   "label": "1213 Amsterdam Avenue",
+   "lat": 40.809006,
+   "lon": -73.959243
+  },
+  {
+   "label": "122 Amsterdam Avenue",
+   "lat": 40.774775,
+   "lon": -73.985303
+  },
+  {
+   "label": "122 Greenwich Avenue",
+   "lat": 40.739293,
+   "lon": -74.002541
+  },
+  {
+   "label": "1221 6th Avenue",
+   "lat": 40.759324,
+   "lon": -73.98166
+  },
+  {
+   "label": "123 4th Avenue",
+   "lat": 40.733002,
+   "lon": -73.98977
+  },
+  {
+   "label": "123 East 41st Street",
+   "lat": 40.751047,
+   "lon": -73.976902
+  },
+  {
+   "label": "123 West 18th Street",
+   "lat": 40.740675,
+   "lon": -73.996484
+  },
+  {
+   "label": "1230 York Avenue",
+   "lat": 40.762038,
+   "lon": -73.955361
+  },
+  {
+   "label": "124 West 43rd Street",
+   "lat": 40.755896,
+   "lon": -73.984933
+  },
+  {
+   "label": "1249 5th Avenue",
+   "lat": 40.79378,
+   "lon": -73.951047
+  },
+  {
+   "label": "125 Bedford Avenue",
+   "lat": 40.719499,
+   "lon": -73.955762
+  },
+  {
+   "label": "125 Chambers Street",
+   "lat": 40.715522,
+   "lon": -74.008983
+  },
+  {
+   "label": "126 East 103rd Street",
+   "lat": 40.790419,
+   "lon": -73.948233
+  },
+  {
+   "label": "126 Franklin Street",
+   "lat": 40.729072,
+   "lon": -73.957318
+  },
+  {
+   "label": "126 West 13th Street",
+   "lat": 40.737085,
+   "lon": -73.998633
+  },
+  {
+   "label": "127 East 22nd Street",
+   "lat": 40.739022,
+   "lon": -73.985371
+  },
+  {
+   "label": "129 Fulton Street",
+   "lat": 40.710269,
+   "lon": -74.007534
+  },
+  {
+   "label": "129 Russell Street",
+   "lat": 40.72483,
+   "lon": -73.94465
+  },
+  {
+   "label": "129 West 67th Street",
+   "lat": 40.775235,
+   "lon": -73.982955
+  },
+  {
+   "label": "130 Fulton Street",
+   "lat": 40.710192,
+   "lon": -74.00797
+  },
+  {
+   "label": "130 Morningside Drive",
+   "lat": 40.81016,
+   "lon": -73.957788
+  },
+  {
+   "label": "130 West 42nd",
+   "lat": 40.755206,
+   "lon": -73.985424
+  },
+  {
+   "label": "1302 5th Avenue",
+   "lat": 40.797265,
+   "lon": -73.948645
+  },
+  {
+   "label": "1309 Lexington Avenue",
+   "lat": 40.780542,
+   "lon": -73.954568
+  },
+  {
+   "label": "131 Amsterdam Avenue",
+   "lat": 40.774599,
+   "lon": -73.984313
+  },
+  {
+   "label": "1315 York Avenue",
+   "lat": 40.765906,
+   "lon": -73.954879
+  },
+  {
+   "label": "132 2nd Avenue",
+   "lat": 40.728653,
+   "lon": -73.987401
+  },
+  {
+   "label": "1343 Lexington Avenue",
+   "lat": 40.781488,
+   "lon": -73.95387
+  },
+  {
+   "label": "135 North 5th Street",
+   "lat": 40.717029,
+   "lon": -73.95921
+  },
+  {
+   "label": "135 West 96th Street",
+   "lat": 40.793928,
+   "lon": -73.969481
+  },
+  {
+   "label": "137 West 96th Street",
+   "lat": 40.793859,
+   "lon": -73.969317
+  },
+  {
+   "label": "139 Centre Street",
+   "lat": 40.717398,
+   "lon": -74.000655
+  },
+  {
+   "label": "139 West 62nd Street",
+   "lat": 40.771953,
+   "lon": -73.984323
+  },
+  {
+   "label": "14 Bedford Street",
+   "lat": 40.72909,
+   "lon": -74.003418
+  },
+  {
+   "label": "14 Bushwick Avenue",
+   "lat": 40.714344,
+   "lon": -73.942064
+  },
+  {
+   "label": "141 East 44th Street",
+   "lat": 40.752657,
+   "lon": -73.974626
+  },
+  {
+   "label": "144-176 East 128th Street",
+   "lat": 40.805936,
+   "lon": -73.935655
+  },
+  {
+   "label": "145 Borinquen Place",
+   "lat": 40.710849,
+   "lon": -73.953708
+  },
+  {
+   "label": "145 Sixth Avenue",
+   "lat": 40.725096,
+   "lon": -74.004908
+  },
+  {
+   "label": "145-151 West 100th Street",
+   "lat": 40.79631,
+   "lon": -73.967152
+  },
+  {
+   "label": "147 West 43rd Street",
+   "lat": 40.756391,
+   "lon": -73.985425
+  },
+  {
+   "label": "148 Bedford Avenue",
+   "lat": 40.718871,
+   "lon": -73.956793
+  },
+  {
+   "label": "1485 5th Avenue",
+   "lat": 40.80263,
+   "lon": -73.944647
+  },
+  {
+   "label": "15 Broad Street",
+   "lat": 40.706408,
+   "lon": -74.010896
+  },
+  {
+   "label": "15 East 17th Street",
+   "lat": 40.737548,
+   "lon": -73.991104
+  },
+  {
+   "label": "15 East 57th Street",
+   "lat": 40.76265,
+   "lon": -73.972805
+  },
+  {
+   "label": "15 Watts Street",
+   "lat": 40.723295,
+   "lon": -74.003722
+  },
+  {
+   "label": "150 East 102nd Street",
+   "lat": 40.790131,
+   "lon": -73.947569
+  },
+  {
+   "label": "150 West 100th Street",
+   "lat": 40.795907,
+   "lon": -73.967573
+  },
+  {
+   "label": "150 West 17th Street",
+   "lat": 40.740096,
+   "lon": -73.997738
+  },
+  {
+   "label": "150 West 57th Street",
+   "lat": 40.765034,
+   "lon": -73.9793
+  },
+  {
+   "label": "150 Wythe Avenue",
+   "lat": 40.720006,
+   "lon": -73.960076
+  },
+  {
+   "label": "1500 Broadway",
+   "lat": 40.756662,
+   "lon": -73.985868
+  },
+  {
+   "label": "1501 Broadway",
+   "lat": 40.756994,
+   "lon": -73.986551
+  },
+  {
+   "label": "151 East 25th Street",
+   "lat": 40.740569,
+   "lon": -73.983612
+  },
+  {
+   "label": "151 Noble Street",
+   "lat": 40.728887,
+   "lon": -73.954389
+  },
+  {
+   "label": "1515 Broadway",
+   "lat": 40.758215,
+   "lon": -73.986627
+  },
+  {
+   "label": "153 East 43rd Street",
+   "lat": 40.751666,
+   "lon": -73.97424
+  },
+  {
+   "label": "153 East 99th Street",
+   "lat": 40.787845,
+   "lon": -73.949312
+  },
+  {
+   "label": "154 Stanton Street",
+   "lat": 40.720522,
+   "lon": -73.985158
+  },
+  {
+   "label": "154 West 13th Street",
+   "lat": 40.737498,
+   "lon": -73.999624
+  },
+  {
+   "label": "154 West 93rd Street",
+   "lat": 40.791415,
+   "lon": -73.970628
+  },
+  {
+   "label": "1546 Madison Avenue",
+   "lat": 40.792757,
+   "lon": -73.950319
+  },
+  {
+   "label": "1548 Madison Avenue",
+   "lat": 40.792815,
+   "lon": -73.95028
+  },
+  {
+   "label": "155 East 44th Street",
+   "lat": 40.752318,
+   "lon": -73.973818
+  },
+  {
+   "label": "1564 Broadway",
+   "lat": 40.7589,
+   "lon": -73.984617
+  },
+  {
+   "label": "1568 Broadway",
+   "lat": 40.759012,
+   "lon": -73.984484
+  },
+  {
+   "label": "157-159 East 67th Street",
+   "lat": 40.766977,
+   "lon": -73.963647
+  },
+  {
+   "label": "1571 Lexington Avenue",
+   "lat": 40.788786,
+   "lon": -73.948637
+  },
+  {
+   "label": "1575 Lexington Avenue",
+   "lat": 40.788847,
+   "lon": -73.948603
+  },
+  {
+   "label": "158 Avenue C",
+   "lat": 40.725706,
+   "lon": -73.97746
+  },
+  {
+   "label": "158 Columbus Avenue",
+   "lat": 40.7742,
+   "lon": -73.981368
+  },
+  {
+   "label": "159 North 3rd Street",
+   "lat": 40.715292,
+   "lon": -73.959422
+  },
+  {
+   "label": "159 North 7th Street",
+   "lat": 40.717722,
+   "lon": -73.957349
+  },
+  {
+   "label": "159 West 53rd Street",
+   "lat": 40.76291,
+   "lon": -73.98143
+  },
+  {
+   "label": "1590 Lexington Avenue",
+   "lat": 40.789254,
+   "lon": -73.948631
+  },
+  {
+   "label": "16 West 29th Street",
+   "lat": 40.745682,
+   "lon": -73.988124
+  },
+  {
+   "label": "160 Columbus Avenue",
+   "lat": 40.774458,
+   "lon": -73.981177
+  },
+  {
+   "label": "160 East 38th Street",
+   "lat": 40.747976,
+   "lon": -73.977001
+  },
+  {
+   "label": "160 West 97th Street",
+   "lat": 40.794173,
+   "lon": -73.969025
+  },
+  {
+   "label": "161 8th Avenue",
+   "lat": 40.742439,
+   "lon": -74.00084
+  },
+  {
+   "label": "1621 Lexington Avenue",
+   "lat": 40.789715,
+   "lon": -73.947931
+  },
+  {
+   "label": "1629 Lexington Avenue",
+   "lat": 40.790174,
+   "lon": -73.947611
+  },
+  {
+   "label": "1631 Lexington Avenue",
+   "lat": 40.790343,
+   "lon": -73.947502
+  },
+  {
+   "label": "1634 Lexington Avenue",
+   "lat": 40.790596,
+   "lon": -73.94765
+  },
+  {
+   "label": "1636 Lexington Avenue",
+   "lat": 40.790705,
+   "lon": -73.94758
+  },
+  {
+   "label": "164 East 102nd Street",
+   "lat": 40.789075,
+   "lon": -73.947018
+  },
+  {
+   "label": "164 Stanton Street",
+   "lat": 40.7204,
+   "lon": -73.984707
+  },
+  {
+   "label": "1642 Lexington Avenue",
+   "lat": 40.790828,
+   "lon": -73.947509
+  },
+  {
+   "label": "165 East 51st Street",
+   "lat": 40.756825,
+   "lon": -73.970936
+  },
+  {
+   "label": "165 West 65th Street",
+   "lat": 40.774094,
+   "lon": -73.984313
+  },
+  {
+   "label": "1651 BROADWAY",
+   "lat": 40.762234,
+   "lon": -73.98375
+  },
+  {
+   "label": "166 North 7th Street",
+   "lat": 40.717532,
+   "lon": -73.957461
+  },
+  {
+   "label": "167 Chambers Street",
+   "lat": 40.716298,
+   "lon": -74.010666
+  },
+  {
+   "label": "1700 3rd Avenue",
+   "lat": 40.785161,
+   "lon": -73.949958
+  },
+  {
+   "label": "171 Madison Avenue",
+   "lat": 40.747146,
+   "lon": -73.983235
+  },
+  {
+   "label": "171 South 4th Street",
+   "lat": 40.711349,
+   "lon": -73.961145
+  },
+  {
+   "label": "172 Allen Street",
+   "lat": 40.721393,
+   "lon": -73.988974
+  },
+  {
+   "label": "174 5th Avenue",
+   "lat": 40.741117,
+   "lon": -73.990167
+  },
+  {
+   "label": "176 West 86th Street",
+   "lat": 40.787467,
+   "lon": -73.974864
+  },
+  {
+   "label": "177 Ludlow Street",
+   "lat": 40.722121,
+   "lon": -73.98745
+  },
+  {
+   "label": "177 South 4th Street",
+   "lat": 40.71128,
+   "lon": -73.960959
+  },
+  {
+   "label": "178 Kent Avenue",
+   "lat": 40.718846,
+   "lon": -73.963554
+  },
+  {
+   "label": "1792 Broadway",
+   "lat": 40.767136,
+   "lon": -73.98147
+  },
+  {
+   "label": "18 West 48th Street",
+   "lat": 40.757659,
+   "lon": -73.979356
+  },
+  {
+   "label": "180 Greenwich Street",
+   "lat": 40.711432,
+   "lon": -74.012145
+  },
+  {
+   "label": "180 North 7th Street",
+   "lat": 40.717389,
+   "lon": -73.957279
+  },
+  {
+   "label": "1800 Broadway",
+   "lat": 40.767374,
+   "lon": -73.981456
+  },
+  {
+   "label": "182 Grand Street",
+   "lat": 40.714241,
+   "lon": -73.960958
+  },
+  {
+   "label": "1836-1846 3rd Avenue",
+   "lat": 40.788894,
+   "lon": -73.946885
+  },
+  {
+   "label": "1860 Broadway",
+   "lat": 40.769767,
+   "lon": -73.981822
+  },
+  {
+   "label": "187 Grand Street",
+   "lat": 40.71438,
+   "lon": -73.960692
+  },
+  {
+   "label": "1870 Broadway",
+   "lat": 40.770067,
+   "lon": -73.981796
+  },
+  {
+   "label": "188 Havermeyer Street",
+   "lat": 40.710536,
+   "lon": -73.958355
+  },
+  {
+   "label": "188 Ludlow Street",
+   "lat": 40.722265,
+   "lon": -73.987076
+  },
+  {
+   "label": "188 Ross Street",
+   "lat": 40.70614,
+   "lon": -73.959488
+  },
+  {
+   "label": "1889 Broadway",
+   "lat": 40.771245,
+   "lon": -73.982474
+  },
+  {
+   "label": "19 West 103rd Street",
+   "lat": 40.79674,
+   "lon": -73.962584
+  },
+  {
+   "label": "1900 Broadway",
+   "lat": 40.771389,
+   "lon": -73.981773
+  },
+  {
+   "label": "1912 Adam Clayton Powell Jr. Boulevard",
+   "lat": 40.803199,
+   "lon": -73.953116
+  },
+  {
+   "label": "194 Manhattan Avenue",
+   "lat": 40.800012,
+   "lon": -73.960282
+  },
+  {
+   "label": "1941 Broadway",
+   "lat": 40.773503,
+   "lon": -73.982579
+  },
+  {
+   "label": "1961 Adam Clayton Powell Jr. Boulevard",
+   "lat": 40.804541,
+   "lon": -73.951223
+  },
+  {
+   "label": "1963 Broadway",
+   "lat": 40.774388,
+   "lon": -73.982513
+  },
+  {
+   "label": "197 Grand Street",
+   "lat": 40.714254,
+   "lon": -73.960381
+  },
+  {
+   "label": "1975 Madison Avenue",
+   "lat": 40.806379,
+   "lon": -73.939755
+  },
+  {
+   "label": "1976 Broadway",
+   "lat": 40.77433,
+   "lon": -73.981909
+  },
+  {
+   "label": "198 Bedford Avenue",
+   "lat": 40.717427,
+   "lon": -73.958333
+  },
+  {
+   "label": "199 Grand Street",
+   "lat": 40.714205,
+   "lon": -73.960284
+  },
+  {
+   "label": "199 North Henry Street",
+   "lat": 40.726224,
+   "lon": -73.943834
+  },
+  {
+   "label": "1998 Broadway",
+   "lat": 40.775014,
+   "lon": -73.981748
+  },
+  {
+   "label": "2 Broadway",
+   "lat": 40.704204,
+   "lon": -74.013019
+  },
+  {
+   "label": "2 East 55th Street",
+   "lat": 40.761246,
+   "lon": -73.974332
+  },
+  {
+   "label": "2 East 62nd Street",
+   "lat": 40.765883,
+   "lon": -73.971432
+  },
+  {
+   "label": "2 West 13th Street",
+   "lat": 40.735502,
+   "lon": -73.994816
+  },
+  {
+   "label": "2 West 64th Street",
+   "lat": 40.771081,
+   "lon": -73.980098
+  },
+  {
+   "label": "20 Broad Street",
+   "lat": 40.706421,
+   "lon": -74.011322
+  },
+  {
+   "label": "20 West 112th Street",
+   "lat": 40.798355,
+   "lon": -73.949449
+  },
+  {
+   "label": "20 West 22nd Street",
+   "lat": 40.74126,
+   "lon": -73.991186
+  },
+  {
+   "label": "200 East 38th Street",
+   "lat": 40.748051,
+   "lon": -73.976074
+  },
+  {
+   "label": "200 Madison Avenue",
+   "lat": 40.749023,
+   "lon": -73.982229
+  },
+  {
+   "label": "200 Manhattan Avenue",
+   "lat": 40.800141,
+   "lon": -73.960193
+  },
+  {
+   "label": "200 Park Avenue",
+   "lat": 40.753383,
+   "lon": -73.976674
+  },
+  {
+   "label": "200 Varick Street",
+   "lat": 40.727975,
+   "lon": -74.005188
+  },
+  {
+   "label": "200 West 57th Street",
+   "lat": 40.765385,
+   "lon": -73.980359
+  },
+  {
+   "label": "200 West End Avenue",
+   "lat": 40.778107,
+   "lon": -73.985359
+  },
+  {
+   "label": "200 Worth Street",
+   "lat": 40.714147,
+   "lon": -74.000428
+  },
+  {
+   "label": "2008 Broadway",
+   "lat": 40.775503,
+   "lon": -73.981845
+  },
+  {
+   "label": "201 West 103rd Street",
+   "lat": 40.798738,
+   "lon": -73.967332
+  },
+  {
+   "label": "201 West 87th Street",
+   "lat": 40.788591,
+   "lon": -73.974766
+  },
+  {
+   "label": "202 West 49th Street",
+   "lat": 40.760472,
+   "lon": -73.984051
+  },
+  {
+   "label": "2025 Broadway",
+   "lat": 40.776816,
+   "lon": -73.982451
+  },
+  {
+   "label": "203 West 58th Street",
+   "lat": 40.766447,
+   "lon": -73.979847
+  },
+  {
+   "label": "204 Manhattan Avenue",
+   "lat": 40.79977,
+   "lon": -73.960388
+  },
+  {
+   "label": "2041 Madison Avenue",
+   "lat": 40.808673,
+   "lon": -73.93819
+  },
+  {
+   "label": "205 Bedford Avenue",
+   "lat": 40.716921,
+   "lon": -73.958539
+  },
+  {
+   "label": "205 East Houston Street",
+   "lat": 40.722343,
+   "lon": -73.987353
+  },
+  {
+   "label": "205 West 57th Street",
+   "lat": 40.765737,
+   "lon": -73.980116
+  },
+  {
+   "label": "2067 5th Avenue",
+   "lat": 40.807838,
+   "lon": -73.940955
+  },
+  {
+   "label": "207 East 23rd Street",
+   "lat": 40.738716,
+   "lon": -73.982473
+  },
+  {
+   "label": "2073 Broadway",
+   "lat": 40.778593,
+   "lon": -73.982276
+  },
+  {
+   "label": "2077 Broadway",
+   "lat": 40.778671,
+   "lon": -73.982256
+  },
+  {
+   "label": "208 North 5th Street",
+   "lat": 40.715081,
+   "lon": -73.95689
+  },
+  {
+   "label": "209 East 49th Street",
+   "lat": 40.755038,
+   "lon": -73.970551
+  },
+  {
+   "label": "2090 Broadway",
+   "lat": 40.778377,
+   "lon": -73.981575
+  },
+  {
+   "label": "21 East 52nd Street",
+   "lat": 40.759313,
+   "lon": -73.974888
+  },
+  {
+   "label": "21 West 111th Street",
+   "lat": 40.798465,
+   "lon": -73.950243
+  },
+  {
+   "label": "21-17 Broadway",
+   "lat": 40.765081,
+   "lon": -73.930422
+  },
+  {
+   "label": "210 East 64th Street",
+   "lat": 40.764233,
+   "lon": -73.963647
+  },
+  {
+   "label": "2100 Broadway",
+   "lat": 40.779794,
+   "lon": -73.981308
+  },
+  {
+   "label": "212 West 120th Street",
+   "lat": 40.805934,
+   "lon": -73.951804
+  },
+  {
+   "label": "212 West 57th Street",
+   "lat": 40.765607,
+   "lon": -73.980874
+  },
+  {
+   "label": "212 West 91st Street",
+   "lat": 40.791165,
+   "lon": -73.973714
+  },
+  {
+   "label": "2124 Broadway",
+   "lat": 40.78049,
+   "lon": -73.981131
+  },
+  {
+   "label": "2130 Broadway",
+   "lat": 40.780735,
+   "lon": -73.981091
+  },
+  {
+   "label": "2131 Broadway",
+   "lat": 40.780745,
+   "lon": -73.981761
+  },
+  {
+   "label": "214 Broadway",
+   "lat": 40.710912,
+   "lon": -74.008762
+  },
+  {
+   "label": "214 West 74th Street",
+   "lat": 40.780286,
+   "lon": -73.981833
+  },
+  {
+   "label": "215 Bedford Avenue",
+   "lat": 40.716722,
+   "lon": -73.958677
+  },
+  {
+   "label": "215 Murray Street",
+   "lat": 40.715268,
+   "lon": -74.014829
+  },
+  {
+   "label": "215 West 94th Street",
+   "lat": 40.793258,
+   "lon": -73.972207
+  },
+  {
+   "label": "216 West 76th Street",
+   "lat": 40.781384,
+   "lon": -73.980503
+  },
+  {
+   "label": "2167 Frederick Douglass Boulevard",
+   "lat": 40.804941,
+   "lon": -73.955275
+  },
+  {
+   "label": "217 East 119th Street",
+   "lat": 40.79971,
+   "lon": -73.937609
+  },
+  {
+   "label": "217 Grand Street",
+   "lat": 40.714151,
+   "lon": -73.959834
+  },
+  {
+   "label": "2170 Frederick Douglass Boulevard",
+   "lat": 40.805152,
+   "lon": -73.954535
+  },
+  {
+   "label": "2175 Broadway",
+   "lat": 40.782375,
+   "lon": -73.981172
+  },
+  {
+   "label": "2179 3rd Avenue",
+   "lat": 40.799638,
+   "lon": -73.938535
+  },
+  {
+   "label": "2187 Frederick Douglass Boulevard",
+   "lat": 40.806113,
+   "lon": -73.954371
+  },
+  {
+   "label": "219 East 32th Street",
+   "lat": 40.744122,
+   "lon": -73.978077
+  },
+  {
+   "label": "219 Stanton Street",
+   "lat": 40.719443,
+   "lon": -73.982192
+  },
+  {
+   "label": "2195 Frederick Douglass Boulevard",
+   "lat": 40.80593,
+   "lon": -73.954529
+  },
+  {
+   "label": "22 West 100th Street",
+   "lat": 40.794872,
+   "lon": -73.964018
+  },
+  {
+   "label": "2200 Frederick Douglass Boulevard",
+   "lat": 40.807202,
+   "lon": -73.953598
+  },
+  {
+   "label": "221 East 32th Street",
+   "lat": 40.744095,
+   "lon": -73.97801
+  },
+  {
+   "label": "2219 Broadway",
+   "lat": 40.783758,
+   "lon": -73.980419
+  },
+  {
+   "label": "222 Lexington Avenue",
+   "lat": 40.745904,
+   "lon": -73.980303
+  },
+  {
+   "label": "2223 Frederick Douglass Boulevard",
+   "lat": 40.806954,
+   "lon": -73.953749
+  },
+  {
+   "label": "2224 Frederick Douglass Boulevard",
+   "lat": 40.806801,
+   "lon": -73.953413
+  },
+  {
+   "label": "223 East 32th Street",
+   "lat": 40.744053,
+   "lon": -73.977913
+  },
+  {
+   "label": "223 Graham Avenue",
+   "lat": 40.709597,
+   "lon": -73.945021
+  },
+  {
+   "label": "2239 Broadway",
+   "lat": 40.78454,
+   "lon": -73.979819
+  },
+  {
+   "label": "224 West 57th Street",
+   "lat": 40.765999,
+   "lon": -73.98166
+  },
+  {
+   "label": "225 West 13th Street",
+   "lat": 40.738459,
+   "lon": -74.001334
+  },
+  {
+   "label": "225 West 35th Street",
+   "lat": 40.752217,
+   "lon": -73.991132
+  },
+  {
+   "label": "225 West 4th Street",
+   "lat": 40.734069,
+   "lon": -74.002791
+  },
+  {
+   "label": "2252 Broadway",
+   "lat": 40.784927,
+   "lon": -73.978801
+  },
+  {
+   "label": "2266 5th Avenue",
+   "lat": 40.815,
+   "lon": -73.936389
+  },
+  {
+   "label": "227 East 52nd Street",
+   "lat": 40.756694,
+   "lon": -73.968682
+  },
+  {
+   "label": "230 West 99th Street",
+   "lat": 40.796349,
+   "lon": -73.970072
+  },
+  {
+   "label": "231 West 96th Street",
+   "lat": 40.794608,
+   "lon": -73.971236
+  },
+  {
+   "label": "2315 Broadway",
+   "lat": 40.787064,
+   "lon": -73.977933
+  },
+  {
+   "label": "232 Bleecker Street",
+   "lat": 40.730184,
+   "lon": -74.002538
+  },
+  {
+   "label": "233 East 56th Street",
+   "lat": 40.759221,
+   "lon": -73.966584
+  },
+  {
+   "label": "234 East 33th Street",
+   "lat": 40.744435,
+   "lon": -73.977362
+  },
+  {
+   "label": "234 West 31st Street",
+   "lat": 40.750238,
+   "lon": -73.992811
+  },
+  {
+   "label": "235 Eldridge Street",
+   "lat": 40.722434,
+   "lon": -73.989901
+  },
+  {
+   "label": "235 West 56th Street",
+   "lat": 40.765833,
+   "lon": -73.9826
+  },
+  {
+   "label": "2350 Broadway",
+   "lat": 40.787968,
+   "lon": -73.976444
+  },
+  {
+   "label": "2351 1st Avenue",
+   "lat": 40.799613,
+   "lon": -73.934281
+  },
+  {
+   "label": "236 East 33th Street",
+   "lat": 40.744402,
+   "lon": -73.977284
+  },
+  {
+   "label": "236 North 12th Street",
+   "lat": 40.719235,
+   "lon": -73.952816
+  },
+  {
+   "label": "236 West 45th Street",
+   "lat": 40.758588,
+   "lon": -73.987258
+  },
+  {
+   "label": "237 West 51st Street",
+   "lat": 40.762543,
+   "lon": -73.984325
+  },
+  {
+   "label": "238 East 33th Street",
+   "lat": 40.744364,
+   "lon": -73.977194
+  },
+  {
+   "label": "2380 Broadway",
+   "lat": 40.788955,
+   "lon": -73.975589
+  },
+  {
+   "label": "24 Maiden Lane",
+   "lat": 40.709086,
+   "lon": -74.009053
+  },
+  {
+   "label": "240 Central Park South",
+   "lat": 40.767634,
+   "lon": -73.981287
+  },
+  {
+   "label": "240 Convent Avenue",
+   "lat": 40.821383,
+   "lon": -73.948856
+  },
+  {
+   "label": "240 West 113th Street",
+   "lat": 40.801826,
+   "lon": -73.955734
+  },
+  {
+   "label": "240 West 52nd Street",
+   "lat": 40.763005,
+   "lon": -73.984239
+  },
+  {
+   "label": "240 West 55th Street",
+   "lat": 40.764916,
+   "lon": -73.982916
+  },
+  {
+   "label": "2400 Broadway",
+   "lat": 40.789609,
+   "lon": -73.975097
+  },
+  {
+   "label": "2425 Broadway",
+   "lat": 40.790498,
+   "lon": -73.975175
+  },
+  {
+   "label": "243 5th Avenue",
+   "lat": 40.744227,
+   "lon": -73.986758
+  },
+  {
+   "label": "243 West 99th Street",
+   "lat": 40.796848,
+   "lon": -73.9707
+  },
+  {
+   "label": "2438 Broadway",
+   "lat": 40.79062,
+   "lon": -73.974365
+  },
+  {
+   "label": "244 3rd Avenue",
+   "lat": 40.737135,
+   "lon": -73.984615
+  },
+  {
+   "label": "244 West 99th Street",
+   "lat": 40.796654,
+   "lon": -73.970828
+  },
+  {
+   "label": "2441 Broadway",
+   "lat": 40.791047,
+   "lon": -73.974764
+  },
+  {
+   "label": "245 5th Avenue",
+   "lat": 40.7445,
+   "lon": -73.987181
+  },
+  {
+   "label": "246 West 44th Street",
+   "lat": 40.758173,
+   "lon": -73.988213
+  },
+  {
+   "label": "246 West 80th Street",
+   "lat": 40.784579,
+   "lon": -73.979868
+  },
+  {
+   "label": "2461 Broadway",
+   "lat": 40.791685,
+   "lon": -73.974302
+  },
+  {
+   "label": "2477 Broadway",
+   "lat": 40.792327,
+   "lon": -73.97387
+  },
+  {
+   "label": "2479 Broadway",
+   "lat": 40.792372,
+   "lon": -73.973837
+  },
+  {
+   "label": "248 Mercer Street",
+   "lat": 40.728335,
+   "lon": -73.99522
+  },
+  {
+   "label": "248 West 37th Street",
+   "lat": 40.753713,
+   "lon": -73.99145
+  },
+  {
+   "label": "248 West 80th Street",
+   "lat": 40.784624,
+   "lon": -73.97998
+  },
+  {
+   "label": "2481 Broadway",
+   "lat": 40.792418,
+   "lon": -73.973805
+  },
+  {
+   "label": "2485 Broadway",
+   "lat": 40.792463,
+   "lon": -73.97377
+  },
+  {
+   "label": "2487 Broadway",
+   "lat": 40.792509,
+   "lon": -73.973736
+  },
+  {
+   "label": "249 Varet Street",
+   "lat": 40.704227,
+   "lon": -73.933823
+  },
+  {
+   "label": "249 West 45th Street",
+   "lat": 40.758842,
+   "lon": -73.987419
+  },
+  {
+   "label": "2498 Broadway",
+   "lat": 40.792505,
+   "lon": -73.973
+  },
+  {
+   "label": "25 Cooper Square",
+   "lat": 40.727834,
+   "lon": -73.99074
+  },
+  {
+   "label": "25 East 83rd Street",
+   "lat": 40.779131,
+   "lon": -73.960536
+  },
+  {
+   "label": "25 Hudson Street",
+   "lat": 40.716619,
+   "lon": -74.009334
+  },
+  {
+   "label": "250 Vesey Street",
+   "lat": 40.713776,
+   "lon": -74.016116
+  },
+  {
+   "label": "250 West 57th Street",
+   "lat": 40.766274,
+   "lon": -73.982213
+  },
+  {
+   "label": "250 West 86th Street",
+   "lat": 40.78838,
+   "lon": -73.977098
+  },
+  {
+   "label": "2501 Broadway",
+   "lat": 40.792942,
+   "lon": -73.973383
+  },
+  {
+   "label": "2508 Broadway",
+   "lat": 40.79291,
+   "lon": -73.972698
+  },
+  {
+   "label": "251 East 32th Street",
+   "lat": 40.743682,
+   "lon": -73.97703
+  },
+  {
+   "label": "251 Mercer Street",
+   "lat": 40.728699,
+   "lon": -73.995715
+  },
+  {
+   "label": "2511 Broadway",
+   "lat": 40.793207,
+   "lon": -73.97323
+  },
+  {
+   "label": "2517 Broadway",
+   "lat": 40.793285,
+   "lon": -73.973149
+  },
+  {
+   "label": "2518 Broadway",
+   "lat": 40.793131,
+   "lon": -73.97256
+  },
+  {
+   "label": "252 West 116th Street",
+   "lat": 40.804032,
+   "lon": -73.954932
+  },
+  {
+   "label": "2521 Broadway",
+   "lat": 40.793703,
+   "lon": -73.972873
+  },
+  {
+   "label": "2522 Broadway",
+   "lat": 40.793358,
+   "lon": -73.972371
+  },
+  {
+   "label": "2525 Broadway",
+   "lat": 40.793842,
+   "lon": -73.97277
+  },
+  {
+   "label": "2527 Broadway",
+   "lat": 40.793762,
+   "lon": -73.972829
+  },
+  {
+   "label": "2528 Broadway",
+   "lat": 40.793582,
+   "lon": -73.972208
+  },
+  {
+   "label": "2537 Broadway",
+   "lat": 40.793962,
+   "lon": -73.972662
+  },
+  {
+   "label": "254 West 31st Street",
+   "lat": 40.749944,
+   "lon": -73.994335
+  },
+  {
+   "label": "255 Sullivan Street",
+   "lat": 40.730514,
+   "lon": -73.998815
+  },
+  {
+   "label": "255 Vesey Street",
+   "lat": 40.714618,
+   "lon": -74.015376
+  },
+  {
+   "label": "255 West 133rd Street",
+   "lat": 40.8151,
+   "lon": -73.946607
+  },
+  {
+   "label": "255 West 88th Street",
+   "lat": 40.789856,
+   "lon": -73.975834
+  },
+  {
+   "label": "2553 Broadway",
+   "lat": 40.794627,
+   "lon": -73.972166
+  },
+  {
+   "label": "2563 Broadway",
+   "lat": 40.794924,
+   "lon": -73.971948
+  },
+  {
+   "label": "2567 Broadway",
+   "lat": 40.795085,
+   "lon": -73.971835
+  },
+  {
+   "label": "2568 Broadway",
+   "lat": 40.794961,
+   "lon": -73.971251
+  },
+  {
+   "label": "2574 Broadway",
+   "lat": 40.795112,
+   "lon": -73.971131
+  },
+  {
+   "label": "2575 Broadway",
+   "lat": 40.795344,
+   "lon": -73.971654
+  },
+  {
+   "label": "2581 Adam Clayton Powell Jr. Boulevard",
+   "lat": 40.823868,
+   "lon": -73.935491
+  },
+  {
+   "label": "2581 Broadway",
+   "lat": 40.795531,
+   "lon": -73.971479
+  },
+  {
+   "label": "2583 Broadway",
+   "lat": 40.795611,
+   "lon": -73.971424
+  },
+  {
+   "label": "2585 Broadway",
+   "lat": 40.795652,
+   "lon": -73.971391
+  },
+  {
+   "label": "2587 Broadway",
+   "lat": 40.795695,
+   "lon": -73.971364
+  },
+  {
+   "label": "2589 Broadway",
+   "lat": 40.795842,
+   "lon": -73.971286
+  },
+  {
+   "label": "260 Columbus Avenue",
+   "lat": 40.777675,
+   "lon": -73.978887
+  },
+  {
+   "label": "261 West 47th Street",
+   "lat": 40.760233,
+   "lon": -73.986823
+  },
+  {
+   "label": "2611 Broadway",
+   "lat": 40.796469,
+   "lon": -73.970827
+  },
+  {
+   "label": "2618 Broadway",
+   "lat": 40.796359,
+   "lon": -73.970219
+  },
+  {
+   "label": "262 Driggs Avenue",
+   "lat": 40.722735,
+   "lon": -73.948311
+  },
+  {
+   "label": "2636 Broadway",
+   "lat": 40.797014,
+   "lon": -73.969726
+  },
+  {
+   "label": "2637 Broadway",
+   "lat": 40.797237,
+   "lon": -73.970252
+  },
+  {
+   "label": "264 West 118th Street",
+   "lat": 40.805186,
+   "lon": -73.953619
+  },
+  {
+   "label": "2641 Broadway",
+   "lat": 40.797442,
+   "lon": -73.970146
+  },
+  {
+   "label": "2656 Broadway",
+   "lat": 40.797574,
+   "lon": -73.969308
+  },
+  {
+   "label": "2658 Broadway",
+   "lat": 40.797622,
+   "lon": -73.969273
+  },
+  {
+   "label": "2681 Broadway",
+   "lat": 40.798692,
+   "lon": -73.969194
+  },
+  {
+   "label": "2683 Broadway",
+   "lat": 40.798836,
+   "lon": -73.969094
+  },
+  {
+   "label": "269 Amsterdam Avenue",
+   "lat": 40.778899,
+   "lon": -73.981184
+  },
+  {
+   "label": "270 Greenwich Street",
+   "lat": 40.715611,
+   "lon": -74.011738
+  },
+  {
+   "label": "2701 Broadway",
+   "lat": 40.799327,
+   "lon": -73.968752
+  },
+  {
+   "label": "2702 Broadway",
+   "lat": 40.799098,
+   "lon": -73.968214
+  },
+  {
+   "label": "2710 Broadway",
+   "lat": 40.79954,
+   "lon": -73.967992
+  },
+  {
+   "label": "272 Driggs Avenue",
+   "lat": 40.722702,
+   "lon": -73.948618
+  },
+  {
+   "label": "274 Madison Avenue",
+   "lat": 40.751184,
+   "lon": -73.980698
+  },
+  {
+   "label": "275 Greenwich Street",
+   "lat": 40.715171,
+   "lon": -74.011064
+  },
+  {
+   "label": "277 Driggs Avenue",
+   "lat": 40.722466,
+   "lon": -73.948822
+  },
+  {
+   "label": "278 Bleecker Street",
+   "lat": 40.73161,
+   "lon": -74.003342
+  },
+  {
+   "label": "279 East 3rd Street",
+   "lat": 40.72157,
+   "lon": -73.980052
+  },
+  {
+   "label": "280 Park Avenue",
+   "lat": 40.75623,
+   "lon": -73.975093
+  },
+  {
+   "label": "281 Avenue C",
+   "lat": 40.730423,
+   "lon": -73.975678
+  },
+  {
+   "label": "2824 Broadway",
+   "lat": 40.803565,
+   "lon": -73.966777
+  },
+  {
+   "label": "2828 Broadway",
+   "lat": 40.803886,
+   "lon": -73.966548
+  },
+  {
+   "label": "283 Avenue C",
+   "lat": 40.73071,
+   "lon": -73.975564
+  },
+  {
+   "label": "2831 Broadway",
+   "lat": 40.803905,
+   "lon": -73.967243
+  },
+  {
+   "label": "2843 Broadway",
+   "lat": 40.804525,
+   "lon": -73.9668
+  },
+  {
+   "label": "285 Avenue C",
+   "lat": 40.730964,
+   "lon": -73.975388
+  },
+  {
+   "label": "2852 Broadway",
+   "lat": 40.804626,
+   "lon": -73.966041
+  },
+  {
+   "label": "2859 Broadway",
+   "lat": 40.804834,
+   "lon": -73.966558
+  },
+  {
+   "label": "2861 Broadway",
+   "lat": 40.805075,
+   "lon": -73.96639
+  },
+  {
+   "label": "2864 Broadway",
+   "lat": 40.804823,
+   "lon": -73.965856
+  },
+  {
+   "label": "287 Avenue C",
+   "lat": 40.731178,
+   "lon": -73.975105
+  },
+  {
+   "label": "2880 Broadway",
+   "lat": 40.805451,
+   "lon": -73.965416
+  },
+  {
+   "label": "2885 Broadway",
+   "lat": 40.805778,
+   "lon": -73.965866
+  },
+  {
+   "label": "289 Gorge Road",
+   "lat": 40.814039,
+   "lon": -73.990473
+  },
+  {
+   "label": "2895 Broadway",
+   "lat": 40.806037,
+   "lon": -73.965678
+  },
+  {
+   "label": "2898 Broadway",
+   "lat": 40.805861,
+   "lon": -73.965112
+  },
+  {
+   "label": "29 Broadway",
+   "lat": 40.70608,
+   "lon": -74.013287
+  },
+  {
+   "label": "291 Madison Avenue",
+   "lat": 40.751712,
+   "lon": -73.979911
+  },
+  {
+   "label": "2937 Broadway",
+   "lat": 40.807354,
+   "lon": -73.964717
+  },
+  {
+   "label": "2941 Broadway",
+   "lat": 40.807646,
+   "lon": -73.964525
+  },
+  {
+   "label": "295 Madison Avenue",
+   "lat": 40.751923,
+   "lon": -73.979722
+  },
+  {
+   "label": "2957 Broadway",
+   "lat": 40.807975,
+   "lon": -73.964284
+  },
+  {
+   "label": "2A William Street",
+   "lat": 40.704956,
+   "lon": -74.009738
+  },
+  {
+   "label": "3 Clinton Street",
+   "lat": 40.721226,
+   "lon": -73.984094
+  },
+  {
+   "label": "3 Hanover Square",
+   "lat": 40.704869,
+   "lon": -74.009438
+  },
+  {
+   "label": "3 Times Square",
+   "lat": 40.756692,
+   "lon": -73.986719
+  },
+  {
+   "label": "30 7th Avenue",
+   "lat": 40.737778,
+   "lon": -74.000833
+  },
+  {
+   "label": "30 West 44th Street",
+   "lat": 40.755382,
+   "lon": -73.981681
+  },
+  {
+   "label": "300 Bedford Avenue",
+   "lat": 40.714183,
+   "lon": -73.961624
+  },
+  {
+   "label": "300 West 114th Street",
+   "lat": 40.803094,
+   "lon": -73.95657
+  },
+  {
+   "label": "300 West 44th Street",
+   "lat": 40.758454,
+   "lon": -73.989171
+  },
+  {
+   "label": "301 Cathedral Parkway",
+   "lat": 40.801023,
+   "lon": -73.958755
+  },
+  {
+   "label": "301 Columbus Avenue",
+   "lat": 40.77879,
+   "lon": -73.977555
+  },
+  {
+   "label": "302 West 45th Street",
+   "lat": 40.759314,
+   "lon": -73.988975
+  },
+  {
+   "label": "303 Greenwich Street",
+   "lat": 40.716417,
+   "lon": -74.010729
+  },
+  {
+   "label": "303 Madison Avenue",
+   "lat": 40.752335,
+   "lon": -73.979375
+  },
+  {
+   "label": "304 East 44th Street",
+   "lat": 40.750795,
+   "lon": -73.970819
+  },
+  {
+   "label": "304 West 34th Street",
+   "lat": 40.752327,
+   "lon": -73.994248
+  },
+  {
+   "label": "308 West 58th Street",
+   "lat": 40.767588,
+   "lon": -73.983117
+  },
+  {
+   "label": "309 West 57th Street",
+   "lat": 40.767114,
+   "lon": -73.983368
+  },
+  {
+   "label": "31 8th Avenue",
+   "lat": 40.738247,
+   "lon": -74.004282
+  },
+  {
+   "label": "31-19 Queens Boulevard",
+   "lat": 40.745631,
+   "lon": -73.933704
+  },
+  {
+   "label": "31-31 Thomson Avenue",
+   "lat": 40.744971,
+   "lon": -73.934119
+  },
+  {
+   "label": "310 East 14th Street",
+   "lat": 40.73188,
+   "lon": -73.984581
+  },
+  {
+   "label": "310 East 35th Street",
+   "lat": 40.74503,
+   "lon": -73.974673
+  },
+  {
+   "label": "312 Bedford Avenue",
+   "lat": 40.713731,
+   "lon": -73.961938
+  },
+  {
+   "label": "312 East 35th Street",
+   "lat": 40.745022,
+   "lon": -73.974653
+  },
+  {
+   "label": "312 West 34th Street",
+   "lat": 40.752415,
+   "lon": -73.994449
+  },
+  {
+   "label": "314 East 110th Street",
+   "lat": 40.792663,
+   "lon": -73.939811
+  },
+  {
+   "label": "314 Grand Street",
+   "lat": 40.712722,
+   "lon": -73.957003
+  },
+  {
+   "label": "316 Columbus Avenue",
+   "lat": 40.779338,
+   "lon": -73.977664
+  },
+  {
+   "label": "317 East 34th Street",
+   "lat": 40.744579,
+   "lon": -73.975031
+  },
+  {
+   "label": "317 East 67th Street",
+   "lat": 40.76536,
+   "lon": -73.959547
+  },
+  {
+   "label": "317 East Houston Street",
+   "lat": 40.721081,
+   "lon": -73.983203
+  },
+  {
+   "label": "319 5th Avenue",
+   "lat": 40.747169,
+   "lon": -73.985214
+  },
+  {
+   "label": "32 2nd Avenue",
+   "lat": 40.724755,
+   "lon": -73.99026
+  },
+  {
+   "label": "32 Spring Street",
+   "lat": 40.721593,
+   "lon": -73.995615
+  },
+  {
+   "label": "32 West 39th Street",
+   "lat": 40.752387,
+   "lon": -73.980679
+  },
+  {
+   "label": "32-02 Queens Boulevard",
+   "lat": 40.744511,
+   "lon": -73.932856
+  },
+  {
+   "label": "320 East 20th Street",
+   "lat": 40.735378,
+   "lon": -73.981262
+  },
+  {
+   "label": "321 East 34th Street",
+   "lat": 40.744527,
+   "lon": -73.974907
+  },
+  {
+   "label": "321 East 73rd Street",
+   "lat": 40.769058,
+   "lon": -73.95659
+  },
+  {
+   "label": "323 East 34th Street",
+   "lat": 40.744488,
+   "lon": -73.974814
+  },
+  {
+   "label": "325 Columbus Avenue",
+   "lat": 40.779468,
+   "lon": -73.97704
+  },
+  {
+   "label": "326 East 35th Street",
+   "lat": 40.74479,
+   "lon": -73.97407
+  },
+  {
+   "label": "326 Spring Street",
+   "lat": 40.725903,
+   "lon": -74.009487
+  },
+  {
+   "label": "328 West 48th Street",
+   "lat": 40.761513,
+   "lon": -73.988723
+  },
+  {
+   "label": "33 7th Avenue",
+   "lat": 40.737475,
+   "lon": -74.000217
+  },
+  {
+   "label": "33 Central Park West",
+   "lat": 40.770833,
+   "lon": -73.980159
+  },
+  {
+   "label": "33 East 17th Street",
+   "lat": 40.736926,
+   "lon": -73.989601
+  },
+  {
+   "label": "33 East 23rd Street",
+   "lat": 40.740499,
+   "lon": -73.986497
+  },
+  {
+   "label": "33 Park Avenue",
+   "lat": 40.747943,
+   "lon": -73.980348
+  },
+  {
+   "label": "330 East 35th Street",
+   "lat": 40.744743,
+   "lon": -73.973957
+  },
+  {
+   "label": "330 Graham Avenue",
+   "lat": 40.71439,
+   "lon": -73.944105
+  },
+  {
+   "label": "330 West 58th Street",
+   "lat": 40.76773,
+   "lon": -73.983493
+  },
+  {
+   "label": "331 Riverside Drive",
+   "lat": 40.801698,
+   "lon": -73.970267
+  },
+  {
+   "label": "331 West 38th Street",
+   "lat": 40.755419,
+   "lon": -73.993015
+  },
+  {
+   "label": "333 West 17th Street",
+   "lat": 40.742756,
+   "lon": -74.002691
+  },
+  {
+   "label": "335 Columbus Avenue",
+   "lat": 40.779795,
+   "lon": -73.976803
+  },
+  {
+   "label": "335 Graham Avenue",
+   "lat": 40.714378,
+   "lon": -73.94452
+  },
+  {
+   "label": "337 Lafayette Street",
+   "lat": 40.725584,
+   "lon": -73.99474
+  },
+  {
+   "label": "338 Bedford Avenue",
+   "lat": 40.712848,
+   "lon": -73.962479
+  },
+  {
+   "label": "338 Columbus Avenue",
+   "lat": 40.779977,
+   "lon": -73.977196
+  },
+  {
+   "label": "339 East 38th Street",
+   "lat": 40.746478,
+   "lon": -73.971794
+  },
+  {
+   "label": "339 Graham Avenue",
+   "lat": 40.714744,
+   "lon": -73.944586
+  },
+  {
+   "label": "34 East 4th Street",
+   "lat": 40.727309,
+   "lon": -73.992288
+  },
+  {
+   "label": "34 West 37th Street",
+   "lat": 40.750812,
+   "lon": -73.985025
+  },
+  {
+   "label": "340 Bedford Avenue",
+   "lat": 40.712787,
+   "lon": -73.962517
+  },
+  {
+   "label": "340 Madison Avenue",
+   "lat": 40.75389,
+   "lon": -73.97877
+  },
+  {
+   "label": "341 Graham Avenue",
+   "lat": 40.714764,
+   "lon": -73.944589
+  },
+  {
+   "label": "343 Broome Street",
+   "lat": 40.719564,
+   "lon": -73.994805
+  },
+  {
+   "label": "344 Graham Avenue",
+   "lat": 40.714679,
+   "lon": -73.944223
+  },
+  {
+   "label": "345 East 15th Street",
+   "lat": 40.732577,
+   "lon": -73.982908
+  },
+  {
+   "label": "345 East 37th Street",
+   "lat": 40.746212,
+   "lon": -73.973151
+  },
+  {
+   "label": "345 Graham Avenue",
+   "lat": 40.71481,
+   "lon": -73.944597
+  },
+  {
+   "label": "346 Bedford Avenue",
+   "lat": 40.71242,
+   "lon": -73.962782
+  },
+  {
+   "label": "346 West 89th Street",
+   "lat": 40.791395,
+   "lon": -73.978576
+  },
+  {
+   "label": "347 Bedford Avenue",
+   "lat": 40.712032,
+   "lon": -73.962703
+  },
+  {
+   "label": "347 East 37th Street",
+   "lat": 40.746075,
+   "lon": -73.972737
+  },
+  {
+   "label": "347 Graham Avenue",
+   "lat": 40.714887,
+   "lon": -73.944609
+  },
+  {
+   "label": "349 5th Avenue",
+   "lat": 40.748168,
+   "lon": -73.984525
+  },
+  {
+   "label": "349 Bedford Avenue",
+   "lat": 40.711957,
+   "lon": -73.962745
+  },
+  {
+   "label": "35 7th Avenue",
+   "lat": 40.737584,
+   "lon": -74.000144
+  },
+  {
+   "label": "35 Hewes Street",
+   "lat": 40.700868,
+   "lon": -73.962142
+  },
+  {
+   "label": "350 5th Avenue",
+   "lat": 40.748429,
+   "lon": -73.985033
+  },
+  {
+   "label": "350 Grand Street",
+   "lat": 40.717378,
+   "lon": -73.98949
+  },
+  {
+   "label": "350 West 50th Street",
+   "lat": 40.762744,
+   "lon": -73.987894
+  },
+  {
+   "label": "352 Graham Avenue",
+   "lat": 40.714764,
+   "lon": -73.944251
+  },
+  {
+   "label": "352 West 39th Street",
+   "lat": 40.756247,
+   "lon": -73.993645
+  },
+  {
+   "label": "355 Amsterdam Avenue",
+   "lat": 40.781648,
+   "lon": -73.979174
+  },
+  {
+   "label": "358 5th Avenue",
+   "lat": 40.748764,
+   "lon": -73.984895
+  },
+  {
+   "label": "358 Graham Avenue",
+   "lat": 40.714968,
+   "lon": -73.944302
+  },
+  {
+   "label": "359 Bowery",
+   "lat": 40.726876,
+   "lon": -73.991353
+  },
+  {
+   "label": "360 Madison Avenue",
+   "lat": 40.755108,
+   "lon": -73.977809
+  },
+  {
+   "label": "360 W 31st Street",
+   "lat": 40.751144,
+   "lon": -73.997221
+  },
+  {
+   "label": "363 West 57th Street",
+   "lat": 40.767988,
+   "lon": -73.985434
+  },
+  {
+   "label": "365 West 34th Street",
+   "lat": 40.75338,
+   "lon": -73.995775
+  },
+  {
+   "label": "365 West End Avenue",
+   "lat": 40.783309,
+   "lon": -73.982209
+  },
+  {
+   "label": "366 Columbus Avenue",
+   "lat": 40.780841,
+   "lon": -73.976522
+  },
+  {
+   "label": "366 Union Avenue",
+   "lat": 40.711399,
+   "lon": -73.95101
+  },
+  {
+   "label": "367 West 34th Street",
+   "lat": 40.753369,
+   "lon": -73.995836
+  },
+  {
+   "label": "37 Broadway",
+   "lat": 40.706206,
+   "lon": -74.013263
+  },
+  {
+   "label": "37 Vandam Street",
+   "lat": 40.726544,
+   "lon": -74.005436
+  },
+  {
+   "label": "37 Wall Street",
+   "lat": 40.706582,
+   "lon": -74.01006
+  },
+  {
+   "label": "370 Lexington Avenue",
+   "lat": 40.750611,
+   "lon": -73.976824
+  },
+  {
+   "label": "373 5th Avenue",
+   "lat": 40.7491,
+   "lon": -73.983903
+  },
+  {
+   "label": "375 Pearl Street",
+   "lat": 40.703277,
+   "lon": -74.014134
+  },
+  {
+   "label": "379 Union Avenue",
+   "lat": 40.711785,
+   "lon": -73.95144
+  },
+  {
+   "label": "380 Amsterdam Avenue",
+   "lat": 40.782889,
+   "lon": -73.978816
+  },
+  {
+   "label": "386 South 5th Street",
+   "lat": 40.707729,
+   "lon": -73.953889
+  },
+  {
+   "label": "388 Union Avenue",
+   "lat": 40.712026,
+   "lon": -73.951117
+  },
+  {
+   "label": "38B Lexington Avenue",
+   "lat": 40.74015,
+   "lon": -73.984507
+  },
+  {
+   "label": "394 Broadway",
+   "lat": 40.707055,
+   "lon": -73.954357
+  },
+  {
+   "label": "4 Clinton Street",
+   "lat": 40.721179,
+   "lon": -73.983883
+  },
+  {
+   "label": "4 Columbus Circle",
+   "lat": 40.767511,
+   "lon": -73.982943
+  },
+  {
+   "label": "4 East 28th Street",
+   "lat": 40.744344,
+   "lon": -73.986707
+  },
+  {
+   "label": "4 Morton Street",
+   "lat": 40.731326,
+   "lon": -74.003405
+  },
+  {
+   "label": "4 Union Square South",
+   "lat": 40.734792,
+   "lon": -73.991359
+  },
+  {
+   "label": "4-85 47th Road",
+   "lat": 40.74553,
+   "lon": -73.956351
+  },
+  {
+   "label": "40 Broad Street",
+   "lat": 40.705947,
+   "lon": -74.011645
+  },
+  {
+   "label": "40 Division Street",
+   "lat": 40.714369,
+   "lon": -73.99571
+  },
+  {
+   "label": "40 North 6th Street",
+   "lat": 40.719743,
+   "lon": -73.962598
+  },
+  {
+   "label": "40-11 28th Street",
+   "lat": 40.752286,
+   "lon": -73.93646
+  },
+  {
+   "label": "40-34 Crescent Street",
+   "lat": 40.753067,
+   "lon": -73.938488
+  },
+  {
+   "label": "401 Park Avenue South",
+   "lat": 40.743128,
+   "lon": -73.983947
+  },
+  {
+   "label": "401 West 14th Street",
+   "lat": 40.741186,
+   "lon": -74.005457
+  },
+  {
+   "label": "401 West 42nd Street",
+   "lat": 40.758677,
+   "lon": -73.992725
+  },
+  {
+   "label": "402 West 34th Street",
+   "lat": 40.753388,
+   "lon": -73.996781
+  },
+  {
+   "label": "403 Amsterdam Avenue",
+   "lat": 40.783271,
+   "lon": -73.977982
+  },
+  {
+   "label": "403 Broadway",
+   "lat": 40.707139,
+   "lon": -73.953815
+  },
+  {
+   "label": "404 Lenox Avenue",
+   "lat": 40.810931,
+   "lon": -73.942837
+  },
+  {
+   "label": "405 Lexington Avenue",
+   "lat": 40.751855,
+   "lon": -73.975518
+  },
+  {
+   "label": "41 East 7th Street",
+   "lat": 40.728325,
+   "lon": -73.988657
+  },
+  {
+   "label": "41 River Terrace",
+   "lat": 40.7182,
+   "lon": -74.014807
+  },
+  {
+   "label": "41 Union Square West",
+   "lat": 40.737095,
+   "lon": -73.990566
+  },
+  {
+   "label": "410 East 100th Street",
+   "lat": 40.785134,
+   "lon": -73.942516
+  },
+  {
+   "label": "411 5th Avenue",
+   "lat": 40.750366,
+   "lon": -73.982918
+  },
+  {
+   "label": "415 East Houston Street",
+   "lat": 40.719779,
+   "lon": -73.979337
+  },
+  {
+   "label": "416 8th Avenue",
+   "lat": 40.75012,
+   "lon": -73.994754
+  },
+  {
+   "label": "417 5th Avenue",
+   "lat": 40.750696,
+   "lon": -73.982649
+  },
+  {
+   "label": "417 Lafayette Street",
+   "lat": 40.728835,
+   "lon": -73.992192
+  },
+  {
+   "label": "42 Pine Street",
+   "lat": 40.707206,
+   "lon": -74.009607
+  },
+  {
+   "label": "42 South Street",
+   "lat": 40.703623,
+   "lon": -74.007541
+  },
+  {
+   "label": "42 West 44th Street",
+   "lat": 40.755519,
+   "lon": -73.981993
+  },
+  {
+   "label": "420 9th Avenue",
+   "lat": 40.753129,
+   "lon": -73.996137
+  },
+  {
+   "label": "420 East 76th Street",
+   "lat": 40.769709,
+   "lon": -73.952975
+  },
+  {
+   "label": "421 9th Avenue",
+   "lat": 40.753138,
+   "lon": -73.996741
+  },
+  {
+   "label": "424 West 33rd Street",
+   "lat": 40.753019,
+   "lon": -73.99821
+  },
+  {
+   "label": "425 Lexington Avenue",
+   "lat": 40.752438,
+   "lon": -73.974725
+  },
+  {
+   "label": "425 Madison Avenue",
+   "lat": 40.756937,
+   "lon": -73.976066
+  },
+  {
+   "label": "425 Main Street",
+   "lat": 40.75881,
+   "lon": -73.953357
+  },
+  {
+   "label": "425 West 123rd Street",
+   "lat": 40.810626,
+   "lon": -73.955865
+  },
+  {
+   "label": "43 Bogart Street",
+   "lat": 40.705149,
+   "lon": -73.933375
+  },
+  {
+   "label": "43 East 7th Street",
+   "lat": 40.728293,
+   "lon": -73.98858
+  },
+  {
+   "label": "43 West 55th Street",
+   "lat": 40.762515,
+   "lon": -73.97669
+  },
+  {
+   "label": "430 Bedford Avenue",
+   "lat": 40.709195,
+   "lon": -73.964236
+  },
+  {
+   "label": "431 3rd Avenue",
+   "lat": 40.74323,
+   "lon": -73.979706
+  },
+  {
+   "label": "432 Amsterdam Avenue",
+   "lat": 40.784383,
+   "lon": -73.977655
+  },
+  {
+   "label": "433 Amsterdam Avenue",
+   "lat": 40.784192,
+   "lon": -73.977307
+  },
+  {
+   "label": "434 Amsterdam Avenue",
+   "lat": 40.784441,
+   "lon": -73.977614
+  },
+  {
+   "label": "435 Amsterdam Avenue",
+   "lat": 40.784271,
+   "lon": -73.97725
+  },
+  {
+   "label": "435 East 70th Street",
+   "lat": 40.765941,
+   "lon": -73.955164
+  },
+  {
+   "label": "44 West 44th St.",
+   "lat": 40.755594,
+   "lon": -73.982172
+  },
+  {
+   "label": "440 9th Avenue",
+   "lat": 40.753864,
+   "lon": -73.99568
+  },
+  {
+   "label": "441 Amsterdam Avenue",
+   "lat": 40.784492,
+   "lon": -73.977103
+  },
+  {
+   "label": "441 Columbus Avenue",
+   "lat": 40.7833,
+   "lon": -73.974249
+  },
+  {
+   "label": "444 Lenox Avenue",
+   "lat": 40.81223,
+   "lon": -73.941836
+  },
+  {
+   "label": "45 East 28th Street",
+   "lat": 40.7436,
+   "lon": -73.984447
+  },
+  {
+   "label": "45 Wall Street",
+   "lat": 40.706446,
+   "lon": -74.009899
+  },
+  {
+   "label": "45 West 14th Street",
+   "lat": 40.737016,
+   "lon": -73.995611
+  },
+  {
+   "label": "453 Broome Street",
+   "lat": 40.722188,
+   "lon": -74.000943
+  },
+  {
+   "label": "454 9th Avenue",
+   "lat": 40.754189,
+   "lon": -73.995489
+  },
+  {
+   "label": "455 Main Street",
+   "lat": 40.759211,
+   "lon": -73.952579
+  },
+  {
+   "label": "455 Park Avenue South",
+   "lat": 40.744894,
+   "lon": -73.982617
+  },
+  {
+   "label": "456 9th Avenue",
+   "lat": 40.754257,
+   "lon": -73.995434
+  },
+  {
+   "label": "457 River Road",
+   "lat": 40.813095,
+   "lon": -73.984347
+  },
+  {
+   "label": "459 Park Avenue South",
+   "lat": 40.745018,
+   "lon": -73.982625
+  },
+  {
+   "label": "460 9th Avenue",
+   "lat": 40.754377,
+   "lon": -73.995339
+  },
+  {
+   "label": "460 Park Avenue South",
+   "lat": 40.745169,
+   "lon": -73.982983
+  },
+  {
+   "label": "460 West 57th Street",
+   "lat": 40.768911,
+   "lon": -73.988485
+  },
+  {
+   "label": "4615 Center Boulevard",
+   "lat": 40.747141,
+   "lon": -73.956043
+  },
+  {
+   "label": "462 9th Avenue",
+   "lat": 40.754437,
+   "lon": -73.995301
+  },
+  {
+   "label": "462 Broadway",
+   "lat": 40.72089,
+   "lon": -74.000393
+  },
+  {
+   "label": "464 Park Avenue South",
+   "lat": 40.745354,
+   "lon": -73.982823
+  },
+  {
+   "label": "466 Grand Street",
+   "lat": 40.715245,
+   "lon": -73.983741
+  },
+  {
+   "label": "47-11 11th Street",
+   "lat": 40.744538,
+   "lon": -73.950663
+  },
+  {
+   "label": "470 Park Avenue South",
+   "lat": 40.745766,
+   "lon": -73.982523
+  },
+  {
+   "label": "4705 Center Boulevard",
+   "lat": 40.745618,
+   "lon": -73.956797
+  },
+  {
+   "label": "472 West 44th Street",
+   "lat": 40.76039,
+   "lon": -73.994141
+  },
+  {
+   "label": "477 Central Park West",
+   "lat": 40.799317,
+   "lon": -73.959366
+  },
+  {
+   "label": "477 Madison Avenue",
+   "lat": 40.758565,
+   "lon": -73.974853
+  },
+  {
+   "label": "480 7th Avenue",
+   "lat": 40.752264,
+   "lon": -73.98993
+  },
+  {
+   "label": "481 8th Avenue",
+   "lat": 40.752443,
+   "lon": -73.99355
+  },
+  {
+   "label": "481 Broadway",
+   "lat": 40.721549,
+   "lon": -74.000259
+  },
+  {
+   "label": "484 Broadway",
+   "lat": 40.721549,
+   "lon": -73.999866
+  },
+  {
+   "label": "486 Broadway",
+   "lat": 40.721625,
+   "lon": -73.99981
+  },
+  {
+   "label": "49 Murray Street",
+   "lat": 40.714188,
+   "lon": -74.009398
+  },
+  {
+   "label": "494 8th Avenue",
+   "lat": 40.752611,
+   "lon": -73.992916
+  },
+  {
+   "label": "494 Broome Street",
+   "lat": 40.723259,
+   "lon": -74.002576
+  },
+  {
+   "label": "5 Avenue A",
+   "lat": 40.722509,
+   "lon": -73.986295
+  },
+  {
+   "label": "5 East 19th Street",
+   "lat": 40.738919,
+   "lon": -73.990707
+  },
+  {
+   "label": "5 Gold Street",
+   "lat": 40.707456,
+   "lon": -74.007256
+  },
+  {
+   "label": "5 Hanover Square",
+   "lat": 40.704919,
+   "lon": -74.009314
+  },
+  {
+   "label": "5 Hudson Street",
+   "lat": 40.71606,
+   "lon": -74.00935
+  },
+  {
+   "label": "5 Washington Place",
+   "lat": 40.72946,
+   "lon": -73.994276
+  },
+  {
+   "label": "50 Beaver Street",
+   "lat": 40.705021,
+   "lon": -74.010475
+  },
+  {
+   "label": "50 Pine Street",
+   "lat": 40.706856,
+   "lon": -74.008682
+  },
+  {
+   "label": "500 8th Avenue",
+   "lat": 40.752885,
+   "lon": -73.992679
+  },
+  {
+   "label": "500 Grand Street",
+   "lat": 40.714932,
+   "lon": -73.982697
+  },
+  {
+   "label": "5007 Vernon Boulevard",
+   "lat": 40.742658,
+   "lon": -73.954324
+  },
+  {
+   "label": "501 5th Avenue",
+   "lat": 40.75326,
+   "lon": -73.98081
+  },
+  {
+   "label": "501 6th Avenue",
+   "lat": 40.736607,
+   "lon": -73.997619
+  },
+  {
+   "label": "503 Broadway",
+   "lat": 40.722322,
+   "lon": -73.999624
+  },
+  {
+   "label": "505 Bedford Avenue",
+   "lat": 40.706108,
+   "lon": -73.963051
+  },
+  {
+   "label": "505 Grand Street",
+   "lat": 40.714546,
+   "lon": -73.982348
+  },
+  {
+   "label": "508 East 120th Street",
+   "lat": 40.796925,
+   "lon": -73.930142
+  },
+  {
+   "label": "509 West 129th Street",
+   "lat": 40.815991,
+   "lon": -73.955693
+  },
+  {
+   "label": "51 East 42nd Street",
+   "lat": 40.752592,
+   "lon": -73.981337
+  },
+  {
+   "label": "510 Park Avenue",
+   "lat": 40.763537,
+   "lon": -73.969723
+  },
+  {
+   "label": "511 Grand Street",
+   "lat": 40.714484,
+   "lon": -73.982159
+  },
+  {
+   "label": "512-516 West 125th Street",
+   "lat": 40.81447,
+   "lon": -73.956233
+  },
+  {
+   "label": "518 Hudson Street",
+   "lat": 40.733795,
+   "lon": -74.006464
+  },
+  {
+   "label": "52 Beaver Street",
+   "lat": 40.705018,
+   "lon": -74.010447
+  },
+  {
+   "label": "52 Water Street",
+   "lat": 40.703177,
+   "lon": -73.991921
+  },
+  {
+   "label": "521 Grand Street",
+   "lat": 40.714385,
+   "lon": -73.981835
+  },
+  {
+   "label": "525 5th Avenue",
+   "lat": 40.747436,
+   "lon": -73.98502
+  },
+  {
+   "label": "525 Grand Street",
+   "lat": 40.714336,
+   "lon": -73.981694
+  },
+  {
+   "label": "525 West 21st Street",
+   "lat": 40.747092,
+   "lon": -74.006435
+  },
+  {
+   "label": "529 West 121st Street",
+   "lat": 40.811024,
+   "lon": -73.960832
+  },
+  {
+   "label": "53 Christopher Street",
+   "lat": 40.733816,
+   "lon": -74.002161
+  },
+  {
+   "label": "53 Nassau Street",
+   "lat": 40.708996,
+   "lon": -74.00908
+  },
+  {
+   "label": "530 Amsterdam Avenue",
+   "lat": 40.787468,
+   "lon": -73.975434
+  },
+  {
+   "label": "535 East 119th Street",
+   "lat": 40.796453,
+   "lon": -73.930004
+  },
+  {
+   "label": "535;535A Amsterdam Avenue",
+   "lat": 40.787446,
+   "lon": -73.974949
+  },
+  {
+   "label": "54 Pearl Street",
+   "lat": 40.703387,
+   "lon": -74.011354
+  },
+  {
+   "label": "541 Lexington Avenue",
+   "lat": 40.755986,
+   "lon": -73.972503
+  },
+  {
+   "label": "542 9th Avenue",
+   "lat": 40.756956,
+   "lon": -73.993444
+  },
+  {
+   "label": "546 6th Avenue",
+   "lat": 40.737815,
+   "lon": -73.996233
+  },
+  {
+   "label": "546 Broadway",
+   "lat": 40.723502,
+   "lon": -73.998176
+  },
+  {
+   "label": "55 Broad Street",
+   "lat": 40.705173,
+   "lon": -74.011298
+  },
+  {
+   "label": "55 Edgecombe Avenue",
+   "lat": 40.818611,
+   "lon": -73.946944
+  },
+  {
+   "label": "55 Wall Street",
+   "lat": 40.706139,
+   "lon": -74.009392
+  },
+  {
+   "label": "55 Washington Street",
+   "lat": 40.702617,
+   "lon": -73.989442
+  },
+  {
+   "label": "550 3rd Avenue",
+   "lat": 40.747385,
+   "lon": -73.977153
+  },
+  {
+   "label": "550 Madison Avenue",
+   "lat": 40.761226,
+   "lon": -73.973555
+  },
+  {
+   "label": "551 Grand Street",
+   "lat": 40.713787,
+   "lon": -73.980594
+  },
+  {
+   "label": "555 5th Avenue",
+   "lat": 40.755823,
+   "lon": -73.978797
+  },
+  {
+   "label": "557 Grand Street",
+   "lat": 40.713889,
+   "lon": -73.980158
+  },
+  {
+   "label": "56 Beaver Street",
+   "lat": 40.705042,
+   "lon": -74.010205
+  },
+  {
+   "label": "56 East 93rd Street",
+   "lat": 40.784957,
+   "lon": -73.955202
+  },
+  {
+   "label": "564 3rd Avenue",
+   "lat": 40.748169,
+   "lon": -73.976608
+  },
+  {
+   "label": "565 Grand Street",
+   "lat": 40.713777,
+   "lon": -73.97987
+  },
+  {
+   "label": "57 East 54th Street",
+   "lat": 40.760171,
+   "lon": -73.973004
+  },
+  {
+   "label": "57 East 55th Street",
+   "lat": 40.760793,
+   "lon": -73.972564
+  },
+  {
+   "label": "57 Murray Street",
+   "lat": 40.714327,
+   "lon": -74.009704
+  },
+  {
+   "label": "57 Pearl Street",
+   "lat": 40.702996,
+   "lon": -73.987475
+  },
+  {
+   "label": "57 South 5th Street",
+   "lat": 40.71218,
+   "lon": -73.966215
+  },
+  {
+   "label": "57 Wall Street",
+   "lat": 40.705994,
+   "lon": -74.009065
+  },
+  {
+   "label": "570 10th Avenue",
+   "lat": 40.759085,
+   "lon": -73.995439
+  },
+  {
+   "label": "570 2nd Avenue",
+   "lat": 40.742908,
+   "lon": -73.976778
+  },
+  {
+   "label": "572 11th Avenue",
+   "lat": 40.761576,
+   "lon": -73.997345
+  },
+  {
+   "label": "572 Amsterdam Avenue",
+   "lat": 40.788895,
+   "lon": -73.974377
+  },
+  {
+   "label": "575 5th Avenue",
+   "lat": 40.756421,
+   "lon": -73.978498
+  },
+  {
+   "label": "58 East 68th Street",
+   "lat": 40.768435,
+   "lon": -73.96625
+  },
+  {
+   "label": "580 West End Avenue",
+   "lat": 40.79023,
+   "lon": -73.976623
+  },
+  {
+   "label": "582 9th Avenue",
+   "lat": 40.758505,
+   "lon": -73.992338
+  },
+  {
+   "label": "585 2nd Avenue",
+   "lat": 40.743687,
+   "lon": -73.976931
+  },
+  {
+   "label": "59 Maiden Lane",
+   "lat": 40.708641,
+   "lon": -74.007491
+  },
+  {
+   "label": "590 Avenue of the Americas",
+   "lat": 40.738936,
+   "lon": -73.995424
+  },
+  {
+   "label": "590 West End Avenue",
+   "lat": 40.790545,
+   "lon": -73.976393
+  },
+  {
+   "label": "592 5th Avenue",
+   "lat": 40.757249,
+   "lon": -73.978407
+  },
+  {
+   "label": "595 West End Avenue",
+   "lat": 40.790697,
+   "lon": -73.976816
+  },
+  {
+   "label": "6 East 48th Street",
+   "lat": 40.757084,
+   "lon": -73.977893
+  },
+  {
+   "label": "6 Edgecombe Avenue",
+   "lat": 40.817177,
+   "lon": -73.947492
+  },
+  {
+   "label": "6 Extra Place",
+   "lat": 40.724845,
+   "lon": -73.991441
+  },
+  {
+   "label": "6 West 33rd Street",
+   "lat": 40.748002,
+   "lon": -73.985882
+  },
+  {
+   "label": "60 Beaver Street",
+   "lat": 40.705126,
+   "lon": -74.009617
+  },
+  {
+   "label": "60 Broad Street",
+   "lat": 40.70546,
+   "lon": -74.011721
+  },
+  {
+   "label": "60 East 78th Street",
+   "lat": 40.775113,
+   "lon": -73.961805
+  },
+  {
+   "label": "60 Lincoln Center Plaza",
+   "lat": 40.773839,
+   "lon": -73.983102
+  },
+  {
+   "label": "60 Madison Avenue",
+   "lat": 40.743183,
+   "lon": -73.986547
+  },
+  {
+   "label": "60 West 129th Street",
+   "lat": 40.810011,
+   "lon": -73.943182
+  },
+  {
+   "label": "60 West 23rd Street",
+   "lat": 40.742646,
+   "lon": -73.992697
+  },
+  {
+   "label": "600 Columbus Avenue",
+   "lat": 40.78862,
+   "lon": -73.970877
+  },
+  {
+   "label": "600 East 125th Street",
+   "lat": 40.786528,
+   "lon": -73.932257
+  },
+  {
+   "label": "61 West 8th Steet",
+   "lat": 40.733508,
+   "lon": -73.999067
+  },
+  {
+   "label": "62 East 4th Street",
+   "lat": 40.726571,
+   "lon": -73.990639
+  },
+  {
+   "label": "62 Manhattan Avenue",
+   "lat": 40.796545,
+   "lon": -73.962798
+  },
+  {
+   "label": "620 9th Avenue",
+   "lat": 40.759519,
+   "lon": -73.99156
+  },
+  {
+   "label": "620 West 50th Street",
+   "lat": 40.758627,
+   "lon": -73.978144
+  },
+  {
+   "label": "623 9th Avenue",
+   "lat": 40.75989,
+   "lon": -73.991794
+  },
+  {
+   "label": "625 Columbus Avenue",
+   "lat": 40.789257,
+   "lon": -73.969833
+  },
+  {
+   "label": "625 Eighth Avenue",
+   "lat": 40.757236,
+   "lon": -73.989117
+  },
+  {
+   "label": "626 11th Avenue",
+   "lat": 40.763192,
+   "lon": -73.996326
+  },
+  {
+   "label": "628 Broadway",
+   "lat": 40.725998,
+   "lon": -73.99596
+  },
+  {
+   "label": "630 9th Avenue",
+   "lat": 40.760161,
+   "lon": -73.991107
+  },
+  {
+   "label": "633 Columbus Avenue",
+   "lat": 40.789435,
+   "lon": -73.969684
+  },
+  {
+   "label": "64 Beaver Street",
+   "lat": 40.705175,
+   "lon": -74.009281
+  },
+  {
+   "label": "64 Mott Street",
+   "lat": 40.716059,
+   "lon": -73.998094
+  },
+  {
+   "label": "640 5th Avenue",
+   "lat": 40.75944,
+   "lon": -73.9768
+  },
+  {
+   "label": "647 5th Avenue",
+   "lat": 40.760165,
+   "lon": -73.976054
+  },
+  {
+   "label": "65 West 96th Street",
+   "lat": 40.792908,
+   "lon": -73.967045
+  },
+  {
+   "label": "65 West Broadway",
+   "lat": 40.715496,
+   "lon": -74.006243
+  },
+  {
+   "label": "652 Meeker Avenue",
+   "lat": 40.722037,
+   "lon": -73.940446
+  },
+  {
+   "label": "653 11th Avenue",
+   "lat": 40.764515,
+   "lon": -73.995886
+  },
+  {
+   "label": "653 Broadway",
+   "lat": 40.726972,
+   "lon": -73.995672
+  },
+  {
+   "label": "656 Amsterdam Avenue",
+   "lat": 40.791678,
+   "lon": -73.97235
+  },
+  {
+   "label": "659 Broadway",
+   "lat": 40.727125,
+   "lon": -73.995546
+  },
+  {
+   "label": "65B Wall Street",
+   "lat": 40.705832,
+   "lon": -74.008702
+  },
+  {
+   "label": "66 5th Avenue",
+   "lat": 40.735357,
+   "lon": -73.994533
+  },
+  {
+   "label": "66 Meserole Avenue",
+   "lat": 40.726349,
+   "lon": -73.954515
+  },
+  {
+   "label": "66 Pearl Street",
+   "lat": 40.703525,
+   "lon": -74.010888
+  },
+  {
+   "label": "66 Water Street",
+   "lat": 40.703162,
+   "lon": -73.991467
+  },
+  {
+   "label": "665 Broadway",
+   "lat": 40.727415,
+   "lon": -73.995432
+  },
+  {
+   "label": "67 University Place",
+   "lat": 40.732896,
+   "lon": -73.993479
+  },
+  {
+   "label": "675 Hudson Street",
+   "lat": 40.740256,
+   "lon": -74.005535
+  },
+  {
+   "label": "68 Avenue A",
+   "lat": 40.724612,
+   "lon": -73.984377
+  },
+  {
+   "label": "681 5th Avenue",
+   "lat": 40.760683,
+   "lon": -73.9754
+  },
+  {
+   "label": "683 Broadway",
+   "lat": 40.727976,
+   "lon": -73.994851
+  },
+  {
+   "label": "685 Amsterdam Avenue",
+   "lat": 40.792178,
+   "lon": -73.971484
+  },
+  {
+   "label": "685 Broadway",
+   "lat": 40.728069,
+   "lon": -73.994745
+  },
+  {
+   "label": "687 Amsterdam Avenue",
+   "lat": 40.792275,
+   "lon": -73.971413
+  },
+  {
+   "label": "687 Broadway",
+   "lat": 40.72822,
+   "lon": -73.994632
+  },
+  {
+   "label": "687A Broadway",
+   "lat": 40.728098,
+   "lon": -73.994721
+  },
+  {
+   "label": "691 Amsterdam Avenue",
+   "lat": 40.792362,
+   "lon": -73.97135
+  },
+  {
+   "label": "697 5th Avenue",
+   "lat": 40.761308,
+   "lon": -73.974929
+  },
+  {
+   "label": "69A Wall Street",
+   "lat": 40.70572,
+   "lon": -74.008459
+  },
+  {
+   "label": "7 Carmine Street",
+   "lat": 40.730547,
+   "lon": -74.002063
+  },
+  {
+   "label": "7 State Street",
+   "lat": 40.702559,
+   "lon": -74.013721
+  },
+  {
+   "label": "70 Grand Street",
+   "lat": 40.715694,
+   "lon": -73.964733
+  },
+  {
+   "label": "70 Park Avenue",
+   "lat": 40.7498,
+   "lon": -73.979661
+  },
+  {
+   "label": "700 6th Avenue",
+   "lat": 40.742588,
+   "lon": -73.992793
+  },
+  {
+   "label": "700 Amsterdam Avenue",
+   "lat": 40.792734,
+   "lon": -73.971581
+  },
+  {
+   "label": "700 Columbus Avenue",
+   "lat": 40.791879,
+   "lon": -73.968588
+  },
+  {
+   "label": "700 East 9th Street",
+   "lat": 40.725087,
+   "lon": -73.977763
+  },
+  {
+   "label": "702 Amsterdam Avenue",
+   "lat": 40.792932,
+   "lon": -73.97142
+  },
+  {
+   "label": "704 Broadway",
+   "lat": 40.728693,
+   "lon": -73.9937
+  },
+  {
+   "label": "705 Columbus Avenue",
+   "lat": 40.79142,
+   "lon": -73.967799
+  },
+  {
+   "label": "706 Amsterdam Avenue",
+   "lat": 40.793022,
+   "lon": -73.971353
+  },
+  {
+   "label": "708 Amsterdam Avenue",
+   "lat": 40.793072,
+   "lon": -73.971321
+  },
+  {
+   "label": "708 Broadway",
+   "lat": 40.728587,
+   "lon": -73.993802
+  },
+  {
+   "label": "71 8th Avenue",
+   "lat": 40.739432,
+   "lon": -74.00303
+  },
+  {
+   "label": "71 South 7th Avenue",
+   "lat": 40.73226,
+   "lon": -74.003346
+  },
+  {
+   "label": "710 Broadway",
+   "lat": 40.728628,
+   "lon": -73.993764
+  },
+  {
+   "label": "714 Amsterdam Avenue",
+   "lat": 40.793233,
+   "lon": -73.971172
+  },
+  {
+   "label": "716 6th Avenue",
+   "lat": 40.743018,
+   "lon": -73.992431
+  },
+  {
+   "label": "716 Broadway",
+   "lat": 40.728795,
+   "lon": -73.993635
+  },
+  {
+   "label": "72 Hudson Avenue",
+   "lat": 40.702758,
+   "lon": -73.981237
+  },
+  {
+   "label": "72 Spring Street",
+   "lat": 40.722517,
+   "lon": -73.997904
+  },
+  {
+   "label": "72 Wall Street",
+   "lat": 40.705765,
+   "lon": -74.008051
+  },
+  {
+   "label": "721 Columbus Avenue",
+   "lat": 40.792194,
+   "lon": -73.967692
+  },
+  {
+   "label": "722 Amsterdam Avenue",
+   "lat": 40.793627,
+   "lon": -73.970942
+  },
+  {
+   "label": "722 Broadway",
+   "lat": 40.729079,
+   "lon": -73.993378
+  },
+  {
+   "label": "724 Columbus Avenue",
+   "lat": 40.792385,
+   "lon": -73.968177
+  },
+  {
+   "label": "725 Columbus Avenue",
+   "lat": 40.792241,
+   "lon": -73.967636
+  },
+  {
+   "label": "726 Broadway",
+   "lat": 40.729222,
+   "lon": -73.993239
+  },
+  {
+   "label": "73 8th Avenue",
+   "lat": 40.739495,
+   "lon": -74.002986
+  },
+  {
+   "label": "73 Jay Street",
+   "lat": 40.70253,
+   "lon": -73.986552
+  },
+  {
+   "label": "730 Broadway",
+   "lat": 40.729335,
+   "lon": -73.993131
+  },
+  {
+   "label": "730 Columbus Avenue",
+   "lat": 40.7927,
+   "lon": -73.967948
+  },
+  {
+   "label": "731 Columbus Avenue",
+   "lat": 40.792394,
+   "lon": -73.967545
+  },
+  {
+   "label": "733 Amsterdam Avenue",
+   "lat": 40.793706,
+   "lon": -73.970378
+  },
+  {
+   "label": "734 Amsterdam Avenue",
+   "lat": 40.793996,
+   "lon": -73.970647
+  },
+  {
+   "label": "74 Pearl Street",
+   "lat": 40.703714,
+   "lon": -74.010478
+  },
+  {
+   "label": "74 Wall Street",
+   "lat": 40.705707,
+   "lon": -74.007932
+  },
+  {
+   "label": "741 Columbus Avenue",
+   "lat": 40.793304,
+   "lon": -73.966883
+  },
+  {
+   "label": "75 9th Avenue",
+   "lat": 40.742051,
+   "lon": -74.004897
+  },
+  {
+   "label": "75 Maiden Lane",
+   "lat": 40.707653,
+   "lon": -74.007627
+  },
+  {
+   "label": "75 Wall Street",
+   "lat": 40.705202,
+   "lon": -74.008068
+  },
+  {
+   "label": "752 Metropolitan Avenue",
+   "lat": 40.714447,
+   "lon": -73.943921
+  },
+  {
+   "label": "76 9th Avenue",
+   "lat": 40.741836,
+   "lon": -74.004336
+  },
+  {
+   "label": "760 Amsterdam Avenue",
+   "lat": 40.794916,
+   "lon": -73.969993
+  },
+  {
+   "label": "762 Amsterdam Avenue",
+   "lat": 40.794968,
+   "lon": -73.969956
+  },
+  {
+   "label": "764 Amsterdam Avenue",
+   "lat": 40.795037,
+   "lon": -73.969906
+  },
+  {
+   "label": "769 Metropolitan Avenue",
+   "lat": 40.714753,
+   "lon": -73.94342
+  },
+  {
+   "label": "770 Broadway",
+   "lat": 40.730885,
+   "lon": -73.991638
+  },
+  {
+   "label": "774 Amsterdam Avenue",
+   "lat": 40.795341,
+   "lon": -73.969686
+  },
+  {
+   "label": "774 Driggs Avenue",
+   "lat": 40.711917,
+   "lon": -73.96119
+  },
+  {
+   "label": "775 Columbus Avenue",
+   "lat": 40.793924,
+   "lon": -73.966497
+  },
+  {
+   "label": "783 Driggs Avenue",
+   "lat": 40.711459,
+   "lon": -73.961203
+  },
+  {
+   "label": "785 9th Avenue",
+   "lat": 40.765042,
+   "lon": -73.988062
+  },
+  {
+   "label": "785 Columbus Avenue",
+   "lat": 40.793662,
+   "lon": -73.966683
+  },
+  {
+   "label": "79 2nd Avenue",
+   "lat": 40.726633,
+   "lon": -73.989334
+  },
+  {
+   "label": "79 Baxter Street",
+   "lat": 40.716507,
+   "lon": -73.999829
+  },
+  {
+   "label": "790 Greenwich Street",
+   "lat": 40.737193,
+   "lon": -74.006644
+  },
+  {
+   "label": "797 3rd Avenue",
+   "lat": 40.755255,
+   "lon": -73.970951
+  },
+  {
+   "label": "8 Freeman Alley",
+   "lat": 40.721989,
+   "lon": -73.992442
+  },
+  {
+   "label": "8 State Street",
+   "lat": 40.702575,
+   "lon": -74.013828
+  },
+  {
+   "label": "80 Broad Street",
+   "lat": 40.704162,
+   "lon": -74.011723
+  },
+  {
+   "label": "80 Columbus Circle",
+   "lat": 40.76901,
+   "lon": -73.982912
+  },
+  {
+   "label": "80 Delancey Street",
+   "lat": 40.719348,
+   "lon": -73.989998
+  },
+  {
+   "label": "80 Pearl Street",
+   "lat": 40.703102,
+   "lon": -73.987862
+  },
+  {
+   "label": "803 West 37th Street",
+   "lat": 40.753705,
+   "lon": -73.991412
+  },
+  {
+   "label": "805 Columbus Avenue",
+   "lat": 40.795232,
+   "lon": -73.965539
+  },
+  {
+   "label": "808 Columbus Avenue",
+   "lat": 40.794132,
+   "lon": -73.966884
+  },
+  {
+   "label": "809 United Nations Plaza",
+   "lat": 40.751192,
+   "lon": -73.968406
+  },
+  {
+   "label": "81 Broadway",
+   "lat": 40.710687,
+   "lon": -73.965677
+  },
+  {
+   "label": "81 Essex Street",
+   "lat": 40.718123,
+   "lon": -73.988621
+  },
+  {
+   "label": "81 Mott street",
+   "lat": 40.716614,
+   "lon": -73.998003
+  },
+  {
+   "label": "81 South 6th Street",
+   "lat": 40.711069,
+   "lon": -73.965168
+  },
+  {
+   "label": "810 8th Avenue",
+   "lat": 40.761717,
+   "lon": -73.986292
+  },
+  {
+   "label": "82 South 4th Street",
+   "lat": 40.712472,
+   "lon": -73.964768
+  },
+  {
+   "label": "828 Broadway",
+   "lat": 40.73328,
+   "lon": -73.99094
+  },
+  {
+   "label": "83 Maiden Lane",
+   "lat": 40.707494,
+   "lon": -74.00753
+  },
+  {
+   "label": "83 Saint Marks Place",
+   "lat": 40.727773,
+   "lon": -73.985401
+  },
+  {
+   "label": "84 3rd Avenue",
+   "lat": 40.731745,
+   "lon": -73.988533
+  },
+  {
+   "label": "84 Stanton Street",
+   "lat": 40.721651,
+   "lon": -73.988822
+  },
+  {
+   "label": "84 William Street",
+   "lat": 40.707952,
+   "lon": -74.00783
+  },
+  {
+   "label": "840 9th Avenue",
+   "lat": 40.766416,
+   "lon": -73.986588
+  },
+  {
+   "label": "85 Broadway",
+   "lat": 40.710677,
+   "lon": -73.965598
+  },
+  {
+   "label": "850 5th Avenue",
+   "lat": 40.767229,
+   "lon": -73.971582
+  },
+  {
+   "label": "85B Bayard Street",
+   "lat": 40.715726,
+   "lon": -73.999016
+  },
+  {
+   "label": "863 9th Avenue",
+   "lat": 40.767455,
+   "lon": -73.986342
+  },
+  {
+   "label": "866 3rd Avenue",
+   "lat": 40.757585,
+   "lon": -73.969761
+  },
+  {
+   "label": "87 Baxter Street",
+   "lat": 40.71679,
+   "lon": -73.999671
+  },
+  {
+   "label": "879 9th Avenue",
+   "lat": 40.768126,
+   "lon": -73.985779
+  },
+  {
+   "label": "885 9th Avenue",
+   "lat": 40.768276,
+   "lon": -73.985687
+  },
+  {
+   "label": "892 Amsterdam Avenue",
+   "lat": 40.798935,
+   "lon": -73.967056
+  },
+  {
+   "label": "90 Broad Street",
+   "lat": 40.703888,
+   "lon": -74.011764
+  },
+  {
+   "label": "90 Maiden Lane",
+   "lat": 40.707035,
+   "lon": -74.007365
+  },
+  {
+   "label": "90 Park Avenue",
+   "lat": 40.7505,
+   "lon": -73.97916
+  },
+  {
+   "label": "90 South 4th st",
+   "lat": 40.71228,
+   "lon": -73.964396
+  },
+  {
+   "label": "90 William Street",
+   "lat": 40.708235,
+   "lon": -74.007615
+  },
+  {
+   "label": "900 8th Avenue",
+   "lat": 40.764238,
+   "lon": -73.98438
+  },
+  {
+   "label": "900 Broadway",
+   "lat": 40.739,
+   "lon": -73.989649
+  },
+  {
+   "label": "9001 Bergenline Avenue",
+   "lat": 40.808723,
+   "lon": -74.002438
+  },
+  {
+   "label": "901 Broadway",
+   "lat": 40.739122,
+   "lon": -73.989992
+  },
+  {
+   "label": "905 Metropolitan Avenue",
+   "lat": 40.714701,
+   "lon": -73.938865
+  },
+  {
+   "label": "91 South 4th Street",
+   "lat": 40.712497,
+   "lon": -73.964279
+  },
+  {
+   "label": "91 Water Street",
+   "lat": 40.703351,
+   "lon": -73.990979
+  },
+  {
+   "label": "9105 Bergenline Avenue",
+   "lat": 40.809131,
+   "lon": -74.001802
+  },
+  {
+   "label": "917 9th Avenue",
+   "lat": 40.768885,
+   "lon": -73.985232
+  },
+  {
+   "label": "92 8th Avenue",
+   "lat": 40.740066,
+   "lon": -74.002035
+  },
+  {
+   "label": "924 Broadway",
+   "lat": 40.73999,
+   "lon": -73.989352
+  },
+  {
+   "label": "92a 8th Avenue",
+   "lat": 40.740084,
+   "lon": -74.002022
+  },
+  {
+   "label": "93 Avenue D",
+   "lat": 40.723415,
+   "lon": -73.977108
+  },
+  {
+   "label": "93 East 7th Street",
+   "lat": 40.726905,
+   "lon": -73.985321
+  },
+  {
+   "label": "94 Bayard Street",
+   "lat": 40.716072,
+   "lon": -73.99942
+  },
+  {
+   "label": "95 East 10th Street",
+   "lat": 40.73098,
+   "lon": -73.989362
+  },
+  {
+   "label": "95 Meserole Avenue",
+   "lat": 40.726993,
+   "lon": -73.953335
+  },
+  {
+   "label": "95 Wall Street",
+   "lat": 40.704615,
+   "lon": -74.007851
+  },
+  {
+   "label": "97 Kenmare Street",
+   "lat": 40.72148,
+   "lon": -73.997103
+  },
+  {
+   "label": "975 Columbus Avenue",
+   "lat": 40.800377,
+   "lon": -73.961806
+  },
+  {
+   "label": "98 Gold Street",
+   "lat": 40.702169,
+   "lon": -73.982985
+  },
+  {
+   "label": "99 East 52nd Street",
+   "lat": 40.758095,
+   "lon": -73.972022
+  },
+  {
+   "label": "99 John Street",
+   "lat": 40.708252,
+   "lon": -74.006359
+  }
+ ]
+}

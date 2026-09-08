@@ -12,7 +12,7 @@ services:
     volumes: [models:/models]
     networks: [fleet]
 
-  guarded-taxi-a:
+  guarded-drone-01:
     environment:
       LLM_BASE_URL: http://llm-edge:8080/v1
       MODEL_NANO: nemotron-nano-9b-v2

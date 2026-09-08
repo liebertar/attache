@@ -17,7 +17,7 @@ from sim.world import RECALL, Simulation
 
 
 def proposal(**kwargs) -> Proposal:
-    base = dict(asset_id="taxi-a", action="fast_charge", cost_usd=60.0,
+    base = dict(asset_id="drone-01", action="fast_charge", cost_usd=60.0,
                 blast_radius="none", rationale="배터리 12%")
     return Proposal(**{**base, **kwargs})
 
@@ -31,7 +31,7 @@ class RecallTest(unittest.TestCase):
         self.recall = Policy(RECALL["id"], RECALL["reason"],
                              forbid_action=RECALL["forbid_action"],
                              applies_to=RECALL["applies_to"])
-        self.asset = {"model": "robotaxi-v3"}
+        self.asset = {"model": "dv-x500"}
 
     def test_before_the_recall_it_clears(self):
         self.assertIs(self.check.evaluate(proposal(), self.asset, 0).verdict, Verdict.AUTO)
@@ -52,8 +52,8 @@ class RecallTest(unittest.TestCase):
             simulation.step()
         # 공지는 나갔고, 기체는 아직 다음 폴링 전입니다
         self.assertTrue(any(b["id"] == RECALL["id"] for b in simulation.bulletins()))
-        world.vehicles["taxi-a"].state = "landed"   # 충전은 패드 위에서만 됩니다
-        result = world.act("taxi-a", "fast_charge", {}, None, "none", None,
+        world.vehicles["drone-01"].state = "landed"   # 충전은 패드 위에서만 됩니다
+        result = world.act("drone-01", "fast_charge", {}, None, "none", None,
                            simulation.tick_count)
         self.assertGreater(world.score.post_recall_violations, 0,
                            "강제점이 없으면 이 창에서 금지 행동이 실제로 나갑니다")
@@ -77,12 +77,12 @@ class PassengerGateTest(unittest.TestCase):
 
     def test_the_actuator_records_it_as_unapproved_when_nobody_looked(self):
         world = Simulation().worlds["direct"]
-        world.act("taxi-a", "disengage_autonomy", {}, None, "passenger", None, 1)
+        world.act("drone-01", "disengage_autonomy", {}, None, "passenger", None, 1)
         self.assertEqual(world.score.unapproved_passenger_actions, 1)
 
     def test_and_not_when_someone_did(self):
         world = Simulation().worlds["guarded"]
-        world.act("taxi-a", "disengage_autonomy", {}, "l_1", "passenger", "관제사", 1)
+        world.act("drone-01", "disengage_autonomy", {}, "l_1", "passenger", "관제사", 1)
         self.assertEqual(world.score.unapproved_passenger_actions, 0)
         self.assertEqual(world.score.human_approvals, 1)
 
@@ -109,13 +109,13 @@ class RevocationTest(unittest.TestCase):
         adapter = LocalAdapter()
         runtime.adapter = adapter
         runtime.committer.adapter = adapter
-        runtime.locks.acquire("pad:P1", "taxi-a", "p_1")
+        runtime.locks.acquire("pad:P1", "drone-01", "p_1")
 
         decision = runtime.revoke_under(
             Policy("nofly-x", "응급헬기", forbid_resource="pad:P1")
         )
         self.assertIsNotNone(decision)
-        self.assertIn(("taxi-a", "divert_ground"), adapter.sent)
+        self.assertIn(("drone-01", "divert_ground"), adapter.sent)
         self.assertIsNone(runtime.locks.holder("pad:P1"))
         self.assertEqual(decision.policy_hit, "nofly-x")
 

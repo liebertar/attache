@@ -40,6 +40,18 @@ def detect(telemetry: dict) -> Concern | None:
         return None
 
     battery = telemetry.get("battery", 100.0)
+
+    # 배달 주문이 있고 배터리가 되는데 아직 못 가고 있으면, 갈 수 있게 해달라는 신청.
+    if (
+        telemetry.get("job")
+        and battery > BATTERY_LOW
+        and state in ("cruising", "landed")
+        and not telemetry.get("assigned_pad")
+        and not telemetry.get("route")
+    ):
+        return Concern("needs_route", "normal",
+                       f"배달지 {telemetry['job']}, 배터리 {battery:.0f}%")
+
     if state == "landed":
         return Concern("needs_charge", "high" if battery < FAST_CHARGE_BELOW else "normal",
                        f"패드 위, 배터리 {battery:.0f}%")

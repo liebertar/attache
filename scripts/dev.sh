@@ -13,7 +13,7 @@ PORT=8100 TICK_SECONDS="${TICK_SECONDS:-0.2}" FLEET_LIMIT_USD=450 \
 PORT=8000 CONFIG=configs/fleet.yaml SIM_URL=http://localhost:8100 \
   LEDGER_PATH=.run/ledger.jsonl python3 -m attache.runtime.service & sleep 1
 
-for asset in taxi-a drone-b taxi-c; do
+for asset in drone-01 drone-02 drone-03; do
   ASSET_ID=$asset MODE=guarded RUNTIME_URL=http://localhost:8000 python3 -m attache.agent.loop &
   ASSET_ID=$asset MODE=direct  SIM_URL=http://localhost:8100     python3 -m attache.agent.loop &
 done

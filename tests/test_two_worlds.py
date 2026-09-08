@@ -11,14 +11,15 @@ They still fail, because a rule that lives in each agent is not a rule.
 import unittest
 
 from attache.agent.detect import detect
+from attache.agent.planner import OperatorPlanner
 from attache.agent.propose import COSTS, by_rule
 from attache.core.config import Policy
-from attache.core.models import Verdict
+from attache.core.models import Proposal, Verdict
 from attache.runtime.service import Runtime
 from sim.world import RECALL, RECALL_TICK, ZONE, ZONE_TICK, Simulation
 
-TICKS = 420
-PADS = ["pad:P1", "pad:P2"]
+TICKS = 1200
+PADS = ["bay:A", "bay:B"]
 
 
 class LocalAdapter:
@@ -37,8 +38,12 @@ BUDGET_ESCALATIONS = {"per_asset_usd", "fleet_usd"}
 
 
 class GuardedSide:
+    """운영사 쪽. 길은 우리가 그리고, 되는지는 런타임에 묻습니다."""
+
     def __init__(self, runtime):
         self.runtime = runtime
+        self.planner = OperatorPlanner(runtime.airspace)
+        self.preferred_alt_m = 110.0
         self.pad_index = {}
         self.banned = {}
         self.cooldown = {}
@@ -56,7 +61,7 @@ class GuardedSide:
             )
             if snapshot["tick"] < self.cooldown.get((asset_id, proposal.action), 0):
                 continue
-            decision = self.runtime.file(proposal.to_dict())
+            decision = self._file(proposal, telemetry)
             if decision.verdict in (Verdict.DENIED, Verdict.HUMAN, Verdict.QUEUED):
                 self.cooldown[(asset_id, proposal.action)] = snapshot["tick"] + 12
             if decision.verdict is Verdict.DENIED:
@@ -67,6 +72,37 @@ class GuardedSide:
                     self.pad_index[asset_id] = (index + 1) % len(PADS)
         self.runtime._settle_contended()
         self._controller_reviews()
+
+    def _destination(self, proposal, telemetry):
+        if proposal.action == "fly_route" and telemetry.get("job_lat") is not None:
+            return (telemetry["job_lat"], telemetry["job_lon"])
+        if proposal.action == "reserve_pad" and proposal.resource:
+            at = self.runtime.pad_coords.get(proposal.resource)
+            return at
+        return None
+
+    def _file(self, proposal, telemetry):
+        here = (telemetry.get("lat"), telemetry.get("lon"))
+        goal = self._destination(proposal, telemetry)
+        if here[0] is None or goal is None:
+            return self.runtime.file(proposal.to_dict())
+
+        # 먼저 최단 직선으로 냅니다. 운영사는 원래 제일 싼 길을 냅니다.
+        proposal.params = {**proposal.params,
+                           "legs": self.planner.straight(here, goal, self.preferred_alt_m)}
+        decision = self.runtime.file(proposal.to_dict())
+        if decision.policy_hit != "airspace":
+            return decision
+        # 다시 그리라고 했습니다.
+        legs = self.planner.draw(here, goal)
+        if not legs:
+            declined = Proposal.from_dict({**proposal.to_dict(), "action": "decline_job",
+                                           "cost_usd": 0.0, "blast_radius": "none",
+                                           "params": {}, "resource": None})
+            return self.runtime.file(declined.to_dict())
+        redrawn = Proposal.from_dict({**proposal.to_dict(),
+                                      "params": {**proposal.params, "legs": legs}})
+        return self.runtime.file(redrawn.to_dict())
 
     def _controller_reviews(self):
         """원격 관제사. 안전 때문에 올라온 건 승인하고, 예산 초과는 거부합니다."""
@@ -114,6 +150,13 @@ class DirectSide:
             spent = self.spend.get(asset_id, 0.0)
             if spent + COSTS.get(proposal.action, 0.0) > self.per_asset_limit:
                 continue
+            if proposal.action in ("fly_route", "reserve_pad"):
+                goal = None
+                if proposal.action == "fly_route" and telemetry.get("job_lat") is not None:
+                    goal = (telemetry["job_lat"], telemetry["job_lon"])
+                if goal:
+                    proposal.params = {**proposal.params, "legs": OperatorPlanner.straight(
+                        (telemetry["lat"], telemetry["lon"]), goal, 110.0)}
             result = self.world.act(asset_id, proposal.action, proposal.params, None,
                                     proposal.blast_radius, None, tick)
             if result.get("ok"):

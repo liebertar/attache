@@ -49,37 +49,37 @@ services:
     environment:
       ADAPTER: mavlink
       MAVLINK_ENDPOINTS: >-
-        taxi-a=udpin:0.0.0.0:14540,drone-b=udpin:0.0.0.0:14541,taxi-c=udpin:0.0.0.0:14542
+        drone-01=udpin:0.0.0.0:14540,drone-02=udpin:0.0.0.0:14541,drone-03=udpin:0.0.0.0:14542
     depends_on: [fleet, sim]
 
   # --- 직접 날리는 세 대 -----------------------------------------------------
   # 같은 기종, 같은 감지 코드, 같은 신청서 작성기, 같은 모델.
   # 다른 건 이 세 줄의 MAVLINK_ENDPOINT 뿐입니다.
-  direct-taxi-a:
+  direct-drone-01:
     <<: *direct-sitl
     environment:
-      ASSET_ID: taxi-a
+      ASSET_ID: drone-01
       TRANSPORT: mavlink
       MAVLINK_ENDPOINT: udpin:0.0.0.0:14543
       SIM_URL: http://sim:8100
-      VEHICLE_MODEL: robotaxi-v3
+      VEHICLE_MODEL: dv-x500
 
-  direct-drone-b:
+  direct-drone-02:
     <<: *direct-sitl
     environment:
-      ASSET_ID: drone-b
+      ASSET_ID: drone-02
       TRANSPORT: mavlink
       MAVLINK_ENDPOINT: udpin:0.0.0.0:14544
       SIM_URL: http://sim:8100
-      VEHICLE_MODEL: hexa-2
+      VEHICLE_MODEL: dv-hexa
 
-  direct-taxi-c:
+  direct-drone-03:
     <<: *direct-sitl
     environment:
-      ASSET_ID: taxi-c
+      ASSET_ID: drone-03
       TRANSPORT: mavlink
       MAVLINK_ENDPOINT: udpin:0.0.0.0:14545
       SIM_URL: http://sim:8100
-      VEHICLE_MODEL: robotaxi-v3
+      VEHICLE_MODEL: dv-x500
 
   # sim 은 그대로 둡니다. 기체는 PX4 가 날리지만 리콜 공지는 여전히 여기서 옵니다.

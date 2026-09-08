@@ -16,29 +16,36 @@ from dataclasses import asdict, dataclass, field
 
 from attache.core.geo import Airspace, Volume
 
-# 위치는 진짜 FAA 격자를 보고 골랐습니다. 둘 다 합법 경로가 있고, 경로 최저 천장은 61m
-# 입니다. 기본 순항 고도 90m 로 그냥 날면 규정 위반이 됩니다 — 그게 오른쪽 세계입니다.
-PADS = {"pad:P1": (20.0, 45.0), "pad:P2": (90.0, 50.0)}
-DEPOT = (95.0, 52.0)
+# 물류 기지는 브루클린 네이비야드. 배달지는 이스트강 건너 맨해튼입니다.
+# 실제 배송 기업이 도심 배달 거점을 두는 자리이고, 강을 건너야 해서 헬리포트 주변
+# 0ft 구역을 지나게 됩니다. 그게 이 데모의 전부입니다.
+DEPOT = (47.8, 54.9)                       # 브루클린 네이비야드 40.702,-73.970
+PADS = {                                    # 충전대 두 자리. 기체는 셋입니다.
+    "bay:A": (46.0, 54.9),
+    "bay:B": (49.6, 54.9),
+}
 
 # 맨해튼. 배터리파크에서 센트럴파크 북단까지, 이스트강 건너 롱아일랜드시티까지.
 # 여기를 고른 이유는 FAA 가 격자마다 허용 고도를 공개하기 때문입니다.
 # 맨해튼은 전부 금지가 아닙니다. 격자의 40% 가 400ft(122m)까지 허용되고,
 # 24% 는 허가 없이 못 납니다. 한 블록 건너 천장이 바뀝니다.
 # configs/airspace/nyc.json 이 그 실제 데이터이고, scripts/fetch_airspace.py 가 받아옵니다.
-ORIGIN_LAT, ORIGIN_LON = 40.7000, -74.0250
-SPAN_LAT, SPAN_LON = 0.0900, 0.0850
+ORIGIN_LAT, ORIGIN_LON = 40.6900, -74.0250
+SPAN_LAT, SPAN_LON = 0.1400, 0.1150
 CRUISE_ALT_M = 90.0
 LOITER_ALT_M = 45.0  # 승인 전 대기 고도
-CLIMB_RATE_M = 4.0      # 틱당 상승
-DESCENT_RATE_M = 3.0    # 틱당 하강
-APPROACH_RADIUS = 12.0  # 이 안에 들어오면 내려가기 시작합니다
+SPEED_PER_TICK = 0.55   # 격자 1칸 ≈ 97 m, 0.25초 틱 → 초속 약 210 m (실제의 약 10배)
+CLIMB_RATE_M = 1.6      # 틱당 상승
+DESCENT_RATE_M = 1.4    # 틱당 하강
+APPROACH_RADIUS = 6.0  # 이 안에 들어오면 내려가기 시작합니다
 
 
 def to_latlon(x: float, y: float) -> tuple[float, float]:
     return ORIGIN_LAT + (1.0 - y / 60.0) * SPAN_LAT, ORIGIN_LON + (x / 100.0) * SPAN_LON
 
 COSTS = {
+    "decline_job": 0.0,
+    "fly_route": 12.0,
     "reserve_pad": 28.0,
     "charge": 22.0,
     "fast_charge": 60.0,
@@ -56,6 +63,14 @@ AIRSPACE_FILE = os.getenv(
 )
 
 
+def load_bands() -> list[dict]:
+    """같은 등급끼리 합쳐진 덩어리. 화면에 입체로 세울 때 씁니다."""
+    try:
+        return json.loads(Path(AIRSPACE_FILE).read_text(encoding="utf-8")).get("bands", [])
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
 def load_volumes() -> list[dict]:
     """FAA UAS Facility Map. 격자마다 허용 고도가 다릅니다.
 
@@ -68,6 +83,42 @@ def load_volumes() -> list[dict]:
 
 
 STANDING_VOLUMES = load_volumes()
+AIRSPACE_BANDS = load_bands()
+
+ADDRESS_FILE = os.getenv(
+    "ADDRESS_FILE",
+    str(Path(__file__).resolve().parent.parent / "configs/airspace/nyc_addresses.json"),
+)
+
+
+def load_addresses() -> list[dict]:
+    """배달지는 실제 주소입니다. OpenStreetMap 에서 받아온 맨해튼 건물들입니다."""
+    try:
+        return json.loads(Path(ADDRESS_FILE).read_text(encoding="utf-8"))["addresses"]
+    except (OSError, KeyError, json.JSONDecodeError):
+        return []
+
+
+ADDRESSES = load_addresses()
+
+
+def to_grid(lat: float, lon: float) -> tuple[float, float]:
+    """위경도를 격자로. to_latlon 의 역입니다."""
+    return ((lon - ORIGIN_LON) / SPAN_LON * 100.0,
+            (1.0 - (lat - ORIGIN_LAT) / SPAN_LAT) * 60.0)
+
+
+def pickable_addresses() -> list[dict]:
+    """금지 구역 밖에 있는 주소만. 거기로는 애초에 배달을 못 받습니다."""
+    open_ones = []
+    for address in ADDRESSES:
+        if any(v.rule == "forbidden" and v.covers(address["lat"], address["lon"])
+               for v in AIRSPACE.all()):
+            continue
+        gx, gy = to_grid(address["lat"], address["lon"])
+        if 2 <= gx <= 98 and 2 <= gy <= 58:
+            open_ones.append({**address, "gx": gx, "gy": gy})
+    return open_ones
 
 
 # 병원 응급헬기가 뜬다고 갑자기 상공이 닫힙니다. 착륙 패드 P1 이 그 안에 있습니다.
@@ -88,11 +139,11 @@ ZONE = {
     "radius": 16.0,
 }
 RECALL = {
-    "id": "recall-2026-09-robotaxi-v3",
+    "id": "recall-2026-09-dv-x500",
     "kind": "recall",
     "forbid_action": "fast_charge",
-    "applies_to": {"model": "robotaxi-v3"},
-    "reason": "robotaxi-v3 급속충전 중 배터리 발화 사례. 급속충전 금지",
+    "applies_to": {"model": "dv-x500"},
+    "reason": "dv-x500 급속충전 중 배터리 발화 사례. 급속충전 금지",
 }
 
 
@@ -120,6 +171,11 @@ class Vehicle:
     over_ceiling: bool = False
     heading: float = 0.0
     cruise_alt: float = LOITER_ALT_M
+    job_label: str = ""            # 배달지 주소
+    job_x: float | None = None
+    job_y: float | None = None
+    delivered: int = 0
+    waypoints: list = field(default_factory=list)   # 승인된 경로. 없으면 못 움직입니다
 
     def public(self) -> dict:
         data = asdict(self)
@@ -129,6 +185,17 @@ class Vehicle:
         data["alt_m"] = round(self.alt, 1)
         data["battery"] = round(self.battery, 1)
         data["heading"] = round(self.heading, 1)
+        data["job"] = self.job_label
+        data["delivered"] = self.delivered
+        if self.job_x is not None:
+            job_lat, job_lon = to_latlon(self.job_x, self.job_y)
+            data["job_lat"] = round(job_lat, 6)
+            data["job_lon"] = round(job_lon, 6)
+        data["route"] = [
+            {"lat": round(to_latlon(x, y)[0], 6), "lon": round(to_latlon(x, y)[1], 6),
+             "alt_m": alt}
+            for x, y, alt in self.waypoints
+        ]
         data["vibration"] = round(self.vibration, 2)
         data["autonomy_health"] = round(self.autonomy_health, 2)
         data["spend"] = round(self.spend, 2)
@@ -142,6 +209,8 @@ class Scoreboard:
     zone_dwell_ticks: int = 0
     ceiling_breaches: int = 0
     airspace_violations: int = 0
+    deliveries: int = 0
+    declined: int = 0
     refused_without_receipt: int = 0
     spend_usd: float = 0.0
     over_fleet_limit_usd: float = 0.0
@@ -168,9 +237,9 @@ def fresh_fleet(seed: int) -> list[Vehicle]:
     rng = random.Random(seed)
     return [
         # 같은 기종은 같은 속도로 닳습니다. 그래서 같은 순간에 같은 패드를 원합니다.
-        Vehicle("taxi-a", "robotaxi-v3", "robotaxi", 18.0, 20.0, 31.0, passengers=2),
-        Vehicle("drone-b", "hexa-2", "drone", 62.0, 14.0, 70.0 + rng.random(), cargo=True),
-        Vehicle("taxi-c", "robotaxi-v3", "robotaxi", 84.0, 26.0, 31.0, passengers=1),
+        Vehicle("drone-01", "dv-x500", "delivery", 18.0, 20.0, 31.0, cargo=True),
+        Vehicle("drone-02", "dv-hexa", "drone", 62.0, 14.0, 70.0 + rng.random(), cargo=True),
+        Vehicle("drone-03", "dv-x500", "delivery", 84.0, 26.0, 31.0, cargo=True),
     ]
 
 
@@ -183,7 +252,10 @@ class World:
         # 요구하면 런타임을 안 거친 명령은 물리적으로 실행되지 않습니다.
         # 이 한 줄이 "권고"와 "강제"를 가릅니다.
         self.require_receipt = require_receipt
+        self._rng = random.Random(seed + 991)
         self.vehicles = {v.id: v for v in fresh_fleet(seed)}
+        for vehicle in self.vehicles.values():
+            self._assign_job(vehicle)
         self.score = Scoreboard()
         self.events: list[dict] = []
 
@@ -226,9 +298,24 @@ class World:
         if self.score.spend_usd > self.fleet_limit:
             self.score.over_fleet_limit_usd = self.score.spend_usd - self.fleet_limit
 
-        if action == "reserve_pad":
+        if action == "decline_job":
+            # 규정상 갈 수 없는 주소입니다. 주문을 반려하고 다음 건을 받습니다.
+            # 이것도 결정이고 기록에 남습니다 — 어느 주소가 왜 배달 불가인지가 쌓입니다.
+            self.score.declined += 1
+            self._log(tick, "배달 불가", f"{vehicle.job_label} — 규정상 경로 없음")
+            self._assign_job(vehicle)
+        elif action == "fly_route":
+            # 승인된 경로. 경유점이 있으면 그대로 따라갑니다.
+            # 없으면 목적지까지 직선입니다 — 그게 오른쪽 세계가 하는 일입니다.
+            vehicle.waypoints = self._to_waypoints(params.get("legs"), vehicle)
+            vehicle.assigned_pad = None
+            vehicle.state = "delivering"
+            if not vehicle.waypoints:
+                vehicle.cruise_alt = float(params.get("alt_m") or CRUISE_ALT_M)
+        elif action == "reserve_pad":
             vehicle.assigned_pad = params["pad"]
             vehicle.state = "approaching"
+            vehicle.waypoints = self._to_waypoints(params.get("legs"), vehicle)
             # 승인된 순항 고도. 안 주면 기본값으로 납니다 — 그게 규정 위반일 수 있습니다.
             vehicle.cruise_alt = float(params.get("alt_m") or CRUISE_ALT_M)
         elif action in ("charge", "fast_charge"):
@@ -252,12 +339,24 @@ class World:
         return {"ok": True, "cost_usd": cost, "state": vehicle.state}
 
     @staticmethod
+    def _to_waypoints(legs, vehicle: Vehicle) -> list:
+        if not legs:
+            return []
+        points = []
+        for leg in legs:
+            gx, gy = to_grid(leg["lat"], leg["lon"])
+            points.append((gx, gy, float(leg.get("alt_m") or CRUISE_ALT_M)))
+        return points[1:] if len(points) > 1 else points
+
+    @staticmethod
     def _refuse(vehicle: Vehicle, action: str, params: dict) -> dict | None:
         """물리적으로 불가능한 명령. 돈도 안 나가고 세지도 않습니다."""
         if action == "reserve_pad" and params.get("pad") not in PADS:
             return {"ok": False, "error": f"unknown pad {params.get('pad')}"}
         if action in ("charge", "fast_charge") and vehicle.state not in ("landed", "charging"):
             return {"ok": False, "error": "not on a pad"}
+        if action == "fly_route" and vehicle.job_x is None:
+            return {"ok": False, "error": "no delivery assigned"}
         if vehicle.state == "grounded":
             return {"ok": False, "error": "battery is dead"}
         return None
@@ -273,18 +372,20 @@ class World:
 
     def _advance(self, vehicle: Vehicle, tick: int) -> None:
         if vehicle.state == "charging":
-            gain = 5.0 if vehicle.charge_mode == "fast" else 2.0
+            gain = 2.4 if vehicle.charge_mode == "fast" else 1.0
             vehicle.battery = min(100.0, vehicle.battery + gain)
             vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
             return
         if vehicle.state in ("stranded", "diverted", "grounded"):
             vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
             return
+        if vehicle.state == "landed" and not vehicle.waypoints:
+            vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
 
-        vehicle.battery -= 0.3
+        vehicle.battery -= 0.055
         if vehicle.kind == "drone" and tick >= 60:
             vehicle.vibration = min(1.0, vehicle.vibration + 0.006)
-        if vehicle.id == "taxi-c" and tick >= 200:
+        if vehicle.id == "drone-03" and tick >= 200:
             vehicle.autonomy_health = max(0.0, vehicle.autonomy_health - 0.01)
 
         if vehicle.battery <= 0.0:
@@ -295,9 +396,21 @@ class World:
                 self._log(tick, "배터리 소진", f"{vehicle.id} 가 멈췄습니다")
             return
 
-        target = PADS.get(vehicle.assigned_pad) if vehicle.assigned_pad else DEPOT
+        # 승인된 목적지가 없으면 제자리에 뜬 채 기다립니다.
+        # 어디로 가는 것도 행동이고, 행동은 승인을 받아야 합니다.
+        target = self._current_target(vehicle)
+        if target is None:
+            self._hold_altitude(vehicle, (vehicle.x, vehicle.y))
+            return
+        if vehicle.waypoints:
+            vehicle.cruise_alt = vehicle.waypoints[0][2]
         self._move_toward(vehicle, target)
         self._hold_altitude(vehicle, target)
+        if vehicle.waypoints and self._at(vehicle, target):
+            vehicle.waypoints.pop(0)   # 이 구간 끝. 다음 구간으로
+            return
+        if vehicle.state == "delivering" and not vehicle.waypoints and self._at(vehicle, target):
+            self._deliver(vehicle, tick)
         if (
             vehicle.state == "approaching"
             and vehicle.assigned_pad
@@ -306,12 +419,39 @@ class World:
         ):
             vehicle.state = "landed"
 
+    @staticmethod
+    def _current_target(vehicle: Vehicle) -> tuple[float, float] | None:
+        if vehicle.waypoints:
+            return (vehicle.waypoints[0][0], vehicle.waypoints[0][1])
+        if vehicle.assigned_pad:
+            return PADS[vehicle.assigned_pad]
+        if vehicle.state == "delivering" and vehicle.job_x is not None:
+            return (vehicle.job_x, vehicle.job_y)
+        return None
+
+    def _deliver(self, vehicle: Vehicle, tick: int) -> None:
+        vehicle.delivered += 1
+        self.score.deliveries += 1
+        self._log(tick, "배달 완료", f"{vehicle.id} → {vehicle.job_label}")
+        self._assign_job(vehicle)
+        vehicle.state = "cruising"
+
+    def _assign_job(self, vehicle: Vehicle) -> None:
+        pool = pickable_addresses()
+        if not pool:
+            vehicle.job_x = vehicle.job_y = None
+            vehicle.job_label = ""
+            return
+        address = self._rng.choice(pool)
+        vehicle.job_label = address["label"]
+        vehicle.job_x, vehicle.job_y = address["gx"], address["gy"]
+
     def _move_toward(self, vehicle: Vehicle, target: tuple[float, float]) -> None:
         dx, dy = target[0] - vehicle.x, target[1] - vehicle.y
         distance = (dx * dx + dy * dy) ** 0.5
         if distance < 0.01:
             return
-        step = min(2.2, distance)
+        step = min(SPEED_PER_TICK, distance)
         vehicle.x += dx / distance * step
         vehicle.y += dy / distance * step
         # 화면 북쪽이 y 감소 방향입니다
@@ -406,6 +546,11 @@ class World:
         return {
             "world": self.name,
             "tick": tick,
+            "bands": AIRSPACE_BANDS + (
+                [{k: v for k, v in ZONE.items()
+                  if k in ("id", "name", "polygon", "ceiling_m", "rule", "reason")}]
+                if ZONE_TICK <= tick <= ZONE_UNTIL else []
+            ),
             "volumes": [v.to_dict() for v in AIRSPACE.all()] + (
                 [{k: v for k, v in ZONE.items()
                   if k in ("id", "name", "polygon", "floor_m", "ceiling_m",
@@ -427,6 +572,10 @@ class World:
                 )
             },
             "depot": DEPOT,
+            "depot_coords": {
+                "lat": round(to_latlon(*DEPOT)[0], 6),
+                "lon": round(to_latlon(*DEPOT)[1], 6),
+            },
             "assets": {vid: v.public() for vid, v in self.vehicles.items()},
             "scoreboard": self.score.public(),
             "fleet_limit": self.fleet_limit,

@@ -49,37 +49,37 @@ services:
       ADAPTER: flockwave
       FLOCKWAVE_HOST: skybrush
       FLOCKWAVE_PORT: 5001
-      UAV_IDS: "taxi-a=SIM-00,drone-b=SIM-01,taxi-c=SIM-02"
+      UAV_IDS: "drone-01=SIM-00,drone-02=SIM-01,drone-03=SIM-02"
     depends_on: [skybrush, sim]
 
-  direct-taxi-a:
+  direct-drone-01:
     <<: *direct-flock
     environment:
-      ASSET_ID: taxi-a
+      ASSET_ID: drone-01
       TRANSPORT: flockwave
       FLOCKWAVE_HOST: skybrush
       UAV_ID: SIM-03
       SIM_URL: http://sim:8100
-      VEHICLE_MODEL: robotaxi-v3
+      VEHICLE_MODEL: dv-x500
 
-  direct-drone-b:
+  direct-drone-02:
     <<: *direct-flock
     environment:
-      ASSET_ID: drone-b
+      ASSET_ID: drone-02
       TRANSPORT: flockwave
       FLOCKWAVE_HOST: skybrush
       UAV_ID: SIM-04
       SIM_URL: http://sim:8100
-      VEHICLE_MODEL: hexa-2
+      VEHICLE_MODEL: dv-hexa
 
-  direct-taxi-c:
+  direct-drone-03:
     <<: *direct-flock
     environment:
-      ASSET_ID: taxi-c
+      ASSET_ID: drone-03
       TRANSPORT: flockwave
       FLOCKWAVE_HOST: skybrush
       UAV_ID: SIM-05
       SIM_URL: http://sim:8100
-      VEHICLE_MODEL: robotaxi-v3
+      VEHICLE_MODEL: dv-x500
 
   # sim 은 그대로 둡니다. 기체는 Skybrush 가 날리지만 리콜과 구역 공지는 여기서 옵니다.

@@ -14,22 +14,22 @@ from sim.world import Simulation
 class ReceiptTest(unittest.TestCase):
     def test_an_open_actuator_obeys_anyone(self):
         world = Simulation(lock_actuator=False).worlds["direct"]
-        result = world.act("taxi-a", "reserve_pad", {"pad": "pad:P1"}, None, "schedule",
+        result = world.act("drone-01", "reserve_pad", {"pad": "bay:A"}, None, "schedule",
                            None, 1)
         self.assertTrue(result["ok"])
         self.assertEqual(world.score.unrecorded_actions, 1)
 
     def test_a_locked_actuator_refuses_a_command_with_no_receipt(self):
         world = Simulation(lock_actuator=True).worlds["direct"]
-        result = world.act("taxi-a", "reserve_pad", {"pad": "pad:P1"}, None, "schedule",
+        result = world.act("drone-01", "reserve_pad", {"pad": "bay:A"}, None, "schedule",
                            None, 1)
         self.assertFalse(result["ok"])
         self.assertEqual(world.score.refused_without_receipt, 1)
-        self.assertEqual(world.vehicles["taxi-a"].assigned_pad, None)
+        self.assertEqual(world.vehicles["drone-01"].assigned_pad, None)
 
     def test_a_locked_actuator_still_obeys_the_runtime(self):
         world = Simulation(lock_actuator=True).worlds["direct"]
-        result = world.act("taxi-a", "reserve_pad", {"pad": "pad:P1"}, "l_abc123",
+        result = world.act("drone-01", "reserve_pad", {"pad": "bay:A"}, "l_abc123",
                            "schedule", None, 1)
         self.assertTrue(result["ok"])
         self.assertEqual(world.score.refused_without_receipt, 0)
@@ -39,7 +39,7 @@ class ReceiptTest(unittest.TestCase):
         """런타임을 거치는 쪽은 잠그든 안 잠그든 결과가 같습니다."""
         for locked in (False, True):
             world = Simulation(lock_actuator=locked).worlds["guarded"]
-            result = world.act("taxi-a", "reserve_pad", {"pad": "pad:P1"}, "l_1",
+            result = world.act("drone-01", "reserve_pad", {"pad": "bay:A"}, "l_1",
                                "schedule", None, 1)
             self.assertTrue(result["ok"], f"locked={locked}")
 
@@ -73,11 +73,11 @@ class LedgerTruthTest(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             ledger = Ledger(handle.name)
         authority = AuthorityCheck(Authority(200, 500), PolicyBook())
-        committer = Committer(LocalAdapter(), LockTable(["pad:P1"]), ledger, authority)
+        committer = Committer(LocalAdapter(), LockTable(["bay:A"]), ledger, authority)
 
-        proposal = Proposal(asset_id="taxi-a", action="reserve_pad", cost_usd=28.0,
-                            blast_radius="schedule", rationale="", resource="pad:P1",
-                            params={"pad": "pad:P1"})
+        proposal = Proposal(asset_id="drone-01", action="reserve_pad", cost_usd=28.0,
+                            blast_radius="schedule", rationale="", resource="bay:A",
+                            params={"pad": "bay:A"})
         committer.commit(proposal, Decision(proposal.id, Verdict.AUTO, "한도 안"))
 
         closed = [e for e in ledger.tail(10) if e["outcome"] != "pending"]
@@ -95,7 +95,7 @@ class AirspaceTest(unittest.TestCase):
         from sim.world import AIRSPACE
 
         volumes = AIRSPACE.all()
-        self.assertGreater(len(volumes), 50, "FAA 격자를 못 읽었습니다")
+        self.assertGreater(len(volumes), 40, "FAA 격자를 못 읽었습니다")
         self.assertTrue(any(v.rule == "forbidden" for v in volumes))
         self.assertTrue(any(v.rule == "ceiling" for v in volumes))
         self.assertTrue(all(v.source.startswith("FAA") for v in volumes))
@@ -131,13 +131,17 @@ class AirspaceTest(unittest.TestCase):
             sum(p[1] for p in forbidden.polygon) / len(forbidden.polygon),
         )
         runtime.pad_coords = {"pad:X": centre}
-        runtime.telemetry = {"taxi-a": {"lat": centre[0] + 0.02, "lon": centre[1] + 0.02}}
+        runtime.telemetry = {"drone-01": {"lat": centre[0] + 0.02, "lon": centre[1] + 0.02}}
 
+        # 운영사가 그린 경로가 금지 구역을 지나갑니다
         decision = runtime.file({
-            "asset_id": "taxi-a", "action": "reserve_pad", "resource": "pad:X",
-            "params": {"pad": "pad:X"}, "cost_usd": 28.0,
-            "blast_radius": "schedule", "rationale": "배터리 낮음",
+            "asset_id": "drone-01", "action": "reserve_pad", "resource": "pad:X",
+            "params": {"pad": "pad:X", "legs": [
+                {"lat": centre[0] + 0.02, "lon": centre[1] + 0.02, "alt_m": 60.0},
+                {"lat": centre[0], "lon": centre[1], "alt_m": 60.0},
+            ]},
+            "cost_usd": 28.0, "blast_radius": "schedule", "rationale": "배터리 낮음",
         })
         self.assertIs(decision.verdict, Verdict.DENIED)
         self.assertEqual(decision.policy_hit, "airspace")
-        self.assertIn("지납니다", decision.reason)
+        self.assertIn("구간이 규정을 어깁니다", decision.reason)

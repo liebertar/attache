@@ -152,3 +152,22 @@ class Airspace:
         if self.default_ceiling_m is not None:
             ceilings.append(self.default_ceiling_m)
         return min(ceilings) if ceilings else None
+
+
+def first_breach(airspace: "Airspace", legs: list[dict], samples: int = 40):
+    """경로에서 처음으로 규정을 어기는 지점. 런타임과 계획기가 같은 함수를 씁니다.
+
+    같은 판정을 두 곳에 따로 적으면 반드시 갈라집니다. 계획기는 통과라고 보고 런타임은
+    거절하는 상태가 되고, 그러면 아무 경로도 승인되지 않습니다. 실제로 그렇게 됐었습니다.
+    """
+    for index in range(len(legs) - 1):
+        here, nxt = legs[index], legs[index + 1]
+        altitude = float(nxt.get("alt_m") or here.get("alt_m") or 0.0)
+        for step in range(samples + 1):
+            fraction = step / samples
+            lat = here["lat"] + (nxt["lat"] - here["lat"]) * fraction
+            lon = here["lon"] + (nxt["lon"] - here["lon"]) * fraction
+            volume = airspace.breach(lat, lon, altitude)
+            if volume is not None:
+                return index + 1, volume, volume.breach(lat, lon, altitude)
+    return None

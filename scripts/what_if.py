@@ -2,7 +2,7 @@
 """Ask what a rule would have done, before you make it real.
 
     python3 scripts/what_if.py --ledger .run/ledger.jsonl \
-        --forbid-action fast_charge --model robotaxi-v3
+        --forbid-action fast_charge --model dv-x500
 
     python3 scripts/what_if.py --ledger .run/ledger.jsonl --per-asset 100
 """

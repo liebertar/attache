@@ -24,7 +24,7 @@ DEPOT_ALT_M = 30.0
 class MavlinkFleetAdapter:
     def __init__(self, endpoints: dict[str, str], world: str = "guarded",
                  ack_timeout_s: float = 3.0, link_timeout_s: float = 30.0):
-        """endpoints: {"taxi-a": "udpin:0.0.0.0:14540", ...} — 기체 하나에 링크 하나."""
+        """endpoints: {"drone-01": "udpin:0.0.0.0:14540", ...} — 기체 하나에 링크 하나."""
         from pymavlink import mavutil  # 이 어댑터를 쓸 때만 필요합니다
 
         self._mavutil = mavutil
@@ -184,7 +184,7 @@ class MavlinkFleetAdapter:
 
 
 def from_env() -> "MavlinkFleetAdapter":
-    """MAVLINK_ENDPOINTS='taxi-a=udpin:0.0.0.0:14540,drone-b=udpin:0.0.0.0:14541'"""
+    """MAVLINK_ENDPOINTS='drone-01=udpin:0.0.0.0:14540,drone-02=udpin:0.0.0.0:14541'"""
     raw = os.environ["MAVLINK_ENDPOINTS"]
     endpoints = dict(pair.split("=", 1) for pair in raw.split(","))
     return MavlinkFleetAdapter(endpoints)

@@ -18,10 +18,10 @@ from attache.agent.loop import build_llm
 from attache.agent.propose import COSTS, Proposer
 from attache.core.http import get_json, post_json
 
-PADS = ["pad:P1", "pad:P2"]
-PAD_COORDS = {
-    "pad:P1": (37.50725, 127.07750),
-    "pad:P2": (37.50725, 127.08850),
+PADS = ["bay:A", "bay:B"]
+PAD_COORDS = {   # 운영사가 자기 기지 좌표는 압니다
+    "bay:A": (40.7019, -73.9721),
+    "bay:B": (40.7019, -73.9680),
 }
 
 
@@ -58,7 +58,7 @@ class DirectAgent:
         """(내 기체 상태, 옆 기체들 상태). 옆 기체 의도는 어느 쪽에서도 안 보입니다."""
         if self.commander is not None:
             mine = self.commander.telemetry(
-                self.asset_id, os.getenv("VEHICLE_MODEL", "robotaxi-v3")
+                self.asset_id, os.getenv("VEHICLE_MODEL", "dv-x500")
             )
             neighbours = get_json(f"{self.sim_url}/state?world=direct") or {}
             return mine, neighbours.get("assets", {})

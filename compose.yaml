@@ -72,40 +72,40 @@ services:
     depends_on: [runtime]
 
   # --- 런타임을 거치는 세계 -------------------------------------------------
-  guarded-taxi-a:
+  guarded-drone-01:
     <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: taxi-a, RUNTIME_URL: "http://runtime:8000" }
+    environment: { <<: *llm, ASSET_ID: drone-01, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
-  guarded-drone-b:
+  guarded-drone-02:
     <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: drone-b, RUNTIME_URL: "http://runtime:8000" }
+    environment: { <<: *llm, ASSET_ID: drone-02, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
-  guarded-taxi-c:
+  guarded-drone-03:
     <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: taxi-c, RUNTIME_URL: "http://runtime:8000" }
+    environment: { <<: *llm, ASSET_ID: drone-03, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
   # --- 조종장치를 직접 만지는 세계 (지금 대부분의 배선) ---------------------
-  direct-taxi-a:
+  direct-drone-01:
     <<: *build-direct
-    environment: { <<: *llm, ASSET_ID: taxi-a, TRANSPORT: http, SIM_URL: "http://sim:8100" }
+    environment: { <<: *llm, ASSET_ID: drone-01, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 
-  direct-drone-b:
+  direct-drone-02:
     <<: *build-direct
-    environment: { <<: *llm, ASSET_ID: drone-b, TRANSPORT: http, SIM_URL: "http://sim:8100" }
+    environment: { <<: *llm, ASSET_ID: drone-02, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 
-  direct-taxi-c:
+  direct-drone-03:
     <<: *build-direct
-    environment: { <<: *llm, ASSET_ID: taxi-c, TRANSPORT: http, SIM_URL: "http://sim:8100" }
+    environment: { <<: *llm, ASSET_ID: drone-03, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 

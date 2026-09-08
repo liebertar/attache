@@ -73,12 +73,13 @@
   <div><span class="k" style="background:var(--guard)"></span>런타임을 거치는 기체</div>
   <div><span class="k" style="background:var(--direct)"></span>직접 만지는 기체</div>
   <div><span class="k" style="background:var(--warn)"></span>착륙 패드</div>
-  <div><span class="k" style="background:#c1121f;opacity:.7"></span>허가 없이 비행 불가 (0ft)</div>
-  <div><span class="k" style="background:#f0b73c"></span>천장 30m &nbsp;
-       <span class="k" style="background:#c9d14a"></span>61m &nbsp;
-       <span class="k" style="background:#7fc27a"></span>91m &nbsp;
-       <span class="k" style="background:#4aa3d1"></span>122m</div>
-  <div style="margin-top:4px;font-size:10.5px">격자는 FAA UAS Facility Map 실제 데이터</div>
+  <div><span class="k" style="background:#e01e2b"></span>허가 없이 비행 불가 — 벽으로 세움</div>
+  <div><span class="k" style="background:#ffb020"></span>30m &nbsp;
+       <span class="k" style="background:#d8d92c"></span>61m &nbsp;
+       <span class="k" style="background:#48c06a"></span>91m &nbsp;
+       <span class="k" style="background:#2b8fe0"></span>122m &nbsp;천장 판</div>
+  <div style="margin-top:4px;font-size:10.5px">FAA UAS Facility Map 실제 데이터.
+    판을 뚫고 솟은 건물이 못 넘는 선입니다.</div>
 </div>
 
 <div class="card" id="banner"></div>
@@ -297,14 +298,17 @@ async function poll(){
   frameOn(data.worlds.guarded);
 
   // 실제 FAA 격자. 천장이 낮을수록 붉고, 금지 칸은 빗금 없이 진하게.
-  const volumes = data.worlds.guarded.volumes || [];
-  map.getSource("cells")?.setData({type:"FeatureCollection", features: volumes.map(v => ({
-    type:"Feature",
-    geometry:{type:"Polygon", coordinates:[[...v.polygon.map(p => [p[1], p[0]]),
-                                            [v.polygon[0][1], v.polygon[0][0]]]]},
-    properties:{name:v.name, rule:v.rule,
-                ceiling: v.ceiling_m == null ? 0 : v.ceiling_m},
-  }))});
+  // 같은 등급 칸을 합친 덩어리를 씁니다. 격자로 안 보이게.
+  const bands = data.worlds.guarded.bands || [];
+  map.getSource("cells")?.setData({type:"FeatureCollection", features: bands.map(b => {
+    const rings = (b.rings || [b.polygon]).map(r =>
+      [...r.map(p => [p[1], p[0]]), [r[0][1], r[0][0]]]);
+    return {
+      type:"Feature",
+      geometry:{type:"MultiPolygon", coordinates: rings.map(r => [r])},
+      properties:{name:b.name, rule:b.rule, ceiling: b.ceiling_m == null ? 0 : b.ceiling_m},
+    };
+  })});
 
   const zone = data.worlds.guarded.zone;
   if (zone && zone.active)
@@ -338,7 +342,7 @@ async function poll(){
   if (data.recall_tick != null){
     const banner = document.getElementById("banner");
     banner.style.display = "block";
-    banner.innerHTML = `<b>리콜 공지</b> (tick ${data.recall_tick}) — robotaxi-v3 급속충전 금지.<br>
+    banner.innerHTML = `<b>리콜 공지</b> (tick ${data.recall_tick}) — dv-x500 급속충전 금지.<br>
       파란 쪽은 공지가 들어온 순간부터 거부됩니다.
       주황 쪽은 기체마다 따로 확인할 때까지 계속합니다.`;
   }

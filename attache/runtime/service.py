@@ -6,7 +6,8 @@ import time
 
 from attache.adapters import build as build_adapter
 from attache.core import config as config_module
-from attache.core.geo import Airspace, Volume
+from attache.core.geo import Airspace, Volume, first_breach
+from attache.core.route import Router
 from attache.core.http import JsonServer, get_json
 from attache.core.models import Decision, Proposal, Verdict
 from attache.llm.client import TieredLlm
@@ -38,6 +39,7 @@ class Runtime:
         self.tick = 0
         self.telemetry: dict = {}
         self.airspace = Airspace()
+        self.router = Router(self.airspace)
         self._contended: dict[str, list[tuple[Proposal, Decision, float]]] = {}
         self._awaiting_human: dict[str, Proposal] = {}
         self._decisions: dict[str, Decision] = {}
@@ -59,10 +61,10 @@ class Runtime:
             self._decisions[proposal.id] = decision
             return decision
 
-        blocked = self.plan_route(proposal)
+        blocked = self.check_route(proposal)
         if blocked:
             decision = Decision(proposal.id, Verdict.DENIED, blocked, policy_hit="airspace",
-                                forbids=proposal.resource)
+                                forbids=proposal.params.get("blocked_volume"))
             self._decisions[proposal.id] = decision
             self.ledger.close_entry(self.ledger.open_entry(proposal, decision), "denied")
             return decision
@@ -91,35 +93,25 @@ class Runtime:
             return decision
         return self._queue_or_commit(proposal, decision)
 
-    def plan_route(self, proposal: Proposal) -> str | None:
-        """경로가 지나는 공역을 봅니다. 못 가면 이유를, 갈 수 있으면 합법 고도를.
+    def check_route(self, proposal: Proposal) -> str | None:
+        """받은 경로가 규정에 맞나. 경로를 그리는 건 우리 일이 아닙니다.
 
-        직결 배선에는 이 자리가 없습니다. 기체마다 각자 공역 데이터를 받아 각자 계산해야
-        하고, 그러면 각자 다른 답을 냅니다. 여기서는 한 군데서 한 번 계산합니다.
+        운영사가 자기 기체와 자기 일정을 알고 길을 그립니다. 우리가 하는 건 그 길이
+        허용되는지 답하는 것뿐이고, 안 되면 어느 구간의 어느 구역 때문인지 말해줍니다.
+        길을 대신 그려주면 그 순간 우리가 운영사가 되고, 잘못된 길의 책임도 우리 것이
+        됩니다. 권한과 실행은 나뉘어 있어야 합니다.
         """
-        if proposal.action != "reserve_pad" or not self.airspace.all():
+        if proposal.action not in ("reserve_pad", "fly_route"):
             return None
-        here = self.telemetry.get(proposal.asset_id) or {}
-        target = self.pad_coords.get(proposal.resource)
-        if target is None or here.get("lat") is None:
-            return None
+        legs = proposal.params.get("legs")
+        if not legs:
+            return None if not self.airspace.all() else "경로를 같이 내야 합니다"
 
-        ceilings = []
-        for step in range(21):
-            fraction = step / 20.0
-            lat = here["lat"] + (target[0] - here["lat"]) * fraction
-            lon = here["lon"] + (target[1] - here["lon"]) * fraction
-            for volume in self.airspace.all():
-                if volume.rule == "forbidden" and volume.covers(lat, lon):
-                    return f"경로가 {volume.name} 을 지납니다 ({volume.reason})"
-            ceiling = self.airspace.ceiling_at(lat, lon)
-            if ceiling is not None:
-                ceilings.append(ceiling)
-
-        if ceilings:
-            legal = round(min(ceilings), 1)
-            proposal.params = {**proposal.params, "alt_m": legal}
-            proposal.rationale += f" · 경로 최저 천장 {legal:.0f}m"
+        found = first_breach(self.airspace, legs)
+        if found is not None:
+            segment, volume, why = found
+            proposal.params = {**proposal.params, "blocked_volume": volume.id}
+            return f"{segment}번 구간이 규정을 어깁니다 — {why}"
         return None
 
     def _queue_or_commit(self, proposal: Proposal, decision: Decision) -> Decision:
@@ -315,6 +307,10 @@ def main() -> None:
         "/telemetry/{asset}",
         lambda body, query, asset: (200, runtime.telemetry.get(asset, {})),
     )
+    server.add("GET", "/airspace", lambda body, query: (200, {
+        "volumes": [v.to_dict() for v in runtime.airspace.all()],
+        "pads": {n: {"lat": a[0], "lon": a[1]} for n, a in runtime.pad_coords.items()},
+    }))
     server.add("GET", "/health", lambda body, query: (200, {"ok": True, "tick": runtime.tick}))
     print(f"runtime listening on :{os.getenv('PORT', '8000')}", flush=True)
     server.serve_forever()

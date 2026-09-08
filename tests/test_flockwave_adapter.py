@@ -87,14 +87,14 @@ class FlockwaveAdapterTest(unittest.TestCase):
         stub = SkybrushStub(refuse=refuse)
         self.addCleanup(stub.stop)
         adapter = FlockwaveAdapter("127.0.0.1", stub.port,
-                                   uav_ids={"taxi-a": "SIM-00"}, timeout_s=4.0)
+                                   uav_ids={"drone-01": "SIM-00"}, timeout_s=4.0)
         return adapter, stub
 
     def test_telemetry_comes_back_in_our_shape(self):
         adapter, _ = self._adapter()
         deadline = time.time() + 6
         while time.time() < deadline:
-            asset = adapter.telemetry()["assets"]["taxi-a"]
+            asset = adapter.telemetry()["assets"]["drone-01"]
             if asset["battery"] == 41.0:
                 break
             time.sleep(0.1)
@@ -105,7 +105,7 @@ class FlockwaveAdapterTest(unittest.TestCase):
 
     def test_reserving_a_pad_becomes_a_fly_command(self):
         adapter, stub = self._adapter()
-        result = adapter.execute("taxi-a", "reserve_pad", {"pad": "pad:P2"}, "l_1")
+        result = adapter.execute("drone-01", "reserve_pad", {"pad": "pad:P2"}, "l_1")
         self.assertTrue(result["ok"], result)
         flights = [b for b in stub.seen if b.get("type") == "UAV-FLY"]
         self.assertEqual(len(flights), 1)
@@ -114,18 +114,18 @@ class FlockwaveAdapterTest(unittest.TestCase):
 
     def test_landing_becomes_a_land_command(self):
         adapter, stub = self._adapter()
-        self.assertTrue(adapter.execute("taxi-a", "land", {}, "l_1")["ok"])
+        self.assertTrue(adapter.execute("drone-01", "land", {}, "l_1")["ok"])
         self.assertIn("UAV-LAND", [b.get("type") for b in stub.seen])
 
     def test_a_refusal_is_reported_not_swallowed(self):
         adapter, _ = self._adapter(refuse=True)
-        result = adapter.execute("taxi-a", "land", {}, "l_1")
+        result = adapter.execute("drone-01", "land", {}, "l_1")
         self.assertFalse(result["ok"])
         self.assertIn("not armed", result["error"])
 
     def test_ground_equipment_sends_no_vehicle_command(self):
         adapter, stub = self._adapter()
-        result = adapter.execute("taxi-a", "fast_charge", {}, "l_1")
+        result = adapter.execute("drone-01", "fast_charge", {}, "l_1")
         self.assertTrue(result["ok"])
         self.assertEqual([b for b in stub.seen if b.get("type", "").startswith("UAV-")
                           and b["type"] != "UAV-INF"], [])

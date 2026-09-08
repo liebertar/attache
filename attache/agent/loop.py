@@ -12,11 +12,12 @@ import os
 import time
 
 from attache.agent.detect import detect
+from attache.agent.planner import OperatorPlanner
 from attache.agent.propose import Proposer
 from attache.core.http import get_json, post_json
 from attache.llm.client import TieredLlm
 
-PADS = ["pad:P1", "pad:P2"]
+FALLBACK_PADS = ["bay:A", "bay:B"]
 
 
 class GuardedAgent:
@@ -27,24 +28,67 @@ class GuardedAgent:
         self.runtime_url = runtime_url.rstrip("/")
         self.proposer = proposer
         self.pad_index = 0
+        self.pads: dict = {}
         self.banned: set[str] = set()
         self.cooldown: dict[str, float] = {}
         self.repeat_s = float(os.getenv("REPEAT_COOLDOWN_S", "2"))
         self.denial_s = float(os.getenv("DENIAL_COOLDOWN_S", "6"))
+        self.planner = OperatorPlanner()
+        self.preferred_alt_m = float(os.getenv("CRUISE_ALT_M", "110"))
 
     def _open_pad(self) -> str:
-        open_pads = [pad for pad in PADS if pad not in self.banned]
-        if not open_pads:
-            return PADS[self.pad_index]
+        names = sorted(self.pads) or FALLBACK_PADS
+        open_pads = [pad for pad in names if pad not in self.banned] or names
         return open_pads[self.pad_index % len(open_pads)]
 
     def telemetry(self) -> dict:
         return get_json(f"{self.runtime_url}/telemetry/{self.asset_id}") or {}
 
+    def _destination(self, telemetry: dict, proposal) -> tuple | None:
+        if proposal.action == "fly_route" and telemetry.get("job_lat") is not None:
+            return (telemetry["job_lat"], telemetry["job_lon"])
+        if proposal.action == "reserve_pad" and proposal.resource:
+            pads = self.pads or {}
+            at = pads.get(proposal.resource)
+            return (at["lat"], at["lon"]) if at else None
+        return None
+
+    def _file_with_route(self, proposal, telemetry: dict):
+        """일단 최단 직선으로 냅니다. 규정에 안 맞으면 런타임이 어디가 문제인지
+        알려주고, 그때 다시 그립니다. 승인은 우리가 하는 게 아닙니다."""
+        here = (telemetry.get("lat"), telemetry.get("lon"))
+        goal = self._destination(telemetry, proposal)
+        if here[0] is None or goal is None:
+            return post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
+
+        proposal.params = {**proposal.params,
+                           "legs": self.planner.straight(here, goal, self.preferred_alt_m)}
+        decision = post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
+        if not decision or decision.get("policy_hit") != "airspace":
+            return decision
+
+        # 다시 그리라고 했습니다. 우리 공역 사본으로 우회로를 그립니다.
+        self.planner.note_refusal(decision.get("forbids"))
+        legs = self.planner.draw(here, goal)
+        if not legs:
+            # 규정을 지키면서 갈 수 있는 길이 없습니다. 이 주문은 드론이 못 합니다.
+            return post_json(f"{self.runtime_url}/proposals",
+                             {**proposal.to_dict(), "action": "decline_job",
+                              "cost_usd": 0.0, "blast_radius": "none", "params": {},
+                              "resource": None,
+                              "rationale": f"{proposal.rationale} · 규정상 경로 없음"})
+        proposal.params = {**proposal.params, "legs": legs}
+        proposal.rationale += f" · 재작성 {len(legs)}구간"
+        return post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
+
     def step(self) -> None:
         telemetry = self.telemetry()
         if not telemetry:
             return
+        if not self.planner.airspace.all():
+            world = get_json(f"{self.runtime_url}/airspace") or {}
+            self.planner.load(world.get("volumes", []))
+            self.pads = world.get("pads", {})
         concern = detect(telemetry)
         if concern is None:
             return
@@ -54,7 +98,7 @@ class GuardedAgent:
         if time.time() < self.cooldown.get(proposal.action, 0.0):
             return  # 방금 거절당한 걸 계속 들이밀지 않습니다
         self.cooldown[proposal.action] = time.time() + self.repeat_s
-        decision = post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
+        decision = self._file_with_route(proposal, telemetry)
         if decision and decision.get("verdict") in ("denied", "human", "queued"):
             self.cooldown[proposal.action] = time.time() + self.denial_s
         if decision and decision.get("verdict") == "denied":
@@ -63,7 +107,7 @@ class GuardedAgent:
                 # 자원이 막힌 것을 행동이 막힌 것으로 잘못 배우면 영영 신청을 못 합니다.
                 self.banned.add(decision.get("forbids") or proposal.action)
             elif proposal.resource:
-                self.pad_index = (self.pad_index + 1) % len(PADS)
+                self.pad_index += 1
         _report(self.asset_id, "guarded", proposal, decision)
 
 

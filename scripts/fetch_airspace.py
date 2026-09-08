@@ -74,6 +74,79 @@ def to_volume(feature: dict) -> dict | None:
     }
 
 
+def dissolve(volumes: list[dict]) -> list[dict]:
+    """같은 등급의 이웃 칸을 한 덩어리로 합칩니다.
+
+    FAA 데이터가 사각 격자인 건 사실이지만, 화면에 격자로 그리면 규칙이 체스판처럼
+    보입니다. 실제로는 한 구역이 여러 칸에 걸쳐 있는 것이고, 사람이 보는 것도 그 구역
+    입니다. 두 칸이 맞닿아 있고 등급이 같으면 그 사이 변은 경계가 아니므로 지웁니다.
+    """
+    groups: dict = {}
+    for volume in volumes:
+        key = (volume["rule"], volume["ceiling_m"])
+        groups.setdefault(key, []).append(volume)
+
+    merged = []
+    for (rule, ceiling), cells in groups.items():
+        edges: dict = {}
+        for cell in cells:
+            ring = [tuple(point) for point in cell["polygon"]]
+            for index in range(len(ring)):
+                a, b = ring[index], ring[(index + 1) % len(ring)]
+                edge = (a, b) if a <= b else (b, a)
+                edges[edge] = edges.get(edge, 0) + 1
+        border = [edge for edge, count in edges.items() if count == 1]
+        rings = _stitch(border)
+        if not rings:
+            continue
+        sample = cells[0]
+        merged.append({
+            "id": f"band-{rule}-{'open' if ceiling is None else int(ceiling)}",
+            "name": sample["name"].split(" 격자")[0] + (
+                " 비행 불가" if rule == "forbidden" else f" 천장 {ceiling:.0f}m"),
+            "polygon": rings[0],
+            "rings": rings,
+            "floor_m": 0.0, "ceiling_m": ceiling, "reference": "AGL",
+            "rule": rule, "reason": sample["reason"],
+            "source": sample["source"],
+            "tags": {**sample["tags"], "cells": len(cells)},
+        })
+    return merged
+
+
+def _stitch(edges: list) -> list:
+    """남은 변들을 이어 붙여 닫힌 테두리로 만듭니다."""
+    remaining = {}
+    for a, b in edges:
+        remaining.setdefault(a, []).append(b)
+        remaining.setdefault(b, []).append(a)
+
+    rings = []
+    while remaining:
+        start = next(iter(remaining))
+        ring = [start]
+        current, previous = start, None
+        while True:
+            options = [p for p in remaining.get(current, []) if p != previous]
+            if not options:
+                break
+            nxt = options[0]
+            remaining[current].remove(nxt)
+            remaining[nxt].remove(current)
+            if not remaining[current]:
+                del remaining[current]
+            if nxt in remaining and not remaining[nxt]:
+                del remaining[nxt]
+            previous, current = current, nxt
+            if current == start:
+                break
+            ring.append(current)
+        if len(ring) >= 4:
+            rings.append([list(point) for point in ring])
+    rings.sort(key=len, reverse=True)
+    return rings
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bbox", default="-74.02,40.69,-73.95,40.76",
@@ -89,8 +162,10 @@ def main() -> int:
         print("격자를 못 받았습니다. bbox 를 확인하세요.", file=sys.stderr)
         return 1
 
+    bands = dissolve(volumes)
     payload = {
         "source": "FAA UAS Facility Map (UAS Data Delivery System)",
+        "bands": bands,
         "fetched_bbox": list(bbox),
         "count": len(volumes),
         "volumes": volumes,
@@ -103,7 +178,7 @@ def main() -> int:
     for volume in volumes:
         key = volume["tags"]["ceiling_ft"]
         bands[key] = bands.get(key, 0) + 1
-    print(f"{len(volumes)}개 격자 → {out}")
+    print(f"{len(volumes)}개 격자 → {len(bands)}개 덩어리 → {out}")
     for ceiling in sorted(bands):
         note = "  ← 허가 없이 비행 불가" if ceiling == 0 else ""
         print(f"  {ceiling:>4}ft : {bands[ceiling]:>3}칸{note}")

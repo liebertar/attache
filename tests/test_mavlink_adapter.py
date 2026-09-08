@@ -82,7 +82,7 @@ class MavlinkAdapterTest(unittest.TestCase):
         stub = AutopilotStub(port, refuse=refuse).start()
         self.addCleanup(stub.stop)
         adapter = MavlinkFleetAdapter(
-            {"drone-b": f"udpin:127.0.0.1:{port}"}, ack_timeout_s=4.0, link_timeout_s=8.0
+            {"drone-02": f"udpin:127.0.0.1:{port}"}, ack_timeout_s=4.0, link_timeout_s=8.0
         )
         return adapter, stub
 
@@ -94,7 +94,7 @@ class MavlinkAdapterTest(unittest.TestCase):
         adapter, _ = self._adapter(PORT)
         deadline = time.time() + 8
         while time.time() < deadline:
-            entry = adapter.telemetry()["assets"]["drone-b"]
+            entry = adapter.telemetry()["assets"]["drone-02"]
             if entry.get("battery") == 41.0:
                 break
             time.sleep(0.1)
@@ -104,20 +104,20 @@ class MavlinkAdapterTest(unittest.TestCase):
 
     def test_land_is_sent_and_acknowledged(self):
         adapter, stub = self._adapter(PORT + 1)
-        result = adapter.execute("drone-b", "land", {}, "l_test")
+        result = adapter.execute("drone-02", "land", {}, "l_test")
         self._check_stub(stub)
         self.assertTrue(result["ok"], result)
         self.assertIn(mavutil.mavlink.MAV_CMD_NAV_LAND, stub.received)
 
     def test_autopilot_refusal_is_reported_not_swallowed(self):
         adapter, _ = self._adapter(PORT + 2, refuse=True)
-        result = adapter.execute("drone-b", "land", {}, "l_test")
+        result = adapter.execute("drone-02", "land", {}, "l_test")
         self.assertFalse(result["ok"])
         self.assertEqual(result["result"], mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED)
 
     def test_ground_equipment_needs_no_autopilot_command(self):
         adapter, stub = self._adapter(PORT + 3)
-        result = adapter.execute("drone-b", "fast_charge", {}, "l_test")
+        result = adapter.execute("drone-02", "fast_charge", {}, "l_test")
         self.assertTrue(result["ok"])
         self.assertEqual(stub.received, [])
 
