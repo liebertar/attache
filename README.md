@@ -309,13 +309,22 @@ docker compose up --build     →  http://localhost:3000
 붙일 수 있습니다.
 
 ```
-docker compose -f compose.yaml -f compose.px4.yaml up --build
+docker compose -f compose.yaml -f compose.sitl.yaml up --build
 ```
 
-PX4 는 배송 드론이 실제로 쓰는 자동조종입니다. 자세와 추력은 PX4 가 잡습니다.
+SITL 은 실제 비행 소프트웨어(PX4, ArduPilot)를 그대로 PC 에서 돌리는 겁니다.
+배송 드론이 진짜로 쓰는 그 코드입니다. 자세와 추력은 자동조종이 잡습니다.
 우리는 MAVLink 로 임무 단위 명령만 보냅니다. 착륙해라, 이 좌표로 가라, 자동을 놓아라.
 **모델은 조종면 근처에도 못 갑니다.** 이게 ASTM F3269 가 말하는 나눔이고,
-`compose.px4.yaml` 이 그 나눔을 파일로 보여줍니다.
+`compose.sitl.yaml` 이 그 나눔을 파일로 보여줍니다.
+
+**날아가는 걸 눈으로 보려면 QGroundControl 을 켜면 됩니다.** 실제 드론 운용자가 쓰는
+지상 관제 프로그램이고, UDP 14550 을 스스로 잡아서 기체 셋이 지도 위에 뜹니다.
+우리가 따로 만들 필요가 없습니다.
+
+화면이 둘로 나뉘는 게 오히려 맞습니다.
+**QGroundControl 은 기체가 어디를 나는지 보여주고, Attaché 화면은 누가 그걸 허락했는지
+보여줍니다.** 지금은 뒤쪽을 보여주는 화면이 세상에 없습니다.
 
 여기서 중요한 게 하나 더 있습니다. **우리가 승인해도 자동조종은 거절할 수 있습니다.**
 승인과 수락은 다른 일이고, 어댑터는 거절을 삼키지 않고 그대로 원장에 남깁니다.
