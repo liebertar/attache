@@ -41,4 +41,4 @@ services:
   direct-taxi-a: { profiles: ["never"] }
   direct-drone-b: { profiles: ["never"] }
   direct-taxi-c: { profiles: ["never"] }
-  sim: { profiles: ["never"] }
+  # sim 은 그대로 둡니다. 기체는 SITL 이 날리지만 리콜 공지는 여전히 여기서 옵니다.
