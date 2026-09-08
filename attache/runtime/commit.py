@@ -5,7 +5,6 @@ lock, calls the adapter, then closes the ledger. Agents cannot import this modul
 not in their container image.
 """
 
-from attache.adapters import FleetSimAdapter
 from attache.core.models import Decision, Proposal, Verdict
 from attache.runtime.authority import AuthorityCheck
 from attache.runtime.ledger import Ledger
@@ -17,7 +16,7 @@ RELEASING_ACTIONS = {"depart", "divert_ground"}
 class Committer:
     def __init__(
         self,
-        adapter: FleetSimAdapter,
+        adapter,
         locks: LockTable,
         ledger: Ledger,
         authority: AuthorityCheck,

@@ -4,7 +4,7 @@ import os
 import threading
 import time
 
-from attache.adapters import FleetSimAdapter
+from attache.adapters import build as build_adapter
 from attache.core import config as config_module
 from attache.core.http import JsonServer, get_json
 from attache.core.models import Decision, Proposal, Verdict
@@ -26,7 +26,9 @@ class Runtime:
         self.ledger = Ledger(ledger_path)
         self.llm = TieredLlm(models=vars(self.config.escalation))
         self.arbiter = Arbiter(self.llm)
-        self.adapter = FleetSimAdapter(sim_url, world="guarded")
+        self.adapter = build_adapter(
+            os.getenv("ADAPTER", "sim"), sim_url=sim_url, world="guarded"
+        )
         self.committer = Committer(self.adapter, self.locks, self.ledger, self.authority)
 
         self.sim_url = sim_url
@@ -145,7 +147,7 @@ class Runtime:
     # ---------- 바깥에서 오는 소식 ----------
 
     def _pull_world(self) -> None:
-        state = get_json(f"{self.sim_url}/state?world=guarded")
+        state = self.adapter.telemetry()
         if state:
             self.tick = state.get("tick", self.tick)
             self.telemetry = state.get("assets", {})
