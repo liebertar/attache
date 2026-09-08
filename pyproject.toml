@@ -1,0 +1,18 @@
+[project]
+name = "attache"
+version = "0.1.0"
+description = "Agents propose. Only the runtime commits."
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = ["pyyaml>=6.0"]
+
+[project.scripts]
+attache = "attache.runtime.service:main"
+
+[tool.setuptools.packages.find]
+include = ["attache*"]
+
+[tool.ruff]
+line-length = 100
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

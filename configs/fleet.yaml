@@ -1,0 +1,28 @@
+# 런타임은 착륙 패드가 뭔지 모릅니다. 이 파일이 분야를 정합니다.
+name: city-fleet
+
+resources:
+  - pad:P1
+  - pad:P2
+
+authority:
+  # 기체 한 대가 사람 없이 쓸 수 있는 돈
+  per_asset_usd: 200
+  # 기단 전체가 사람 없이 쓸 수 있는 돈. 200 x 3 = 600 이라 여기서 먼저 막힙니다
+  fleet_usd: 450
+  # 이 영향 범위는 무조건 사람이 봅니다
+  human_required_blast:
+    - passenger
+    - public
+  # 이 행동은 비용과 무관하게 사람이 봅니다
+  human_required_actions:
+    - disengage_autonomy
+
+# 리콜 같은 전면 금지. 한도보다 먼저 보고, 모델한테 물어보지도 않습니다.
+# 시뮬레이터가 공지를 띄우면 런타임이 여기에 한 줄을 더합니다.
+policies: []
+
+models:
+  nano: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B
+  super: nvidia/NVIDIA-Nemotron-3-Super-100B-A10B
+  ultra: nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B

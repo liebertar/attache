@@ -1,0 +1,82 @@
+"""The eight nouns. Shared by agents and runtime; neither side may add fields at will."""
+
+import time
+import uuid
+from dataclasses import asdict, dataclass, field
+from enum import Enum
+
+# 영향 범위 순위. 중재자가 규칙으로 되돌아갈 때 이 순서로 고릅니다.
+BLAST_RANK = {"none": 0, "schedule": 1, "cargo": 2, "passenger": 3, "public": 4}
+
+
+class Verdict(str, Enum):
+    AUTO = "auto"
+    HUMAN = "human"
+    DENIED = "denied"
+
+
+@dataclass
+class Proposal:
+    """에이전트가 낼 수 있는 유일한 것. 실행 능력은 없습니다."""
+
+    asset_id: str
+    action: str
+    cost_usd: float
+    blast_radius: str
+    rationale: str
+    params: dict = field(default_factory=dict)
+    resource: str | None = None
+    author: str = "rules"
+    world: str = "guarded"
+    id: str = field(default_factory=lambda: f"p_{uuid.uuid4().hex[:10]}")
+    filed_at: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "Proposal":
+        allowed = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in raw.items() if k in allowed})
+
+    def validate(self) -> list[str]:
+        problems = []
+        if not self.asset_id or not self.action:
+            problems.append("asset_id and action are required")
+        if self.blast_radius not in BLAST_RANK:
+            problems.append(f"unknown blast_radius: {self.blast_radius}")
+        if self.cost_usd < 0:
+            problems.append("cost_usd must not be negative")
+        return problems
+
+
+@dataclass
+class Decision:
+    proposal_id: str
+    verdict: Verdict
+    reason: str
+    policy_hit: str | None = None
+    authority_hit: str | None = None
+    arbiter: str | None = None
+    approved_by: str | None = None
+    ledger_id: str | None = None
+    committed: bool = False
+
+    def to_dict(self) -> dict:
+        out = asdict(self)
+        out["verdict"] = self.verdict.value
+        return out
+
+
+@dataclass
+class LedgerEntry:
+    """기록이 먼저 남고 그 다음에 실행됩니다. 순서가 뒤집히면 실행이 안 됩니다."""
+
+    proposal: dict
+    decision: dict
+    id: str = field(default_factory=lambda: f"l_{uuid.uuid4().hex[:12]}")
+    at: float = field(default_factory=time.time)
+    outcome: str = "pending"
+
+    def to_dict(self) -> dict:
+        return asdict(self)

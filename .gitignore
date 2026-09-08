@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 ledger.jsonl
 .env
+models/
+*.jsonl
+.run/

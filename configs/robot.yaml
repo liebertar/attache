@@ -1,0 +1,21 @@
+# 같은 런타임, 다른 분야. 코드는 한 줄도 안 바뀝니다.
+name: factory-line
+
+resources:
+  - press:line-3
+  - budget:maintenance
+
+authority:
+  per_asset_usd: 500
+  fleet_usd: 2000
+  human_required_blast:
+    - public
+  human_required_actions:
+    - stop_line
+
+policies: []
+
+models:
+  nano: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B
+  super: nvidia/NVIDIA-Nemotron-3-Super-100B-A10B
+  ultra: nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B

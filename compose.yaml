@@ -1,0 +1,107 @@
+# docker compose up --build  →  http://localhost:3000
+#
+# 이 파일 자체가 설명입니다. guarded 에이전트는 world 망에 없어서 조종장치에 닿을
+# 길이 없고, direct 에이전트는 world 망에 있어서 직접 만집니다. 코드는 같습니다.
+
+x-build-agent: &build-agent
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: agent
+  env_file:
+    - path: .env
+      required: false
+  restart: unless-stopped
+
+x-llm: &llm
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
+  MODEL_NANO: ${MODEL_NANO:-nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B}
+  MODEL_SUPER: ${MODEL_SUPER:-nvidia/NVIDIA-Nemotron-3-Super-100B-A10B}
+  MODEL_ULTRA: ${MODEL_ULTRA:-nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B}
+
+services:
+  sim:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: sim
+    environment:
+      PORT: 8100
+      SEED: ${SEED:-7}
+      FLEET_LIMIT_USD: 500
+      TICK_SECONDS: ${TICK_SECONDS:-0.2}
+    ports: ["8100:8100"]
+    networks: [world]
+
+  runtime:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: runtime
+    environment:
+      <<: *llm
+      PORT: 8000
+      CONFIG: /app/configs/fleet.yaml
+      SIM_URL: http://sim:8100
+      LEDGER_PATH: /data/ledger.jsonl
+      ARBITRATION_WINDOW_S: ${ARBITRATION_WINDOW_S:-1.5}
+    ports: ["8000:8000"]
+    volumes: [ledger:/data]
+    # 양쪽 망에 다 있는 유일한 서비스입니다
+    networks: [fleet, world]
+    depends_on: [sim]
+
+  ui:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: ui
+    ports: ["3000:3000"]
+    networks: [fleet]
+    depends_on: [runtime]
+
+  # --- 런타임을 거치는 세계 -------------------------------------------------
+  guarded-taxi-a:
+    <<: *build-agent
+    environment: { <<: *llm, ASSET_ID: taxi-a, MODE: guarded, RUNTIME_URL: "http://runtime:8000" }
+    networks: [fleet]
+    depends_on: [runtime]
+
+  guarded-drone-b:
+    <<: *build-agent
+    environment: { <<: *llm, ASSET_ID: drone-b, MODE: guarded, RUNTIME_URL: "http://runtime:8000" }
+    networks: [fleet]
+    depends_on: [runtime]
+
+  guarded-taxi-c:
+    <<: *build-agent
+    environment: { <<: *llm, ASSET_ID: taxi-c, MODE: guarded, RUNTIME_URL: "http://runtime:8000" }
+    networks: [fleet]
+    depends_on: [runtime]
+
+  # --- 조종장치를 직접 만지는 세계 (지금 대부분의 배선) ---------------------
+  direct-taxi-a:
+    <<: *build-agent
+    environment: { <<: *llm, ASSET_ID: taxi-a, MODE: direct, SIM_URL: "http://sim:8100" }
+    networks: [world]
+    depends_on: [sim]
+
+  direct-drone-b:
+    <<: *build-agent
+    environment: { <<: *llm, ASSET_ID: drone-b, MODE: direct, SIM_URL: "http://sim:8100" }
+    networks: [world]
+    depends_on: [sim]
+
+  direct-taxi-c:
+    <<: *build-agent
+    environment: { <<: *llm, ASSET_ID: taxi-c, MODE: direct, SIM_URL: "http://sim:8100" }
+    networks: [world]
+    depends_on: [sim]
+
+networks:
+  fleet: {}
+  world: {}
+
+volumes:
+  ledger: {}
