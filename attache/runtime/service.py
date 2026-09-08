@@ -226,6 +226,7 @@ class Runtime:
                 forbid_resource=item.get("forbid_resource"),
                 applies_to=item.get("applies_to", {}),
                 active_from_tick=0,
+                active_until_tick=item.get("until_tick"),
             )
             self.policies.add(policy)
             self.revoke_under(policy)

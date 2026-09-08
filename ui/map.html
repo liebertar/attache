@@ -51,7 +51,8 @@
   <h1>같은 기단, 다른 배선</h1>
   <p>같은 씨앗 · 같은 감지 코드 · 같은 신청서 작성기.
      <span class="g">파랑</span>은 런타임에 신청하고
-     <span class="d">주황</span>은 조종장치를 직접 만집니다.</p>
+     <span class="d">주황</span>은 조종장치를 직접 만집니다.<br>
+     바닥 격자는 FAA 가 공개한 실제 허용 고도입니다.</p>
   <p style="margin-top:5px">tick <b id="tick">0</b> ·
      <a href="index.html">승인 화면 →</a></p>
 </div>
@@ -72,7 +73,12 @@
   <div><span class="k" style="background:var(--guard)"></span>런타임을 거치는 기체</div>
   <div><span class="k" style="background:var(--direct)"></span>직접 만지는 기체</div>
   <div><span class="k" style="background:var(--warn)"></span>착륙 패드</div>
-  <div><span class="k" style="background:var(--zone);opacity:.55"></span>비행금지 구역</div>
+  <div><span class="k" style="background:#c1121f;opacity:.7"></span>허가 없이 비행 불가 (0ft)</div>
+  <div><span class="k" style="background:#f0b73c"></span>천장 30m &nbsp;
+       <span class="k" style="background:#c9d14a"></span>61m &nbsp;
+       <span class="k" style="background:#7fc27a"></span>91m &nbsp;
+       <span class="k" style="background:#4aa3d1"></span>122m</div>
+  <div style="margin-top:4px;font-size:10.5px">격자는 FAA UAS Facility Map 실제 데이터</div>
 </div>
 
 <div class="card" id="banner"></div>
@@ -95,9 +101,24 @@ const ROWS = [
 const map = new maplibregl.Map({
   container: "map",
   style: "https://tiles.openfreemap.org/styles/positron",
-  center: [127.0830, 37.5105], zoom: 15.1, pitch: 62, bearing: 24,
+  // 중심은 데이터에서 잡습니다. 도시를 바꿔도 이 파일은 안 고칩니다.
+  center: [0, 0], zoom: 2, pitch: 60, bearing: 20,
   attributionControl: {compact: true},
 });
+let framed = false;
+
+function frameOn(snapshot){
+  if (framed) return;
+  const points = Object.values(snapshot.assets)
+    .filter(v => v.lat != null).map(v => [v.lon, v.lat]);
+  for (const at of Object.values(snapshot.pad_coords || {})) points.push([at.lon, at.lat]);
+  if (!points.length) return;
+  const lons = points.map(p => p[0]), lats = points.map(p => p[1]);
+  map.fitBounds([[Math.min(...lons), Math.min(...lats)],
+                 [Math.max(...lons), Math.max(...lats)]],
+                {padding: 140, pitch: 60, bearing: 20, duration: 0});
+  framed = true;
+}
 
 const empty = () => ({type:"FeatureCollection", features:[]});
 // 폴링은 0.5초인데 화면은 60fps 입니다. 그 사이를 채워야 안 끊겨 보입니다.
@@ -148,7 +169,20 @@ map.on("load", () => {
     }, firstLabel);
   }
 
-  // 비행금지 구역 — 런타임이 무엇을 강제하고 있는지 눈에 보여야 합니다
+  // 진짜 FAA 격자. 블록마다 천장이 다릅니다.
+  map.addSource("cells", {type:"geojson", data: empty()});
+  map.addLayer({id:"cells-fill", type:"fill", source:"cells",
+    paint:{"fill-color":["case",
+        ["==",["get","rule"],"forbidden"], "#c1121f",
+        ["interpolate",["linear"],["get","ceiling"],
+          15,"#f08c3c", 30,"#f0b73c", 61,"#c9d14a", 91,"#7fc27a", 122,"#4aa3d1"]],
+      "fill-opacity":["case",["==",["get","rule"],"forbidden"],.30,.16]}});
+  map.addLayer({id:"cells-line", type:"line", source:"cells",
+    paint:{"line-color":["case",["==",["get","rule"],"forbidden"],"#c1121f","#7d8f9a"],
+           "line-width":["case",["==",["get","rule"],"forbidden"],1.4,.5],
+           "line-opacity":.7}});
+
+  // 중간에 새로 닫히는 구역 — 런타임이 무엇을 강제하는지 눈에 보여야 합니다
   map.addSource("zone", {type:"geojson", data: empty()});
   map.addLayer({id:"zone-fill", type:"fill", source:"zone",
     paint:{"fill-color":"#ff3b30","fill-opacity":.16}});
@@ -240,6 +274,18 @@ async function poll(){
     map.getSource(`${world}-trail`)?.setData(
       {type:"FeatureCollection", features:trailFeatures});
   }
+
+  frameOn(data.worlds.guarded);
+
+  // 실제 FAA 격자. 천장이 낮을수록 붉고, 금지 칸은 빗금 없이 진하게.
+  const volumes = data.worlds.guarded.volumes || [];
+  map.getSource("cells")?.setData({type:"FeatureCollection", features: volumes.map(v => ({
+    type:"Feature",
+    geometry:{type:"Polygon", coordinates:[[...v.polygon.map(p => [p[1], p[0]]),
+                                            [v.polygon[0][1], v.polygon[0][0]]]]},
+    properties:{name:v.name, rule:v.rule,
+                ceiling: v.ceiling_m == null ? 0 : v.ceiling_m},
+  }))});
 
   const zone = data.worlds.guarded.zone;
   if (zone && zone.active)

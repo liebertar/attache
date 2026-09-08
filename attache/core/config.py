@@ -21,9 +21,12 @@ class Policy:
     forbid_resource: str | None = None
     applies_to: dict = field(default_factory=dict)
     active_from_tick: int = 0
+    active_until_tick: int | None = None   # ED-269 구역도 유효기간을 갖습니다
 
     def matches(self, action: str, resource: str | None, asset: dict, tick: int) -> bool:
         if tick < self.active_from_tick:
+            return False
+        if self.active_until_tick is not None and tick > self.active_until_tick:
             return False
         if self.forbid_action and action != self.forbid_action:
             return False

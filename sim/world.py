@@ -18,7 +18,7 @@ from attache.core.geo import Airspace, Volume
 
 # 위치는 진짜 FAA 격자를 보고 골랐습니다. 둘 다 합법 경로가 있고, 경로 최저 천장은 61m
 # 입니다. 기본 순항 고도 90m 로 그냥 날면 규정 위반이 됩니다 — 그게 오른쪽 세계입니다.
-PADS = {"pad:P1": (20.0, 45.0), "pad:P2": (55.0, 20.0)}
+PADS = {"pad:P1": (20.0, 45.0), "pad:P2": (90.0, 50.0)}
 DEPOT = (95.0, 52.0)
 
 # 맨해튼. 배터리파크에서 센트럴파크 북단까지, 이스트강 건너 롱아일랜드시티까지.
@@ -72,15 +72,16 @@ STANDING_VOLUMES = load_volumes()
 
 # 병원 응급헬기가 뜬다고 갑자기 상공이 닫힙니다. 착륙 패드 P1 이 그 안에 있습니다.
 # 이게 리콜과 같은 얘기의 공간판입니다. 금지가 언제 도착하고 누가 강제하느냐.
-ZONE_TICK = 12
+ZONE_TICK = 40
+ZONE_UNTIL = 170   # 응급헬기가 뜨고 내리는 동안만. 구역에는 유효기간이 있습니다
 ZONE = {
     "id": "nofly-2026-09-hospital",
     "kind": "zone",
     "forbid_resource": "pad:P1",
     "reason": "응급헬기 이착륙. 상공 비행금지",
     "name": "병원 헬리패드 상공",
-    "polygon": [[40.7010, -74.0160], [40.7010, -74.0040],
-                [40.7090, -74.0040], [40.7090, -74.0160]],
+    "polygon": [[40.7180, -74.0140], [40.7180, -74.0020],
+                [40.7270, -74.0020], [40.7270, -74.0140]],
     "floor_m": 0, "ceiling_m": None, "reference": "AGL",
     "rule": "forbidden", "source": "예시 데이터",
     "centre": (25.0, 45.0),
@@ -357,7 +358,7 @@ class World:
         잘못한 게 아닙니다. 대신 그 뒤로 얼마나 오래 남아 있었는지를 셉니다. 나가라고
         시킬 수 있는 쪽과 각자 알아서 나가는 쪽의 차이가 거기서 벌어집니다.
         """
-        if tick < ZONE_TICK:
+        if not (ZONE_TICK <= tick <= ZONE_UNTIL):
             return
         centre_x, centre_y = ZONE["centre"]
         for vehicle in self.vehicles.values():
@@ -409,7 +410,7 @@ class World:
                 [{k: v for k, v in ZONE.items()
                   if k in ("id", "name", "polygon", "floor_m", "ceiling_m",
                            "reference", "rule", "reason", "source")}]
-                if tick >= ZONE_TICK else []
+                if ZONE_TICK <= tick <= ZONE_UNTIL else []
             ),
             "zone": {
                 **{k: v for k, v in ZONE.items() if k != "centre"},
@@ -460,9 +461,9 @@ class Simulation:
 
     def bulletins(self) -> list[dict]:
         out = []
-        if self.tick_count >= ZONE_TICK:
+        if ZONE_TICK <= self.tick_count <= ZONE_UNTIL:
             out.append({**{k: v for k, v in ZONE.items() if k != "centre"},
-                        "published_tick": ZONE_TICK})
+                        "published_tick": ZONE_TICK, "until_tick": ZONE_UNTIL})
         if self.tick_count >= RECALL_TICK:
             out.append({**RECALL, "published_tick": RECALL_TICK})
         return out
