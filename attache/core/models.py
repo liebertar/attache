@@ -56,6 +56,7 @@ class Decision:
     verdict: Verdict
     reason: str
     policy_hit: str | None = None
+    forbids: str | None = None      # 금지된 것 자체. 행동 이름이거나 자원 이름
     authority_hit: str | None = None
     arbiter: str | None = None
     approved_by: str | None = None

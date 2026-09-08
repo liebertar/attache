@@ -16,8 +16,10 @@ class PolicyBook:
     def active(self, tick: int) -> list[Policy]:
         return [p for p in self._policies if tick >= p.active_from_tick]
 
-    def hit(self, action: str, asset: dict, tick: int) -> Policy | None:
+    def hit(
+        self, action: str, resource: str | None, asset: dict, tick: int
+    ) -> Policy | None:
         for policy in self._policies:
-            if policy.matches(action, asset, tick):
+            if policy.matches(action, resource, asset, tick):
                 return policy
         return None

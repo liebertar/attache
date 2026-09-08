@@ -31,13 +31,16 @@ class AuthorityCheck:
         if problems:
             return Decision(proposal.id, Verdict.DENIED, "; ".join(problems))
 
-        banned: Policy | None = self.policies.hit(proposal.action, asset, tick)
+        banned: Policy | None = self.policies.hit(
+            proposal.action, proposal.resource, asset, tick
+        )
         if banned:
             return Decision(
                 proposal.id,
                 Verdict.DENIED,
                 f"{banned.reason} ({banned.id})",
                 policy_hit=banned.id,
+                forbids=banned.forbid_resource or banned.forbid_action,
             )
 
         if proposal.action in self.authority.human_required_actions:

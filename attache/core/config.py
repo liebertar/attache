@@ -9,16 +9,27 @@ import yaml
 
 @dataclass
 class Policy:
-    """전 기체 금지 규칙. 한도보다 먼저 봅니다."""
+    """전 기체 금지 규칙. 한도보다 먼저 봅니다.
+
+    행동을 막거나(리콜: 급속충전 금지) 자원을 막습니다(비행금지 구역: 그 패드 금지).
+    둘 다 비어 있으면 아무것도 막지 않습니다.
+    """
 
     id: str
-    forbid_action: str
     reason: str
+    forbid_action: str | None = None
+    forbid_resource: str | None = None
     applies_to: dict = field(default_factory=dict)
     active_from_tick: int = 0
 
-    def matches(self, action: str, asset: dict, tick: int) -> bool:
-        if tick < self.active_from_tick or action != self.forbid_action:
+    def matches(self, action: str, resource: str | None, asset: dict, tick: int) -> bool:
+        if tick < self.active_from_tick:
+            return False
+        if self.forbid_action and action != self.forbid_action:
+            return False
+        if self.forbid_resource and resource != self.forbid_resource:
+            return False
+        if not self.forbid_action and not self.forbid_resource:
             return False
         return all(asset.get(key) == value for key, value in self.applies_to.items())
 

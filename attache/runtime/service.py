@@ -153,26 +153,56 @@ class Runtime:
             self.telemetry = state.get("assets", {})
 
         bulletins = get_json(f"{self.sim_url}/bulletins?world=guarded") or {}
+        known = {p.id for p in self.policies.all()}
         for item in bulletins.get("bulletins", []):
-            if item.get("kind") != "recall":
+            if item.get("kind") not in ("recall", "zone") or item["id"] in known:
                 continue
+            # 제한하는 정책은 즉시 걸립니다. 푸는 정책만 사람이 풉니다.
             policy = config_module.Policy(
                 id=item["id"],
-                forbid_action=item["forbid_action"],
-                reason=item.get("reason", "recall"),
+                reason=item.get("reason", item["kind"]),
+                forbid_action=item.get("forbid_action"),
+                forbid_resource=item.get("forbid_resource"),
                 applies_to=item.get("applies_to", {}),
                 active_from_tick=0,
             )
-            # 제한하는 정책은 즉시 걸립니다. 푸는 정책만 사람이 풉니다.
-            known = {p.id for p in self.policies.all()}
-            if policy.id not in known:
-                self.policies.add(policy)
+            self.policies.add(policy)
+            self.revoke_under(policy)
 
     def background(self) -> None:
         while True:
             self._pull_world()
             self._settle_contended()
             time.sleep(0.25)
+
+    def revoke_under(self, policy) -> Decision | None:
+        """금지가 도착했는데 이미 그 자원을 잡고 있으면 뺏고 회항시킵니다.
+
+        거절만 하는 것과 이게 다릅니다. 강제점이 있으면 이미 벌어진 일도 되돌립니다.
+        회항은 한도를 보지 않고 나갑니다. 닫힌 구역에서 빠져나오는 건 예산 문제가
+        아닙니다. 대신 누가 왜 시켰는지는 원장에 그대로 남습니다.
+        """
+        if not policy.forbid_resource:
+            return None
+        hold = self.locks.holder(policy.forbid_resource)
+        if hold is None:
+            return None
+
+        self.locks.release(policy.forbid_resource, hold.asset_id)
+        retreat = Proposal(
+            asset_id=hold.asset_id,
+            action="divert_ground",
+            cost_usd=35.0,
+            blast_radius="cargo",
+            rationale=f"{policy.reason} ({policy.id})",
+            author="runtime",
+        )
+        decision = Decision(
+            retreat.id, Verdict.AUTO, f"{policy.id} 로 {policy.forbid_resource} 회수",
+            policy_hit=policy.id,
+        )
+        self._decisions[retreat.id] = decision
+        return self.committer.commit(retreat, decision)
 
     # ---------- 화면에 보여줄 것 ----------
 

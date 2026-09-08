@@ -15,7 +15,7 @@ from attache.agent.propose import COSTS, by_rule
 from attache.core.config import Policy
 from attache.core.models import Verdict
 from attache.runtime.service import Runtime
-from sim.world import RECALL, RECALL_TICK, Simulation
+from sim.world import RECALL, RECALL_TICK, ZONE, ZONE_TICK, Simulation
 
 TICKS = 420
 PADS = ["pad:P1", "pad:P2"]
@@ -50,7 +50,10 @@ class GuardedSide:
                 continue
             index = self.pad_index.setdefault(asset_id, 0)
             banned = self.banned.setdefault(asset_id, set())
-            proposal = by_rule(concern, telemetry, PADS[index], frozenset(banned))
+            open_pads = [pad for pad in PADS if pad not in banned] or PADS
+            proposal = by_rule(
+                concern, telemetry, open_pads[index % len(open_pads)], frozenset(banned)
+            )
             if snapshot["tick"] < self.cooldown.get((asset_id, proposal.action), 0):
                 continue
             decision = self.runtime.file(proposal.to_dict())
@@ -58,7 +61,8 @@ class GuardedSide:
                 self.cooldown[(asset_id, proposal.action)] = snapshot["tick"] + 30
             if decision.verdict is Verdict.DENIED:
                 if decision.policy_hit:
-                    banned.add(proposal.action)
+                    # 자원이 막힌 걸 행동이 막힌 걸로 배우면 영영 신청을 못 합니다
+                    banned.add(decision.forbids or proposal.action)
                 elif proposal.resource:
                     self.pad_index[asset_id] = (index + 1) % len(PADS)
         self.runtime._settle_contended()
@@ -89,16 +93,23 @@ class DirectSide:
             if not bulletins or tick % self.bulletin_lag != phase:
                 continue
             for item in bulletins:
-                if item["applies_to"].get("model") in (None, telemetry["model"]):
-                    self.banned.setdefault(asset_id, set()).add(item["forbid_action"])
+                if item.get("applies_to", {}).get("model") not in (None, telemetry["model"]):
+                    continue
+                seen = self.banned.setdefault(asset_id, set())
+                if item.get("forbid_action"):
+                    seen.add(item["forbid_action"])
+                if item.get("forbid_resource"):
+                    seen.add(item["forbid_resource"])
 
         # 세 기체가 같은 주기로 상태를 읽습니다. 읽은 뒤 쓰기까지가 비어 있습니다.
         for asset_id, telemetry in snapshot["assets"].items():
             concern = detect(telemetry)
             if concern is None:
                 continue
-            proposal = by_rule(concern, telemetry, self._free_looking_pad(snapshot, asset_id))
-            if proposal.action in self.banned.get(asset_id, set()):
+            banned = self.banned.get(asset_id, set())
+            pad = self._free_looking_pad(snapshot, asset_id, banned)
+            proposal = by_rule(concern, telemetry, pad)
+            if proposal.action in banned or (proposal.resource and proposal.resource in banned):
                 continue
             spent = self.spend.get(asset_id, 0.0)
             if spent + COSTS.get(proposal.action, 0.0) > self.per_asset_limit:
@@ -109,17 +120,18 @@ class DirectSide:
                 self.spend[asset_id] = spent + result.get("cost_usd", 0.0)
 
     @staticmethod
-    def _free_looking_pad(snapshot, asset_id):
+    def _free_looking_pad(snapshot, asset_id, banned=frozenset()):
         # 위치는 Remote ID 로 보이지만 예약 의도는 안 보입니다. 회사가 다르면 더욱.
         taken = {
             vehicle.get("assigned_pad")
             for vid, vehicle in snapshot["assets"].items()
             if vid != asset_id and vehicle.get("state") in ("landed", "charging")
         }
-        for pad in PADS:
+        open_pads = [pad for pad in PADS if pad not in banned]
+        for pad in open_pads:
             if pad not in taken:
                 return pad
-        return PADS[0]
+        return open_pads[0] if open_pads else PADS[0]
 
 
 def run(tmp_ledger: str):
@@ -137,12 +149,20 @@ def run(tmp_ledger: str):
         simulation.step()
         tick = simulation.tick_count
 
-        # 리콜은 제한하는 정책이라 런타임이 즉시 겁니다. 푸는 정책만 사람이 풉니다.
-        if tick >= RECALL_TICK and not runtime.policies.hit(
-            RECALL["forbid_action"], {"model": "robotaxi-v3"}, tick
-        ):
-            runtime.policies.add(Policy(RECALL["id"], RECALL["forbid_action"],
-                                        RECALL["reason"], RECALL["applies_to"], 0))
+        # 제한하는 공지는 런타임이 도착 즉시 겁니다. 푸는 정책만 사람이 풉니다.
+        known = {p.id for p in runtime.policies.all()}
+        for item in simulation.bulletins():
+            if item["id"] in known:
+                continue
+            policy = Policy(
+                id=item["id"],
+                reason=item["reason"],
+                forbid_action=item.get("forbid_action"),
+                forbid_resource=item.get("forbid_resource"),
+                applies_to=item.get("applies_to", {}),
+            )
+            runtime.policies.add(policy)
+            runtime.revoke_under(policy)
 
         runtime.tick = tick
         guarded_snapshot = guarded_world.snapshot(tick)
@@ -182,6 +202,10 @@ class TwoWorldsTest(unittest.TestCase):
     def test_every_guarded_action_is_on_the_record(self):
         self.assertEqual(self.guarded["unrecorded_actions"], 0)
         self.assertEqual(self.direct["unrecorded_actions"], self.direct["actions"])
+
+    def test_a_closed_zone_is_emptied_only_where_something_enforces_it(self):
+        self.assertEqual(self.guarded["zone_incursions"], 0)
+        self.assertGreater(self.direct["zone_incursions"], 0)
 
     def test_passenger_impact_never_happens_unattended(self):
         self.assertEqual(self.guarded["unapproved_passenger_actions"], 0)

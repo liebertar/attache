@@ -36,6 +36,18 @@ COSTS = {
 }
 
 RECALL_TICK = 158
+
+# 병원 응급헬기가 뜬다고 갑자기 상공이 닫힙니다. 착륙 패드 P2 가 그 안에 있습니다.
+# 이게 리콜과 같은 얘기의 공간판입니다. 금지가 언제 도착하고 누가 강제하느냐.
+ZONE_TICK = 12
+ZONE = {
+    "id": "nofly-2026-09-hospital",
+    "kind": "zone",
+    "forbid_resource": "pad:P1",
+    "reason": "병원 응급헬기 이착륙. 상공 비행금지",
+    "centre": (25.0, 45.0),
+    "radius": 16.0,
+}
 RECALL = {
     "id": "recall-2026-09-robotaxi-v3",
     "kind": "recall",
@@ -62,6 +74,7 @@ class Vehicle:
     assigned_pad: str | None = None
     charge_mode: str = "normal"
     spend: float = 0.0
+    in_zone: bool = False
 
     def public(self) -> dict:
         data = asdict(self)
@@ -79,6 +92,8 @@ class Vehicle:
 @dataclass
 class Scoreboard:
     pad_conflicts: int = 0
+    zone_incursions: int = 0
+    zone_dwell_ticks: int = 0
     spend_usd: float = 0.0
     over_fleet_limit_usd: float = 0.0
     post_recall_violations: int = 0
@@ -160,8 +175,9 @@ class World:
             vehicle.state = "cruising"
             vehicle.vibration = 0.0  # 패드에 있는 동안 정비를 받았습니다
         elif action == "divert_ground":
+            # 접근을 끊고 대기로 돌아갑니다. 착륙이 아니라 회항입니다.
             vehicle.assigned_pad = None
-            vehicle.state = "diverted"
+            vehicle.state = "cruising"
             vehicle.vibration = 0.0
         elif action == "disengage_autonomy":
             vehicle.autonomy_health = 0.0
@@ -187,6 +203,7 @@ class World:
         for vehicle in self.vehicles.values():
             self._advance(vehicle, tick)
         self._detect_pad_conflicts(tick)
+        self._detect_zone_incursions(tick)
 
     def _advance(self, vehicle: Vehicle, tick: int) -> None:
         if vehicle.state == "charging":
@@ -262,6 +279,31 @@ class World:
                 self.score.pad_conflicts += 1
                 self._log(tick, "패드 충돌", f"{pad} 에 {', '.join(riders)} 가 동시에")
 
+    def _detect_zone_incursions(self, tick: int) -> None:
+        """구역 안 기체를 셉니다. 신청이 아니라 위치입니다.
+
+        규칙이 도착한 순간 이미 안에 있던 기체는 침범으로 세지 않습니다. 그건 아무도
+        잘못한 게 아닙니다. 대신 그 뒤로 얼마나 오래 남아 있었는지를 셉니다. 나가라고
+        시킬 수 있는 쪽과 각자 알아서 나가는 쪽의 차이가 거기서 벌어집니다.
+        """
+        if tick < ZONE_TICK:
+            return
+        centre_x, centre_y = ZONE["centre"]
+        for vehicle in self.vehicles.values():
+            if vehicle.state == "grounded":
+                continue
+            distance = ((vehicle.x - centre_x) ** 2 + (vehicle.y - centre_y) ** 2) ** 0.5
+            inside = distance <= ZONE["radius"]
+            if inside:
+                self.score.zone_dwell_ticks += 1
+            if tick == ZONE_TICK:
+                vehicle.in_zone = inside  # 규칙 도착 시점의 상태는 그냥 기록만
+                continue
+            if inside and not vehicle.in_zone:
+                self.score.zone_incursions += 1
+                self._log(tick, "비행금지 구역 침범", f"{vehicle.id} 가 병원 상공에 들어감")
+            vehicle.in_zone = inside
+
     def _log(self, tick: int, kind: str, text: str) -> None:
         self.events.append({"tick": tick, "kind": kind, "text": text, "at": time.time()})
         del self.events[: max(0, len(self.events) - 40)]
@@ -270,6 +312,13 @@ class World:
         return {
             "world": self.name,
             "tick": tick,
+            "zone": {
+                **{k: v for k, v in ZONE.items() if k != "centre"},
+                "lat": to_latlon(*ZONE["centre"])[0],
+                "lon": to_latlon(*ZONE["centre"])[1],
+                "radius_m": round(ZONE["radius"] / 100.0 * SPAN_LON * 88_000, 0),
+                "active": tick >= ZONE_TICK,
+            },
             "pads": PADS,
             "pad_coords": {
                 name: {"lat": round(lat, 6), "lon": round(lon, 6)}
@@ -303,9 +352,13 @@ class Simulation:
             world.tick(self.tick_count)
 
     def bulletins(self) -> list[dict]:
-        if self.tick_count < RECALL_TICK:
-            return []
-        return [{**RECALL, "published_tick": RECALL_TICK}]
+        out = []
+        if self.tick_count >= ZONE_TICK:
+            out.append({**{k: v for k, v in ZONE.items() if k != "centre"},
+                        "published_tick": ZONE_TICK})
+        if self.tick_count >= RECALL_TICK:
+            out.append({**RECALL, "published_tick": RECALL_TICK})
+        return out
 
     def reset(self) -> None:
         limit = self.worlds["guarded"].fleet_limit

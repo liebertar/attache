@@ -32,8 +32,8 @@ class AuthorityTest(unittest.TestCase):
         self.assertIs(self.authority.evaluate(make(), self.asset, 0).verdict, Verdict.AUTO)
 
     def test_policy_denies_before_any_limit(self):
-        self.policies.add(Policy("recall-1", "fast_charge", "발화 사례",
-                                 {"model": "robotaxi-v3"}))
+        self.policies.add(Policy("recall-1", "발화 사례", forbid_action="fast_charge",
+                                 applies_to={"model": "robotaxi-v3"}))
         decision = self.authority.evaluate(
             make(action="fast_charge", cost_usd=0.0), self.asset, 0
         )
@@ -41,8 +41,8 @@ class AuthorityTest(unittest.TestCase):
         self.assertEqual(decision.policy_hit, "recall-1")
 
     def test_policy_ignores_other_models(self):
-        self.policies.add(Policy("recall-1", "fast_charge", "발화 사례",
-                                 {"model": "robotaxi-v3"}))
+        self.policies.add(Policy("recall-1", "발화 사례", forbid_action="fast_charge",
+                                 applies_to={"model": "robotaxi-v3"}))
         decision = self.authority.evaluate(
             make(action="fast_charge"), {"model": "hexa-2"}, 0
         )
@@ -66,6 +66,18 @@ class AuthorityTest(unittest.TestCase):
                                            self.asset, 0)
         self.assertIs(decision.verdict, Verdict.HUMAN)
         self.assertEqual(decision.authority_hit, "fleet_usd")
+
+    def test_a_closed_zone_denies_the_resource_inside_it(self):
+        """비행금지 구역은 '그 패드를 쓰지 마라'로 내려옵니다. 행동이 아니라 자원입니다."""
+        self.policies.add(Policy("nofly-1", "병원 응급헬기", forbid_resource="pad:P2"))
+        blocked = make(action="reserve_pad", cost_usd=28.0, resource="pad:P2")
+        allowed = make(action="reserve_pad", cost_usd=28.0, resource="pad:P1")
+        self.assertIs(self.authority.evaluate(blocked, self.asset, 0).verdict, Verdict.DENIED)
+        self.assertIs(self.authority.evaluate(allowed, self.asset, 0).verdict, Verdict.AUTO)
+
+    def test_an_empty_policy_forbids_nothing(self):
+        self.policies.add(Policy("empty", "아무것도 안 막음"))
+        self.assertIs(self.authority.evaluate(make(), self.asset, 0).verdict, Verdict.AUTO)
 
     def test_malformed_proposal_is_refused(self):
         decision = self.authority.evaluate(make(blast_radius="어쩌구"), self.asset, 0)

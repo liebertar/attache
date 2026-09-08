@@ -32,6 +32,12 @@ class GuardedAgent:
         self.repeat_s = float(os.getenv("REPEAT_COOLDOWN_S", "2"))
         self.denial_s = float(os.getenv("DENIAL_COOLDOWN_S", "6"))
 
+    def _open_pad(self) -> str:
+        open_pads = [pad for pad in PADS if pad not in self.banned]
+        if not open_pads:
+            return PADS[self.pad_index]
+        return open_pads[self.pad_index % len(open_pads)]
+
     def telemetry(self) -> dict:
         return get_json(f"{self.runtime_url}/telemetry/{self.asset_id}") or {}
 
@@ -43,7 +49,7 @@ class GuardedAgent:
         if concern is None:
             return
         proposal = self.proposer.write(
-            concern, telemetry, PADS[self.pad_index], frozenset(self.banned)
+            concern, telemetry, self._open_pad(), frozenset(self.banned)
         )
         if time.time() < self.cooldown.get(proposal.action, 0.0):
             return  # 방금 거절당한 걸 계속 들이밀지 않습니다
@@ -53,8 +59,9 @@ class GuardedAgent:
             self.cooldown[proposal.action] = time.time() + self.denial_s
         if decision and decision.get("verdict") == "denied":
             if decision.get("policy_hit"):
-                # 강제점이 있으면 금지 사실을 그 자리에서 알게 됩니다
-                self.banned.add(proposal.action)
+                # 강제점이 있으면 무엇이 금지됐는지 그 자리에서 알게 됩니다.
+                # 자원이 막힌 것을 행동이 막힌 것으로 잘못 배우면 영영 신청을 못 합니다.
+                self.banned.add(decision.get("forbids") or proposal.action)
             elif proposal.resource:
                 self.pad_index = (self.pad_index + 1) % len(PADS)
         _report(self.asset_id, "guarded", proposal, decision)

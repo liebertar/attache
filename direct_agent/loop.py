@@ -68,8 +68,12 @@ class DirectAgent:
         self._last_bulletin_check = now
         payload = get_json(f"{self.sim_url}/bulletins") or {}
         for item in payload.get("bulletins", []):
-            if item.get("applies_to", {}).get("model") in (None, model):
+            if item.get("applies_to", {}).get("model") not in (None, model):
+                continue
+            if item.get("forbid_action"):
                 self.banned_actions.add(item["forbid_action"])
+            if item.get("forbid_resource"):
+                self.banned_actions.add(item["forbid_resource"])
 
     def _free_looking_pad(self, neighbours: dict) -> str:
         """다른 기체가 실제로 내려앉아 있는 패드만 피할 수 있습니다.
@@ -84,7 +88,9 @@ class DirectAgent:
             if vehicle_id != self.asset_id
             and vehicle.get("state") in ("landed", "charging")
         }
-        return next((pad for pad in PADS if pad not in taken), PADS[0])
+        open_pads = [p for p in PADS if p not in self.banned_actions]
+        return next((p for p in open_pads if p not in taken),
+                    open_pads[0] if open_pads else PADS[0])
 
     # ---------- 무엇을 하나 ----------
 
@@ -102,7 +108,9 @@ class DirectAgent:
             concern, telemetry, self._free_looking_pad(neighbours),
             frozenset(self.banned_actions),
         )
-        if proposal.action in self.banned_actions:
+        if proposal.action in self.banned_actions or (
+            proposal.resource and proposal.resource in self.banned_actions
+        ):
             return  # 공지를 본 뒤에는 스스로 지킵니다
         cost = COSTS.get(proposal.action, 0.0)
         if self.spend + cost > self.per_asset_limit:
