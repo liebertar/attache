@@ -94,6 +94,7 @@ class Scoreboard:
     pad_conflicts: int = 0
     zone_incursions: int = 0
     zone_dwell_ticks: int = 0
+    refused_without_receipt: int = 0
     spend_usd: float = 0.0
     over_fleet_limit_usd: float = 0.0
     post_recall_violations: int = 0
@@ -122,9 +123,14 @@ def fresh_fleet(seed: int) -> list[Vehicle]:
 
 
 class World:
-    def __init__(self, name: str, seed: int, fleet_limit: float):
+    def __init__(self, name: str, seed: int, fleet_limit: float,
+                 require_receipt: bool = False):
         self.name = name
         self.fleet_limit = fleet_limit
+        # 조종장치가 원장 번호를 요구하는가.
+        # 요구하면 런타임을 안 거친 명령은 물리적으로 실행되지 않습니다.
+        # 이 한 줄이 "권고"와 "강제"를 가릅니다.
+        self.require_receipt = require_receipt
         self.vehicles = {v.id: v for v in fresh_fleet(seed)}
         self.score = Scoreboard()
         self.events: list[dict] = []
@@ -138,6 +144,10 @@ class World:
             return {"ok": False, "error": f"unknown asset {asset}"}
         if action not in COSTS:
             return {"ok": False, "error": f"unknown action {action}"}
+
+        if self.require_receipt and not ledger_id:
+            self.score.refused_without_receipt += 1
+            return {"ok": False, "error": "승인 영수증(ledger id) 없이는 실행하지 않습니다"}
 
         refusal = self._refuse(vehicle, action, params)
         if refusal:
@@ -337,13 +347,21 @@ class World:
 class Simulation:
     """두 세계를 같은 씨앗, 같은 시계로 돌립니다."""
 
-    def __init__(self, seed: int = 7, fleet_limit: float = 500.0, tick_seconds: float = 0.2):
+    def __init__(self, seed: int = 7, fleet_limit: float = 500.0, tick_seconds: float = 0.2,
+                 lock_actuator: bool = False):
         self.seed = seed
         self.tick_seconds = tick_seconds
+        self.lock_actuator = lock_actuator
         self.tick_count = 0
-        self.worlds = {
-            "guarded": World("guarded", seed, fleet_limit),
-            "direct": World("direct", seed, fleet_limit),
+        self.worlds = self._fresh_worlds(fleet_limit)
+
+    def _fresh_worlds(self, fleet_limit: float) -> dict:
+        return {
+            "guarded": World("guarded", self.seed, fleet_limit),
+            # 조종장치를 잠그면 직결 배선은 아무것도 못 합니다.
+            # 잠그지 않은 것이 오늘의 기본값이고, 그래서 이 데모가 필요합니다.
+            "direct": World("direct", self.seed, fleet_limit,
+                            require_receipt=self.lock_actuator),
         }
 
     def step(self) -> None:
@@ -363,7 +381,4 @@ class Simulation:
     def reset(self) -> None:
         limit = self.worlds["guarded"].fleet_limit
         self.tick_count = 0
-        self.worlds = {
-            "guarded": World("guarded", self.seed, limit),
-            "direct": World("direct", self.seed, limit),
-        }
+        self.worlds = self._fresh_worlds(limit)

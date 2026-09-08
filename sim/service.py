@@ -13,6 +13,7 @@ def main() -> None:
         seed=int(os.getenv("SEED", "7")),
         fleet_limit=float(os.getenv("FLEET_LIMIT_USD", "500")),
         tick_seconds=float(os.getenv("TICK_SECONDS", "0.2")),
+        lock_actuator=os.getenv("LOCK_ACTUATOR", "0") == "1",
     )
 
     def clock() -> None:
