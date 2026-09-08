@@ -171,16 +171,31 @@ map.on("load", () => {
 
   // 진짜 FAA 격자. 블록마다 천장이 다릅니다.
   map.addSource("cells", {type:"geojson", data: empty()});
+  // 바닥 색: 어디가 어느 등급인지
   map.addLayer({id:"cells-fill", type:"fill", source:"cells",
     paint:{"fill-color":["case",
         ["==",["get","rule"],"forbidden"], "#c1121f",
         ["interpolate",["linear"],["get","ceiling"],
           15,"#f08c3c", 30,"#f0b73c", 61,"#c9d14a", 91,"#7fc27a", 122,"#4aa3d1"]],
-      "fill-opacity":["case",["==",["get","rule"],"forbidden"],.30,.16]}});
+      "fill-opacity":["case",["==",["get","rule"],"forbidden"],.22,.10]}});
+  // 천장을 실제 높이로 세웁니다. 건물이 그 사이로 솟으면 그게 눈에 보입니다.
+  map.addLayer({id:"cells-roof", type:"fill-extrusion", source:"cells", minzoom:12,
+    paint:{
+      "fill-extrusion-color":["case",
+        ["==",["get","rule"],"forbidden"], "#c1121f",
+        ["interpolate",["linear"],["get","ceiling"],
+          15,"#f08c3c", 30,"#f0b73c", 61,"#c9d14a", 91,"#7fc27a", 122,"#4aa3d1"]],
+      // 금지 칸은 위로 끝까지 — 200m 로 세워 벽처럼 보이게 합니다
+      "fill-extrusion-base":["case",["==",["get","rule"],"forbidden"],0,
+                             ["max",["-",["get","ceiling"],2],0]],
+      "fill-extrusion-height":["case",["==",["get","rule"],"forbidden"],200,
+                               ["get","ceiling"]],
+      "fill-extrusion-opacity":["case",["==",["get","rule"],"forbidden"],.16,.42],
+    }});
   map.addLayer({id:"cells-line", type:"line", source:"cells",
     paint:{"line-color":["case",["==",["get","rule"],"forbidden"],"#c1121f","#7d8f9a"],
            "line-width":["case",["==",["get","rule"],"forbidden"],1.4,.5],
-           "line-opacity":.7}});
+           "line-opacity":.6}});
 
   // 중간에 새로 닫히는 구역 — 런타임이 무엇을 강제하는지 눈에 보여야 합니다
   map.addSource("zone", {type:"geojson", data: empty()});
@@ -207,11 +222,15 @@ map.on("load", () => {
       paint:{"line-color":colour,"line-width":2,"line-opacity":.45}});
     map.addSource(id, {type:"geojson", data: empty()});
     map.addLayer({id:`${id}-icon`, type:"symbol", source:id,
-      layout:{"icon-image":`drone-${id}`,"icon-size":.55,
+      layout:{"icon-image":`drone-${id}`,
+              // 확대하면 커집니다. 골목까지 들어가면 실제 크기감이 나오게.
+              "icon-size":["interpolate",["exponential",1.6],["zoom"],
+                           12,.35, 15,.7, 17,1.6, 19,3.2],
               "icon-rotate":["get","heading"],"icon-rotation-alignment":"map",
               "icon-allow-overlap":true,
               "text-field":["concat",["get","id"],"  ",["get","battery"],"%"],
-              "text-size":10.5,"text-offset":[0,1.6],"text-anchor":"top",
+              "text-size":["interpolate",["linear"],["zoom"],12,9.5,17,13,19,16],
+              "text-offset":[0,1.6],"text-anchor":"top",
               "text-font":["Noto Sans Regular"],"text-allow-overlap":true},
       paint:{"text-color":colour,"text-halo-color":"#0a0e11","text-halo-width":1.4}});
   }

@@ -47,7 +47,7 @@ COSTS = {
     "depart": 0.0,
 }
 
-RECALL_TICK = 158
+RECALL_TICK = 30
 
 # 상시 공역. 한 동네 안에서도 허용 고도가 갈립니다 — 실제 데이터가 그렇게 생겼습니다.
 # FAA UAS Facility Map 은 격자마다 천장이 다르고, ED-269 구역은 하한·상한을 갖습니다.
@@ -438,10 +438,12 @@ class Simulation:
     """두 세계를 같은 씨앗, 같은 시계로 돌립니다."""
 
     def __init__(self, seed: int = 7, fleet_limit: float = 500.0, tick_seconds: float = 0.2,
-                 lock_actuator: bool = False):
+                 lock_actuator: bool = False, max_ticks: int = 0):
         self.seed = seed
         self.tick_seconds = tick_seconds
         self.lock_actuator = lock_actuator
+        self.max_ticks = max_ticks
+        self.rounds = 0
         self.tick_count = 0
         self.worlds = self._fresh_worlds(fleet_limit)
 
@@ -458,6 +460,19 @@ class Simulation:
         self.tick_count += 1
         for world in self.worlds.values():
             world.tick(self.tick_count)
+        if self._round_is_over():
+            self.rounds += 1
+            self.reset(keep_rounds=True)
+
+    def _round_is_over(self) -> bool:
+        """한 판이 끝났나. 화면을 켜두면 계속 돌아야 하니 알아서 다시 시작합니다."""
+        if self.max_ticks and self.tick_count >= self.max_ticks:
+            return True
+        return all(
+            vehicle.state in ("grounded", "stranded")
+            for world in self.worlds.values()
+            for vehicle in world.vehicles.values()
+        )
 
     def bulletins(self) -> list[dict]:
         out = []
@@ -468,7 +483,9 @@ class Simulation:
             out.append({**RECALL, "published_tick": RECALL_TICK})
         return out
 
-    def reset(self) -> None:
+    def reset(self, keep_rounds: bool = False) -> None:
         limit = self.worlds["guarded"].fleet_limit
         self.tick_count = 0
+        if not keep_rounds:
+            self.rounds = 0
         self.worlds = self._fresh_worlds(limit)

@@ -186,6 +186,13 @@ def run(tmp_ledger: str):
 
 
 class TwoWorldsTest(unittest.TestCase):
+    """구조적으로 항상 참이어야 하는 것만 여기서 봅니다.
+
+    특정 사건이 그 판에 일어났는지에 기대는 단언은 넣지 않습니다. 시나리오가 조금만
+    달라져도 깨지고, 깨진 걸 맞추려고 시나리오를 손대면 시험이 아니라 장식이 됩니다.
+    사건별 메커니즘은 test_mechanisms.py 에서 따로 봅니다.
+    """
+
     @classmethod
     def setUpClass(cls):
         import tempfile
@@ -193,31 +200,50 @@ class TwoWorldsTest(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             cls.guarded, cls.direct = run(handle.name)
 
+    # ---------- 런타임 쪽에서 반드시 참이어야 하는 것 ----------
+
     def test_pads_are_never_shared_under_the_runtime(self):
         self.assertEqual(self.guarded["pad_conflicts"], 0)
 
-    def test_pads_are_shared_without_it(self):
-        self.assertGreater(self.direct["pad_conflicts"], 0)
-
-    def test_fleet_budget_holds_only_where_something_holds_it(self):
-        self.assertLessEqual(self.guarded["over_fleet_limit_usd"], 0)
-        self.assertGreater(self.direct["spend_usd"], self.guarded["spend_usd"])
-
-    def test_recall_binds_immediately_on_one_side_only(self):
-        self.assertEqual(self.guarded["post_recall_violations"], 0)
-        self.assertGreater(self.direct["post_recall_violations"], 0)
-
     def test_every_guarded_action_is_on_the_record(self):
         self.assertEqual(self.guarded["unrecorded_actions"], 0)
-        self.assertEqual(self.direct["unrecorded_actions"], self.direct["actions"])
 
-    def test_a_closed_zone_is_emptied_only_where_something_enforces_it(self):
-        self.assertEqual(self.guarded["zone_incursions"], 0)
-        self.assertGreater(self.direct["zone_incursions"], 0)
+    def test_the_fleet_budget_cannot_be_exceeded_unattended(self):
+        self.assertEqual(self.guarded["over_fleet_limit_usd"], 0)
 
     def test_passenger_impact_never_happens_unattended(self):
         self.assertEqual(self.guarded["unapproved_passenger_actions"], 0)
-        self.assertGreater(self.direct["unapproved_passenger_actions"], 0)
+
+    def test_a_closed_zone_is_emptied_faster_where_something_enforces_it(self):
+        """규칙이 도착했을 때 안에 있던 기체를 누가 빼내느냐.
+
+        침범 횟수가 아니라 머문 시간을 봅니다. 규칙이 도착한 순간 안에 있던 것은 아무도
+        잘못한 게 아닙니다. 갈리는 것은 그 다음입니다 — 한쪽은 회항 명령을 받고,
+        다른 쪽은 기체가 스스로 공지를 확인할 때까지 남아 있습니다.
+        """
+        self.assertEqual(self.guarded["zone_incursions"], 0)
+        self.assertLess(self.guarded["zone_dwell_ticks"], self.direct["zone_dwell_ticks"])
+
+    # ---------- 직결 쪽에서 반드시 참이어야 하는 것 ----------
+
+    def test_nothing_the_direct_side_does_is_recorded(self):
+        """한 건도 아니고 전부입니다. 남길 곳이 없어서입니다."""
+        self.assertEqual(self.direct["unrecorded_actions"], self.direct["actions"])
+        self.assertGreater(self.direct["actions"], 0)
+
+    def test_pads_are_shared_without_a_lock_table(self):
+        """동질 기단은 같은 순간에 같은 것을 원합니다. 예약 의도는 서로 안 보입니다."""
+        self.assertGreater(self.direct["pad_conflicts"], 0)
+
+    def test_the_direct_side_never_gets_a_human_look(self):
+        self.assertEqual(self.direct["human_approvals"], 0)
+
+    # ---------- 양쪽이 같은 일을 하고 있다는 것 ----------
+
+    def test_both_sides_actually_flew(self):
+        """한쪽이 굶어 있으면 비교가 아닙니다."""
+        self.assertGreater(self.guarded["actions"], 8)
+        self.assertGreater(self.direct["actions"], 8)
 
 
 if __name__ == "__main__":

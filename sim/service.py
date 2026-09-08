@@ -14,6 +14,8 @@ def main() -> None:
         fleet_limit=float(os.getenv("FLEET_LIMIT_USD", "500")),
         tick_seconds=float(os.getenv("TICK_SECONDS", "0.2")),
         lock_actuator=os.getenv("LOCK_ACTUATOR", "0") == "1",
+        # 화면을 켜두면 계속 돌아야 합니다. 한 판이 끝나면 알아서 다시 시작합니다.
+        max_ticks=int(os.getenv("ROUND_TICKS", "420")),
     )
 
     def clock() -> None:
@@ -48,6 +50,7 @@ def main() -> None:
     def compare(body, query):
         return 200, {
             "tick": simulation.tick_count,
+            "round": simulation.rounds,
             "recall_tick": simulation.bulletins()[0]["published_tick"]
             if simulation.bulletins()
             else None,
