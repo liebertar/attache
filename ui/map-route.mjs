@@ -9,8 +9,10 @@ export function isRemainingRoute(previous, next) {
 }
 
 export function makeCurve(position, route, steps = 16) {
-  const points = [xy(position), ...route.map(xy)].filter((p, i, all) =>
-    !i || p.some((v, axis) => v !== all[i - 1][axis]));
+  const waypoints = [position, ...route].filter((p, i, all) =>
+    !i || p.lon !== all[i - 1].lon || p.lat !== all[i - 1].lat);
+  const points = waypoints.map(xy);
+  const altitudes = waypoints.map(p => Number(p.alt_m ?? 0));
   const coordinates = [], progress = [], lengths = [0];
   // Local longitude scale keeps distances appropriate for Manhattan.
   const scale = Math.cos(position.lat * Math.PI / 180);
@@ -33,7 +35,7 @@ export function makeCurve(position, route, steps = 16) {
   }
   coordinates.push(points.at(-1));
   progress.push(lengths.at(-1));
-  return {points, coordinates, progress, lengths, scale};
+  return {points, coordinates, progress, lengths, scale, altitudes};
 }
 
 export function routeProgress(curve, position, minimum = 0) {
@@ -142,7 +144,7 @@ export function labelAnchor(curve) {
 const METRES_PER_DEG_LAT = 110_570;
 // 실제 비행 회랑 크기로 잡습니다. 8m 폭으로 그렸더니 화면에서 1~3픽셀이라
 // 아무리 정확해도 안 보였습니다. 보이지 않는 정확함은 화면에서 없는 것과 같습니다.
-const RIBBON_HALF_M = 11;     // 경로 리본 반폭 → 22m 회랑
+const RIBBON_HALF_M = 22;     // 표시용 반폭 → 44m 회랑 (충돌 판정 폭이 아님)
 const RIBBON_THICK_M = 8;     // 리본 두께(위아래)
 
 /**
@@ -170,6 +172,25 @@ export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_T
       base: Math.max(0, altitude - thicknessM / 2),
       height: Math.max(0.5, altitude + thicknessM / 2),
     });
+  }
+  return out;
+}
+
+/** 같은 곡선을 공중 점선으로 표시합니다. 점선 간격은 출발점에 고정돼
+ * 지나온 부분을 지워도 남은 도형이 밀리지 않습니다. 고도는 각 신청 구간을 따릅니다. */
+export function curveRibbon(curve, from, to) {
+  const dash = RIBBON_HALF_M * 2 / METRES_PER_DEG_LAT;
+  const period = dash * 1.5;
+  const out = [];
+  for (let leg = 0; leg < curve.lengths.length - 1; leg++) {
+    const start = Math.max(from, curve.lengths[leg]);
+    const end = Math.min(to, curve.lengths[leg + 1]);
+    for (let at = Math.floor(start / period) * period; at < end; at += period) {
+      const left = Math.max(start, at), right = Math.min(end, at + dash);
+      if (right <= left) continue;
+      out.push(...ribbon(sliceCurve(curve, left, right).map(([lon, lat]) =>
+        ({lon, lat, alt_m:curve.altitudes[leg + 1]}))));
+    }
   }
   return out;
 }

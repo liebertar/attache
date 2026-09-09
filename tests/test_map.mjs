@@ -45,29 +45,42 @@ test('zero length and duplicate waypoints produce finite stationary positions', 
 // Exercise UI state transitions without a browser or network; this is not visual QA.
 function scene() {
   let now = 0;
-  const elements = new Map(), sources = new Map();
+  const elements = new Map(), sources = new Map(), layers = new Map();
   const element = id => {
     if (!elements.has(id)) elements.set(id,
       {style:{},hidden:true,textContent:'',innerHTML:'',addEventListener(){}});
     return elements.get(id);
   };
-  const map = {on(){}, addControl(){}, setPaintProperty(){}, getLayer(){return {};},
+  const map = {on(){}, addControl(){},
+    addLayer(layer){layers.set(layer.id, structuredClone(layer));},
+    setPaintProperty(id, name, value){layers.get(id).paint[name] = value;},
+    getLayer(id){return layers.get(id);},
     getSource(id){
     if (!sources.has(id)) sources.set(id,{setData(data){this.data=data;}});
     return sources.get(id);
   }};
-  const context = vm.createContext({...geometry, console, Date, Map, Set, Math,
+  const html = readFileSync(new URL('../ui/map.html',import.meta.url),'utf8');
+  const imports = Object.fromEntries(html.match(/import \{([^}]+)\}/)[1]
+    .split(',').map(name=>[name.trim(), geometry[name.trim()]]));
+  const context = vm.createContext({...imports, console, Date, Map, Set, Math,
     location:{hostname:'localhost'}, performance:{now:()=>now},
     requestAnimationFrame(){}, document:{getElementById:element,querySelector:element},
     maplibregl:{Map:function(){return map;}, NavigationControl:function(){},
       Popup:function(){return {setLngLat(){return this;}, setHTML(){return this;},
         addTo(){return this;}};}}});
-  const html = readFileSync(new URL('../ui/map.html',import.meta.url),'utf8');
   const code = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
     .replace(/^import .*?;\n/m,'');
   vm.runInContext(code,context);
   const run = (name,...args) => context[name](...args);
-  return {run,element,source:id=>sources.get(id)?.data, time:value=>{now=value;}};
+  return {run,element,source:id=>sources.get(id)?.data,
+    path:phase=>(sources.get('flightpath')?.data?.features || [])
+      .filter(f=>f.properties.phase === phase),
+    layer:id=>layers.get(id), time:value=>{now=value;}};
+}
+
+function endOf(path) {
+  const ring = path.at(-1).geometry.coordinates[0];
+  return ring[1].map((v, i) => (v + ring[2][i]) / 2);
 }
 
 function snapshot(tick=1, round=1, remaining=route, position=start) {
@@ -161,17 +174,17 @@ test('warehouse, curved green path and drone update from snapshots and clear on 
   ui.run('renderSnapshot',snapshot(),null);
   ui.run('draw');
   assert.equal(ui.source('depot').features[0].geometry.coordinates[0],start.lon);
-  const first = ui.source('approved').features[0].geometry.coordinates;
+  const first = ui.path('approved');
   ui.time(500);
   ui.run('renderSnapshot',snapshot(2,1,route.slice(1),{lon:-73.969,lat:40.71}),null);
   ui.time(750); ui.run('draw');
-  const later = ui.source('approved').features[0].geometry.coordinates;
+  const later = ui.path('approved');
   // 곡선은 다시 만들지 않습니다(경유점이 빠져도 같은 곡선). 다만 지나온 구간은 지웁니다.
-  assert.deepEqual(later.at(-1), first.at(-1), '목적지는 그대로여야 합니다');
+  assert.deepEqual(later.at(-1).geometry, first.at(-1).geometry, '목적지는 그대로여야 합니다');
   assert.ok(later.length < first.length, '지나온 구간이 안 지워지고 있습니다');
   assert.ok(ui.source('guarded').features[0].geometry.coordinates[1] > 40.70);
   ui.run('renderSnapshot',snapshot(1,2,[]),null); ui.run('draw');
-  assert.equal(ui.source('approved').features.length,0);
+  assert.equal(ui.path('approved').length,0);
 });
 
 test('final denials alert once, grow the submitted legs, and expire without polling', () => {
@@ -185,36 +198,36 @@ test('final denials alert once, grow the submitted legs, and expire without poll
   assert.ok(ui.element('denial-why').textContent.includes('<test>'));
   // 거절된 경로는 드론 쪽에서 뻗어 나갑니다. 다 뻗은 뒤에 신청서의 끝점에 닿습니다.
   ui.time(200); ui.run('draw');
-  assert.equal(ui.source('rejected').features.length, 0, '판정 전에는 붉지 않습니다');
-  const partial = ui.source('pending').features[0].geometry.coordinates;
+  assert.equal(ui.path('rejected').length, 0, '판정 전에는 붉지 않습니다');
+  const partial = ui.path('pending');
   ui.time(100 + GROW_MS + CHECK_MS + 50); ui.run('draw');
-  const full = ui.source('rejected').features[0].geometry.coordinates;
+  const full = ui.path('rejected');
   assert.match(ui.source('stage-label').features[0].properties.label,/^REJECTED/);
   assert.ok(full.length > partial.length);
-  assert.deepEqual(full.at(-1),[route.at(-1).lon,route.at(-1).lat]);
+  assert.ok(endOf(full)[1] <= route.at(-1).lat);
   ui.run('renderDenials',{ledger:[e]},7000);
   ui.time(100 + geometry.stageLife('rejected') + 50); ui.run('draw');
-  assert.equal(ui.source('rejected').features.length,0);
+  assert.equal(ui.path('rejected').length,0);
   ui.time(8101); ui.run('draw');   // 알림은 8초
   assert.equal(ui.element('denial').hidden,true);
-  assert.equal(ui.source('rejected').features.length,0);
+  assert.equal(ui.path('rejected').length,0);
 });
 
-test('an approved route redraws from the drone before the steady line takes over', () => {
+test('an approved corridor grows yellow before changing colour and carrying the flight', () => {
   const ui = scene();
   ui.run('renderSnapshot',snapshot(),null);
   ui.run('renderDenials',{ledger:[approval()]},0);
   ui.time(100); ui.run('draw');
-  const growing = ui.source('pending').features;
-  assert.equal(growing.length,1);           // 판정 전이라 아직 초록이 아닙니다
-  assert.equal(ui.source('approved').features.length,0);
+  const growing = ui.path('pending');
+  assert.ok(growing.length > 0);           // 판정 전이라 아직 초록이 아닙니다
+  assert.equal(ui.path('approved').length,0);
   assert.equal(ui.source('stage-label').features[0].properties.label,'PLANNING…');
   ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
   assert.match(ui.source('stage-label').features[0].properties.label,/^APPROVED · /);
   ui.time(geometry.stageLife('approved') + 50); ui.run('draw');
-  const settled = ui.source('approved').features[0].geometry.coordinates;
-  assert.ok(growing[0].geometry.coordinates.length < settled.length);
-  assert.deepEqual(settled.at(-1),[route.at(-1).lon,route.at(-1).lat]);
+  const settled = ui.path('approved');
+  assert.ok(growing.length < settled.length);
+  assert.ok(endOf(settled)[1] <= route.at(-1).lat);
 });
 
 test('the ledger is newest first, so stages are re-sorted into the order they happened', () => {
@@ -230,16 +243,16 @@ test('the ledger is newest first, so stages are re-sorted into the order they ha
   ui.run('renderDenials', {ledger:[approved, rejected]}, 0);   // 최신이 앞
   ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
   // 먼저 일어난 것은 거절입니다. 승인이 먼저 재생되면 순서가 뒤집힌 것입니다.
-  assert.equal(ui.source('rejected').features.length, 1);
-  assert.equal(ui.source('approved').features.length, 0);
+  assert.ok(ui.path('rejected').length > 0);
+  assert.equal(ui.path('approved').length, 0);
 });
 
 test('a queued decision has not travelled anywhere yet, so nothing is drawn', () => {
   const ui = scene();
   ui.run('renderDenials',{ledger:[approval('q',{decision:{verdict:'queued',reason:'대기'}})]},0);
   ui.time(100); ui.run('draw');
-  assert.equal(ui.source('rejected').features.length,0);
-  assert.equal(ui.source('approved').features.length,0);
+  assert.equal(ui.path('rejected').length,0);
+  assert.equal(ui.path('approved').length,0);
 });
 
 test('old ledger entries do not replay alerts; non-flight denials do not invent paths', () => {
@@ -251,7 +264,7 @@ test('old ledger entries do not replay alerts; non-flight denials do not invent 
   })]},100);
   assert.equal(ui.element('denial').hidden,false);
   ui.time(1050); ui.run('draw');
-  assert.equal(ui.source('rejected').features.length,0);
+  assert.equal(ui.path('rejected').length,0);
   assert.equal(ui.element('denial-what').textContent,'fast charge');
 });
 
@@ -261,10 +274,42 @@ test('route completion clears approval after animation and round reset clears al
   ui.time(500);
   ui.run('renderSnapshot',snapshot(2,1,[],route.at(-1)),{ledger:[denial()]});
   ui.time(750); ui.run('draw');
-  assert.equal(ui.source('approved').features.length,1);
+  assert.equal(ui.path('approved').length,0, '거절 재생 중에는 비행 회랑을 겹치지 않습니다');
   ui.time(1001); ui.run('draw');
-  assert.equal(ui.source('approved').features.length,0);
+  assert.equal(ui.path('approved').length,0);
   ui.run('renderSnapshot',snapshot(1,2,[]),null); ui.run('draw');
   assert.equal(ui.element('denial').hidden,true);
-  assert.equal(ui.source('rejected').features.length,0);
+  assert.equal(ui.path('rejected').length,0);
+});
+
+
+test('one elevated geometry changes colour, blinks independently and fades without ground sources', () => {
+  const ui = scene();
+  const legs = [start,...route].map(p=>({...p,alt_m:55}));
+  const e = denial('colour',{proposal:{asset_id:'drone-01',action:'fly_route',params:{legs}}});
+  ui.run('renderDenials',{ledger:[e]},0);
+  ui.time(GROW_MS + CHECK_MS / 2); ui.run('draw');
+  const yellow = ui.path('pending').map(f=>f.geometry);
+  assert.ok(yellow.length);
+  assert.ok(ui.path('pending').every(f=>f.properties.base > 0));
+  ui.time(GROW_MS + CHECK_MS); ui.run('draw');
+  assert.deepEqual(ui.path('rejected').map(f=>f.geometry),yellow);
+  const bright = ui.layer('flightpath:drone-01').paint['fill-extrusion-opacity'];
+  ui.run('corridorAlpha','drone-02',1);
+  ui.time(GROW_MS + CHECK_MS + HOLD_MS / 6); ui.run('draw');
+  assert.ok(ui.layer('flightpath:drone-01').paint['fill-extrusion-opacity'] < bright);
+  assert.equal(ui.layer('flightpath:drone-02').paint['fill-extrusion-opacity'],bright);
+  ui.time(geometry.stageLife('rejected') - 10); ui.run('draw');
+  assert.ok(ui.layer('flightpath:drone-01').paint['fill-extrusion-opacity'] < .1);
+  for (const id of ['pending','approved','rejected']) assert.equal(ui.source(id),undefined);
+});
+
+test('the elevated curve keeps per-leg altitude and fixed dash positions after flight progress', () => {
+  const c = geometry.makeCurve({...start,alt_m:55},route.map((p,i)=>({...p,alt_m:55+i*10})));
+  const all = geometry.curveRibbon(c,0,c.progress.at(-1));
+  const remaining = geometry.curveRibbon(c,c.progress.at(-1)/2,c.progress.at(-1));
+  assert.deepEqual(remaining.at(-1),all.at(-1));
+  assert.ok(remaining.length < all.length);
+  assert.equal(all[0].base,51);
+  assert.equal(all.at(-1).base,71);
 });

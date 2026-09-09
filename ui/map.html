@@ -145,7 +145,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script type="module">
-import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, hex, droneBody, cargoStack, GROW_MS, CHECK_MS, APPROVED_HOLD_MS} from './map-route.mjs';
+import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, hex, droneBody, cargoStack, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
 const SIM = `http://${location.hostname}:8100`;
 const RT  = `http://${location.hostname}:8000`;
 const POLL_MS = 500;
@@ -271,9 +271,8 @@ const ROWS = ["pad_conflicts", "zone_incursions", "zone_dwell_ticks",
 const map = new maplibregl.Map({
   container: "map",
   style: "https://tiles.openfreemap.org/styles/positron",
-  // 기지와 배달 반경(4km)을 한 화면에 잡되, 공역이 입체로 읽히는 거리까지 들어갑니다.
-  // 줌 11 대에서는 100m 높이가 화소 이하라 아무리 세워도 평면으로 보입니다.
-  center: [-73.973, 40.718], zoom: 13.5, pitch: 45, bearing: -28,
+  // 지면 경로 없이도 공중 회랑이 읽히도록 가까이서 시작합니다.
+  center: [-73.973, 40.718], zoom: 14.5, pitch: 45, bearing: -28,
   attributionControl: {compact: true},
 });
 
@@ -347,36 +346,8 @@ map.on("load", () => {
   map.addLayer({id:"zone-line", type:"line", source:"zone",
     paint:{"line-color":"#ff3b30","line-width":2,"line-dasharray":[3,2]}});
 
-  // 아직 판정 전. 산출 중인 경로는 호박색으로 뻗고, 답이 나오면 색이 갈립니다.
-  for (const [id, colour] of [["pending", "#ffd23f"], ["approved", "#29c76f"],
-                              ["rejected", "#ff3b30"]]){
-    map.addSource(id, {type:"geojson", data:empty()});
-    map.addLayer({id:`${id}-line`, type:"line", source:id,
-      layout:{"line-join":"round", "line-cap":"round"},
-      // 멀리서는 굵게 보여야 경로가 읽힙니다. 가까이 가면 고도에 뜬 회랑이
-      // 그 역할을 이어받으므로 선은 바닥의 그림자 정도로 물러납니다.
-      // 굵기는 셋 다 같습니다. 색과 점선 모양만 다릅니다 — 굵기가 다르면 무엇이 더
-      // 중요한지 잘못 읽힙니다.
-      paint:{"line-color":colour, "line-width":5,
-        // 승인된 경로는 가까이 가면 고도에 뜬 회랑이 대신합니다. 지면 선이 같이
-        // 남으면 지도에 박힌 선이 하나 더 생겨서 어느 것이 진행 경로인지 모릅니다.
-        "line-opacity": id === "approved" ? APPROVED_ZOOM_ALPHA : .9,
-        ...(id === "approved" ? {}
-            : {"line-dasharray": id === "pending" ? [.5, 2.2] : [2, 1.4]})}});
-  }
-
-  // 승인된 고도에 떠 있는 경로 판. 선은 땅에 붙으니 높이를 못 보여줍니다.
+  // 경로 데이터는 공중 회랑 한 벌뿐입니다. 기체별 레이어는 독립적으로 깜빡이기 위함입니다.
   map.addSource("flightpath", {type:"geojson", data:empty()});
-  // 커튼(땅에서 고도까지)은 뺐습니다. 기체 자리에서는 대가리 위로 솟은 굵은 막대로
-  // 보여서, 무엇을 뜻하는지 아무도 못 읽었습니다.
-  map.addLayer({id:"flightpath", type:"fill-extrusion", source:"flightpath",
-    // 경로는 하나입니다. 판정 단계에 따라 색만 바뀝니다 — 승인됐다고 새 선이
-    // 생기면 어느 것이 그 기체의 경로인지 알 수 없습니다.
-    paint:{"fill-extrusion-color":["match",["get","phase"],
-        "pending","#ffd23f", "rejected","#ff3b30", "#29c76f"],
-      "fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"],
-      // 멀리서는 화소 이하라 안 보이고, 그때만 지면 선이 대신합니다.
-      "fill-extrusion-opacity":["interpolate",["linear"],["zoom"], 13,0, 14,.85]}});
 
   // 무엇이 막았는지. 그 구역·건물만 따로 붉게 세웁니다.
   map.addSource("blocker", {type:"geojson", data:empty()});
@@ -530,11 +501,9 @@ function draw(){
   const ribbons0 = [];
   const staged = drawStages(now, ribbons0);
   if (!latest){
-    map.getSource("approved")?.setData(
-      {type:"FeatureCollection", features:staged.approved});
+    map.getSource("flightpath")?.setData({type:"FeatureCollection", features:ribbons0});
     return;
   }
-  const approved = [...staged.approved];
   const ribbons = ribbons0, craft = [], cargo = [];
   for (const world of ["guarded","direct"]){
     const features = [];
@@ -555,8 +524,11 @@ function draw(){
         const span = Math.max(0, Math.min(1, (now - m.at) / POLL_MS));
         const flown = m.from + (m.to - m.from) * span;
         const total = m.curve.progress.at(-1);
-        if (total - flown > 1e-9)
-          approved.push(lineFeature(sliceCurve(m.curve, flown, total), v.id));
+        if (total - flown > 1e-9 && visible(world)){
+          corridorAlpha(v.id, 1);
+          for (const piece of curveRibbon(m.curve, flown, total))
+            ribbons.push(extrusion(piece, {asset:v.id, phase:"approved"}));
+        }
       }
       features.push({
         type:"Feature",
@@ -572,16 +544,11 @@ function draw(){
         for (const box of cargoStack(point[1], point[0], altitude, Number(v.load) || 0))
           cargo.push(extrusion(box, {}));
       }
-      // 초록은 승인된 다음에만. 산출 중인 기체의 회랑도 같이 감춥니다.
-      if (world === "guarded" && v.route?.length && !staged.growing.has(v.id)){
-        const ahead = [{lat:point[1], lon:point[0], alt_m:altitude}, ...v.route];
-        for (const piece of ribbon(ahead)) ribbons.push(extrusion(piece, {phase:"approved"}));
-      }
+
     }
     map.getSource(world)?.setData(
       {type:"FeatureCollection", features: visible(world) ? features : []});
   }
-  map.getSource("approved")?.setData({type:"FeatureCollection", features:approved});
   map.getSource("flightpath")?.setData({type:"FeatureCollection", features:ribbons});
   map.getSource("craft")?.setData({type:"FeatureCollection", features:craft});
   map.getSource("cargo")?.setData({type:"FeatureCollection", features:cargo});
@@ -620,8 +587,7 @@ function renderSnapshot(data, runtime){
   if (latest && (data.round !== latest.round || data.tick < latest.tick)){
     motion.clear(); flights.clear(); stages = []; queued.clear(); seenDenials.clear();
     denialUntil = 0; roundStartedAt = Date.now() / 1000;
-    map.getSource("rejected")?.setData(empty());
-    map.getSource("pending")?.setData(empty());
+    map.getSource("flightpath")?.setData(empty());
   }
   latest = data;
   document.getElementById("tick").textContent = data.tick;
@@ -710,10 +676,6 @@ function renderSnapshot(data, runtime){
   }
 }
 
-function lineFeature(coordinates, asset){
-  return {type:"Feature", geometry:{type:"LineString", coordinates}, properties:{asset}};
-}
-
 const ROUTED = ["fly_route", "reserve_pad"];
 
 function renderDenials(runtime, now){
@@ -769,8 +731,7 @@ function stageRoute(entry, now){
   const at = Math.max(now, queued.get(asset) || 0);
   queued.set(asset, at + stageLife(kind));
   stages.push({
-    id:entry.id, asset, kind, at, by, params,
-    altitude: Number(legs[0].alt_m) || 55,
+    id:entry.id, asset, kind, at, by, params, filed:entry.at,
     curve:makeCurve(legs[0], legs.slice(1)),
     blocker: params.blocked_polygon?.length ? {
       polygon: params.blocked_polygon,
@@ -781,9 +742,8 @@ function stageRoute(entry, now){
 }
 
 /**
- * 구간을 지금 시점만큼 잘라 그립니다. 거절은 붉은 점선으로 뻗었다 되감기고,
- * 승인은 초록으로 드론에서 다시 뻗어 나갑니다. 뻗는 동안에는 완성된 승인 경로를
- * 겹쳐 그리지 않습니다 — 그러면 애니메이션이 안 보입니다.
+ * 노란 회랑을 앞으로 그린 뒤 같은 도형의 색만 바꿉니다.
+ * 재생 중에는 실제 비행 회랑을 감춰 한 기체에 한 경로만 보입니다.
  */
 const PHRASE = {drawing:"ph_drawing", checking:"ph_checking", refused:"ph_refused"};
 // 멈춰 있는 이유를 화면에 씁니다. 나는 중에는 아무것도 안 붙입니다.
@@ -820,24 +780,19 @@ function blockedLabel(params){
 }
 
 function drawStages(now, corridors){
-  const approved = [], refused = [], pending = [];
   const blockers = [], breaches = [], labels = [];
-  const growing = new Set();
-  let refusedAlpha = 0, pendingAlpha = 0, approvedPulse = null;
+  const growing = new Set(stages.map(stage => stage.asset));
   for (const stage of stages){
     const elapsed = now - stage.at;
     const window = stageWindow(stage.kind, elapsed);
-    if (!window) continue;
+    if (!window || !visible("guarded")) continue;
     const total = stage.curve.progress.at(-1);
     if (!(total > 0) || window[1] - window[0] < 1e-3) continue;
-    const drawn = sliceCurve(stage.curve, window[0] * total, window[1] * total);
-    const feature = lineFeature(drawn, stage.asset);
     const phase = stagePhase(stage.kind, elapsed);
-    // 같은 경로를 고도에도 그립니다. 지면 선은 멀리서만 보이고, 가까이서는 이쪽이
-    // 그 기체의 경로가 됩니다 — 노랑에서 초록으로 바뀌는 것이 같은 덩어리여야 합니다.
+    // 판정 전후 모두 같은 공중 도형입니다. 색과 불투명도만 바뀝니다.
     const band = phase === "approved" ? "approved" : phase === "refused" ? "rejected" : "pending";
-    for (const piece of ribbon(drawn.map(([lon, lat]) => ({lat, lon, alt_m: stage.altitude}))))
-      corridors.push(extrusion(piece, {phase: band}));
+    for (const piece of curveRibbon(stage.curve, window[0] * total, window[1] * total))
+      corridors.push(extrusion(piece, {asset:stage.asset, phase:band}));
     const headline =
       phase === "approved" ? `${t("ph_approved")} · ${stage.by}`
       : phase === "refused" ? `${t("ph_refused")} · ${blockedLabel(stage.params)}`
@@ -849,29 +804,16 @@ function drawStages(now, corridors){
       // 선 끝을 따라다니면 글자가 계속 움직여서 읽을 수가 없습니다. 출발점에 고정합니다.
       geometry:{type:"Point", coordinates:labelAnchor(stage.curve)}});
     const alpha = stageFade(stage.kind, elapsed);
-    // 승인 구간이 살아 있는 동안에는 실제 비행 회랑을 감춥니다. 둘이 같이 그려지면
-    // 승인될 때 선이 하나 더 생긴 것처럼 보입니다 — 선은 새로 그리는 게 아니라
-    // 같은 선의 색이 바뀌는 것이어야 합니다.
-    if (stage.kind === "approved") growing.add(stage.asset);
-    if (phase === "drawing" || phase === "checking"){
-      pending.push(feature);                 // 아직 답이 안 나온 선입니다
-      pendingAlpha = 1;
-    }
-    else if (stage.kind === "approved"){
-      approved.push(feature);
-      // 승인 표시로 세 번 깜빡입니다. 그동안 기체는 아직 안 움직입니다.
-      const step = (elapsed - GROW_MS - CHECK_MS) / APPROVED_HOLD_MS;
-      approvedPulse = .3 + .7 * Math.abs(Math.cos(step * Math.PI * 3));
-    }
-    else {
-      refused.push(feature);
-      // 거절도 같은 자리에서 붉게 세 번 깜빡인 뒤 흐려집니다.
-      const step = (elapsed - GROW_MS - CHECK_MS) / HOLD_MS;
+    let opacity = 1;
+    if (phase === "approved" || phase === "refused"){
+      const duration = stage.kind === "approved" ? APPROVED_HOLD_MS : HOLD_MS;
+      const step = (elapsed - GROW_MS - CHECK_MS) / duration;
       const blink = step < 1 ? .3 + .7 * Math.abs(Math.cos(step * Math.PI * 3)) : 1;
-      refusedAlpha = Math.max(refusedAlpha, alpha * blink);
+      opacity = blink * (stage.kind === "rejected" ? alpha : 1);
     }
-    // 막은 것은 선이 다 뻗은 다음에 보여줍니다. 같이 나오면 무엇이 원인인지 안 읽힙니다.
-    if (stage.kind === "rejected" && window[1] > .98){
+    corridorAlpha(stage.asset, opacity);
+    // 막은 것 역시 판정 뒤에만 드러납니다.
+    if (phase === "refused"){
       if (stage.blocker) blockers.push({
         type:"Feature", properties:{height:stage.blocker.height},
         geometry:{type:"Polygon", coordinates:[closedRing(stage.blocker.polygon)]}});
@@ -880,40 +822,31 @@ function drawStages(now, corridors){
         geometry:{type:"Point", coordinates:[stage.breach.at.lon, stage.breach.at.lat]}});
     }
   }
-  map.getSource("rejected")?.setData({type:"FeatureCollection", features:refused});
-  map.getSource("pending")?.setData({type:"FeatureCollection", features:pending});
   map.getSource("blocker")?.setData({type:"FeatureCollection", features:blockers});
   map.getSource("breach")?.setData({type:"FeatureCollection", features:breaches});
   map.getSource("stage-label")?.setData({type:"FeatureCollection", features:labels});
-  // 거절된 선은 되감기지 않고 그 자리에서 흐려집니다. 잡아채면 눈이 따라갑니다.
-  setAlpha("rejected-line", refusedAlpha);
-  setAlpha("pending-line", pendingAlpha);
-  flashApproved(approvedPulse);
-  return {approved, growing};
+  return {growing};
 }
 
-const alphas = {};
-let flashed = false;
-// 줌 14 위로는 회랑이 그리므로 지면 선은 완전히 사라집니다.
-const APPROVED_ZOOM_ALPHA = ["interpolate",["linear"],["zoom"], 13,.9, 14,0];
-
-/** 승인 직후에만 깜빡이고, 끝나면 평소의 줌 표현식으로 돌아갑니다. */
-function flashApproved(pulse){
-  if (!map.getLayer("approved-line")) return;
-  if (pulse === null){
-    if (flashed){ map.setPaintProperty("approved-line","line-opacity",APPROVED_ZOOM_ALPHA); }
-    flashed = false;
-    return;
+const corridorLayers = new Map();
+/** MapLibre의 extrusion opacity는 레이어 단위이므로 기체별로 분리합니다.
+ * 소스/도형은 한 벌이며 phase를 바꿔도 레이어를 다시 만들지 않습니다. */
+function corridorAlpha(asset, value){
+  if (!map.getSource("flightpath")) return;
+  const id = `flightpath:${asset}`;
+  const opacity = Math.round(value * 20) / 20 * .85;
+  if (!corridorLayers.has(asset)){
+    map.addLayer({id, type:"fill-extrusion", source:"flightpath",
+      filter:["==",["get","asset"],asset],
+      paint:{"fill-extrusion-color":["match",["get","phase"],
+          "pending","#ffd23f", "rejected","#ff3b30", "#29c76f"],
+        "fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"],
+        "fill-extrusion-opacity":opacity,
+        "fill-extrusion-opacity-transition":{duration:0}}}, "blocker");
+  } else if (corridorLayers.get(asset) !== opacity){
+    map.setPaintProperty(id, "fill-extrusion-opacity", opacity);
   }
-  flashed = true;
-  map.setPaintProperty("approved-line", "line-opacity", Math.round(pulse * 20) / 20);
-}
-
-function setAlpha(layer, value){
-  const rounded = Math.round(value * 20) / 20;
-  if (alphas[layer] === rounded || !map.getLayer(layer)) return;
-  alphas[layer] = rounded;
-  map.setPaintProperty(layer, "line-opacity", rounded * .9);
+  corridorLayers.set(asset, opacity);
 }
 
 function expireDenials(now){
@@ -923,6 +856,10 @@ function expireDenials(now){
 
 const TAG = {auto:["t-auto","t_auto"], denied:["t-deny","t_denied"],
              human:["t-human","t_human"], queued:["t-human","t_queued"]};
+
+// 디버그 핸들. 밖(playwright)에서 화면 상태를 읽기만 합니다. 여기로 쓰지 않습니다.
+window.__attache = {map, motion, flights, queued,
+  get latest(){ return latest; }, get stages(){ return stages; }};
 
 function renderFeed(runtime){
   const seen = new Set(), lines = [];

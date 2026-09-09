@@ -77,7 +77,7 @@
 
 # E. Codex 인계 — 남은 일
 
-시작 상태: 테스트 65개(python) + 16개(node) 통과. `PYTHONPATH=. python3 -m unittest discover -s tests`,
+시작 상태: 테스트 68개(python) + 19개(node) 통과. `PYTHONPATH=. python3 -m unittest discover -s tests`,
 `node --test tests/test_map.mjs`. 두 세계 점수판은 `PYTHONPATH=. python3 tests/test_two_worlds.py`.
 **끝낼 때마다 셋 다 돌리고, 점수판의 런타임 열이 전부 0인지 볼 것.**
 
@@ -193,7 +193,13 @@
 
 # E0. 화면 규칙 — 먼저 할 것 (사용자가 마지막에 못 박은 것)
 
-## E0-1 · 지도에 붙은 선은 전부 없앤다
+## E0-1 · 지도에 붙은 선은 전부 없앤다 — **됨** (2026-09-09, 화면 확인)
+
+`pending/approved/rejected` 지면 소스·레이어를 지웠습니다. 경로는 `flightpath` 소스 한 벌이고,
+기체마다 `flightpath:<asset>` 레이어를 만들어 따로 깜빡이고 흐려집니다(extrusion 불투명도는
+레이어 단위라 그렇습니다). 공중 점선은 `curveRibbon()` — 점선 위상이 출발점에 고정돼 지나온
+구간을 잘라내도 도형이 밀리지 않습니다. 기본 줌 14.5. 아래는 당시 지시 원문입니다.
+
 
 경로는 **공중에 뜬 회랑 하나뿐**입니다. 산출중이든 거절이든 승인이든 전부.
 지금은 지면 선(`pending-line` / `approved-line` / `rejected-line`)과 회랑(`flightpath`)이
@@ -323,7 +329,7 @@
 | 강 건너(West New York / Cliffside Park)까지 배달 | E3b | 안 됨 |
 | 노란 점선 산출 → 대기 → 같은 선이 빨강(3번 깜빡) 또는 초록(3번 깜빡) | F0 | 됨 |
 | 선은 절대 새로 그리지 않음. 한 기체에 한 선만 | E0-2, F0 | 부분 |
-| 지도에 붙은 선 없음. 공중 회랑만 | E0-1 | 안 됨 |
+| 지도에 붙은 선 없음. 공중 회랑만 | E0-1 | 됨 |
 | 구역 표시가 경로를 가리지 않음 | E0-3 | 안 됨 |
 | 승인 깜빡임이 끝나야 기체가 출발 | F0, F4 | 부분 |
 | 건물 사이를 비집고 다님 | E5 | 판단 대기 |
