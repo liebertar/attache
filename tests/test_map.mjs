@@ -49,7 +49,7 @@ test('zero length and duplicate waypoints produce finite stationary positions', 
 });
 
 // Exercise UI state transitions without a browser or network; this is not visual QA.
-function scene() {
+function scene(overrides = {}) {
   let now = 0;
   const elements = new Map(), sources = new Map(), layers = new Map();
   const element = id => {
@@ -73,12 +73,12 @@ function scene() {
     requestAnimationFrame(){}, document:{getElementById:element,querySelector:element},
     maplibregl:{Map:function(){return map;}, NavigationControl:function(){},
       Popup:function(){return {setLngLat(){return this;}, setHTML(){return this;},
-        addTo(){return this;}};}}});
+        addTo(){return this;}};}}, ...overrides});
   const code = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
     .replace(/^import .*?;\n/m,'');
   vm.runInContext(code,context);
   const run = (name,...args) => context[name](...args);
-  return {run,element,source:id=>sources.get(id)?.data,
+  return {run,get:name=>context[name],element,source:id=>sources.get(id)?.data,
     path:phase=>(sources.get('flightpath')?.data?.features || [])
       .filter(f=>f.properties.phase === phase),
     layer:id=>layers.get(id), time:value=>{now=value;}};
@@ -397,20 +397,25 @@ test('the elevated curve keeps per-leg altitude and fixed dash positions after f
   assert.equal(all.at(-1).height,70.5);
 });
 
-test('a vertex where the altitude changes carries a vertical dotted column, level legs do not', () => {
+test('a vertex where the altitude changes carries a vertical dotted column shaped like the corridor dashes', () => {
   const level = geometry.makeCurve({...start, alt_m:0}, [{...route[0], alt_m:90}, {...route[1], alt_m:90}]);
   const stepped = geometry.makeCurve({...start, alt_m:0}, [{...route[0], alt_m:60}, {...route[1], alt_m:100}]);
   const total = stepped.lengths.at(-1);
   assert.ok(geometry.curveRibbon(stepped, 0, total).every(p => !p.column), '회랑 조각은 회랑만');
   const columns = geometry.curveColumns(stepped, 0, total);
-  assert.ok(columns.every(p => p.column));
+  assert.ok(columns.length > 0 && columns.every(p => p.column));
   const [lon, lat] = stepped.points[1];
   const atVertex = columns.filter(p => Math.abs(p.polygon[0][0] - lon) < 2e-4 && Math.abs(p.polygon[0][1] - lat) < 2e-4);
   const takeoff = columns.filter(p => Math.abs(p.polygon[0][1] - start.lat) < 2e-4);
-  assert.ok(atVertex.length >= 3, `꼭짓점 기둥 토막 ${atVertex.length}`);
-  assert.ok(takeoff.length >= 3, `이륙 기둥 토막 ${takeoff.length}`);
-  // 기둥은 60m 판 윗면(55.5)에서 100m 판 윗면(95.5)까지 채우고, 조각은 6m 토막입니다.
-  assert.ok(atVertex.every(p => p.base >= 55.4 && p.height <= 95.6 && p.height - p.base <= 6.01));
+  assert.ok(atVertex.length >= 1, `꼭짓점 기둥 토막 ${atVertex.length}`);
+  assert.ok(takeoff.length >= 1, `이륙 기둥 토막 ${takeoff.length}`);
+  // 기둥은 60m 판 윗면(55.5)에서 100m 판 윗면(95.5)까지, 토막은 회랑 점선과 같은 36m 이하.
+  assert.ok(atVertex.every(p => p.base >= 55.4 && p.height <= 95.6 && p.height - p.base <= 36.01));
+  // 판의 발자국은 회랑 폭(18m) × 두께(3m). 정육면체가 아닙니다.
+  const metres = (a, b) => Math.hypot((a[0] - b[0]) * Math.cos(lat * Math.PI / 180), a[1] - b[1]) * 111320;
+  const ring = atVertex[0].polygon;
+  const sides = [metres(ring[0], ring[1]), metres(ring[1], ring[2])].sort((x, y) => y - x);
+  assert.ok(Math.abs(sides[0] - 18) < 0.5 && Math.abs(sides[1] - 3) < 0.5, `발자국 ${sides.map(v => v.toFixed(1))}`);
   assert.equal(geometry.curveColumns(level, 0, level.lengths.at(-1)).filter(p => Math.abs(p.polygon[0][1] - start.lat) > 2e-4).length, 0,
     '고도가 같으면 꼭짓점 기둥이 없습니다');
   assert.equal(geometry.curveColumns(stepped, total * 0.9, total).length, 0, '지나온 꼭짓점의 기둥은 창 밖입니다');
@@ -461,4 +466,159 @@ test('the banner says who read a NOTAM, and shows the raw text while nobody has'
     {id:'n2', name:'Harlem TFR', applied:false, held:true, source:'model:nvidia/nemotron-3-super-120b-a12b'}]});
   assert.match(ui.element('banner').innerHTML, /waiting for a person/);
   assert.equal(ui.element('banner').style.display, 'block');
+});
+
+test('a notice a person confirmed before its window says so, and is neither raw nor enforced', () => {
+  const ui = scene();
+  const bulletin = {id:'n3', kind:'notam', text:'MEDEVAC INBOUND HARLEM', published_tick:1350, until_tick:2100};
+  ui.run('renderSnapshot', {...snapshot(), bulletins:[bulletin]}, {ledger:[], notices:[
+    {id:'n3', name:'Harlem TFR', applied:false, held:false, source:'human', from_tick:1350, until_tick:2100,
+     polygon:[[40.81, -73.94], [40.81, -73.93], [40.82, -73.93]]}]});
+  const banner = ui.element('banner').innerHTML;
+  assert.match(banner, /confirmed by a person/);
+  assert.match(banner, /applies when the window opens/);
+  assert.doesNotMatch(banner, /not yet read/);
+  assert.doesNotMatch(banner, /pulled back/);
+  assert.equal(ui.source('zone').features.length, 0, '확인만 됐고 아직 안 걸린 것은 칠하지 않습니다');
+});
+
+test('a ledger line that went to a person is not replayed as an approved corridor', () => {
+  const ui = scene();
+  ui.run('renderSnapshot', snapshot(), {ledger:[{id:'h1', at:Date.now()/1000, outcome:'waiting',
+    proposal:{asset_id:'drone-01', action:'fly_route', params:{legs:[start, ...route]}},
+    decision:{verdict:'human', reason:'기체 한도 초과', code:'over_asset', detail:{spent:490, cap:320}}}]});
+  assert.equal(ui.path('approved').length, 0);
+  assert.equal(ui.path('pending').length, 0);
+  assert.match(ui.element('feed').innerHTML, /HUMAN/);
+  assert.match(ui.element('feed').innerHTML, /aircraft cap: \$490 > \$320/);
+});
+
+// 관제 권고. 런타임이 /state.advisories 에 싣는 모양 그대로.
+function advisory(extra={}) {
+  return {asset:'drone-02', tick:640, at:Date.now()/1000, ledger_id:'l_adv1', trigger:'refusals',
+    refusals:[{tick:600, code:'airspace', blocked_kind:'traffic', blocked_asset:'drone-03', blocked_until_tick:700},
+              {tick:610, code:'airspace', blocked_kind:'traffic', blocked_asset:'drone-03', blocked_until_tick:700},
+              {tick:620, code:'airspace', blocked_kind:'forbidden', blocked_volume:'bldg-1'}],
+    options:[{id:'hold', label:'hold on the ground until tick 700', legal:true, why:'drone-03 clears that volume at tick 700', until_tick:700},
+             {id:'climb', label:'climb +30 m on the last filed legs', legal:false, why:'bldg-1 옥상 위 10m', shift_m:30},
+             {id:'decline', label:'decline the job', legal:true, why:'no aircraft flies'},
+             {id:'escalate', label:'escalate to a person', legal:true, why:'a controller looks'}],
+    chosen:'hold', summary:'', model:'', source:'rules', ...extra};
+}
+
+test('a tower advisory card names the aircraft, lists the checked options, and hides after 12 s', () => {
+  const ui = scene();
+  ui.run('renderAdvisories', {advisories:[advisory()]}, 100);
+  assert.equal(ui.element('advisory').hidden, false);
+  assert.equal(ui.element('advisory-tag').textContent, 'TOWER ADVISORY');
+  assert.equal(ui.element('advisory-who').textContent, 'drone-02');
+  assert.equal(ui.element('advisory-source').textContent, 'rules · after 3 refusals in a row');
+  // 규칙이 고른 권고는 화면 말로 조립합니다 — 런타임 문장을 그대로 쓰지 않습니다.
+  assert.equal(ui.element('advisory-summary').textContent,
+    'drone-02 was refused 3 times in a row. The rules suggest: hold on the ground until tick 700.');
+  const options = ui.element('advisory-options').innerHTML;
+  assert.match(options, /<li class="ok chosen">hold on the ground until tick 700 · legal<\/li>/);
+  assert.match(options, /<li class="no">climb \+30 m on the filed legs · not legal — bldg-1 옥상 위 10m<\/li>/);
+  assert.match(options, /<li class="ok">decline the order · legal<\/li>/);
+  assert.match(options, /<li class="ok">escalate to a person · legal<\/li>/);
+  assert.match(ui.element('advisory-note').textContent, /information only/);
+  // 같은 권고는 다시 띄우지 않고, 12초 뒤에 내려갑니다.
+  ui.time(100 + 12001); ui.run('draw');
+  assert.equal(ui.element('advisory').hidden, true);
+  ui.run('renderAdvisories', {advisories:[advisory()]}, 13000);
+  assert.equal(ui.element('advisory').hidden, true);
+  // 모델(super)이 쓴 요약은 그대로 보이고, 출처 단어가 바뀝니다.
+  ui.run('renderAdvisories', {advisories:[advisory({ledger_id:'l_adv2', source:'super', chosen:'decline',
+    model:'nemotron-3-super', summary:'Two filings crossed drone-03 and the third hit a roof. Decline this order and refile after tick 700.'})]}, 14000);
+  assert.equal(ui.element('advisory').hidden, false);
+  assert.match(ui.element('advisory-source').textContent, /^super · after 3 refusals in a row$/);
+  assert.match(ui.element('advisory-summary').textContent, /^Two filings crossed drone-03/);
+  assert.match(ui.element('advisory-options').innerHTML, /<li class="ok chosen">decline the order · legal<\/li>/);
+  // 반려 뒤의 권고는 방아쇠를 그렇게 말합니다.
+  ui.run('renderAdvisories', {advisories:[advisory({ledger_id:'l_adv3', trigger:'decline_after_refusals', chosen:'escalate'})]}, 15000);
+  assert.equal(ui.element('advisory-source').textContent, 'rules · declined the order after 3 refusals');
+  assert.match(ui.element('advisory-summary').textContent, /declined the order after 3 refusals\. The rules suggest: escalate to a person\./);
+});
+
+test('the feed shows the advisory as a runtime line naming the chosen option; it raises no denial card', () => {
+  const ui = scene();
+  const entry = {id:'l_adv1', at:Date.now()/1000, outcome:'noted',
+    proposal:{asset_id:'drone-02', action:'advisory', author:'runtime',
+              params:{options:advisory().options, chosen:'hold', trigger:'refusals'}},
+    decision:{verdict:'auto', reason:'…', code:'advisory',
+              detail:{resource:'drone-02', chosen:'hold', trigger:'refusals', source:'rules'}}};
+  ui.run('renderSnapshot', snapshot(), {ledger:[entry], llm:{enabled:false, models:{}}, locks:{}, advisories:[]});
+  const feed = ui.element('feed').innerHTML;
+  assert.match(feed, /<b>drone-02<\/b> tower advisory/);
+  assert.match(feed, /advisory · hold on the ground until tick 700/);
+  assert.equal(ui.element('denial').hidden, true, '권고는 거절 카드가 아닙니다');
+  ui.time(100); ui.run('draw');
+  assert.equal(ui.path('pending').length, 0, '권고는 경로가 아니라 되짚어 그리지 않습니다');
+  const bySuper = {...entry, id:'l_adv2', decision:{...entry.decision, detail:{...entry.decision.detail, source:'super'}}};
+  ui.run('renderSnapshot', snapshot(), {ledger:[bySuper], llm:{enabled:false, models:{}}, locks:{}, advisories:[]});
+  assert.match(ui.element('feed').innerHTML, /hold on the ground until tick 700 · super/);
+});
+
+test('the api ports come from ?rt= and ?sim=, and default to 8000/8100', () => {
+  // 모듈의 const 는 vm 문맥의 전역이 아니라, 디버그 핸들(window.__attache.api)로 읽습니다.
+  const api = ui => JSON.stringify(ui.get('window').__attache.api);
+  const plain = scene({window:{}});
+  assert.equal(api(plain), JSON.stringify({sim:'http://localhost:8100', rt:'http://localhost:8000'}));
+  const second = scene({window:{}, location:{hostname:'localhost', search:'?rt=8010&sim=8110'}, URLSearchParams});
+  assert.equal(api(second), JSON.stringify({sim:'http://localhost:8110', rt:'http://localhost:8010'}));
+});
+
+test('an applied runtime notice is painted on the ground; a held one is not', () => {
+  const ui = scene();
+  const ring = [[40.81, -73.94], [40.81, -73.93], [40.82, -73.93]];
+  const held = {id:'n2', name:'Harlem', applied:false, held:true, polygon:ring, source:'model:x'};
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[held]});
+  assert.equal(ui.source('zone').features.length, 0, '보류 중인 공지는 아무것도 안 막습니다');
+  assert.match(ui.element('banner').innerHTML, /waiting for a person/);
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[{...held, applied:true, held:false, source:'human'}]});
+  assert.equal(ui.source('zone').features.length, 1);
+  assert.equal(ui.source('zone').features[0].properties.id, 'n2');
+  assert.equal(ui.source('zone').features[0].geometry.coordinates[0].length, 4, '고리는 닫힙니다');
+  assert.match(ui.element('banner').innerHTML, /read by a person/);
+});
+
+test('notice ledger lines read as words, not codes', () => {
+  const ui = scene();
+  const line = (id, code, detail={}) => ({id, at:Date.now()/1000, outcome:'unreadable',
+    proposal:{asset_id:'airspace', action:'publish_notice', author:'runtime', params:{notice_id:'n9'}},
+    decision:{verdict:'denied', reason:'…', code, detail}});
+  ui.run('renderSnapshot', snapshot(), {ledger:[line('u1', 'notice_unreadable', {notice:'n9', why:'no model'}),
+    line('p1', 'notice_published'), line('r1', 'notice_refused')], llm:{enabled:false, models:{}}, locks:{}});
+  const feed = ui.element('feed').innerHTML;
+  assert.match(feed, /airspace<\/b> airspace notice/);
+  assert.match(feed, /not read by the runtime \(no model\)/);
+  assert.match(feed, /confirmed by a person/);
+  assert.match(feed, /refused by a person/);
+  assert.doesNotMatch(feed, /r_notice/);
+});
+
+test('an approval that lands while the refusal is still playing is replayed yellow after it, not dropped', () => {
+  const ui = scene();
+  ui.run('renderDenials',{ledger:[denial('r1')]},0);
+  ui.time(1000); ui.run('draw');                       // 빨강이 그려지는 중
+  ui.run('renderDenials',{ledger:[approval('a1'), denial('r1')]},1000);
+  ui.time(1016); ui.run('draw');                       // 다음 프레임: 예약된 승인이 살아 있어야 합니다
+  const red = GROW_MS + CHECK_MS + HOLD_MS + FADE_MS;
+  ui.time(red + 400); ui.run('draw');                  // 빨강 끝난 직후: 노랑이 뻗는 중
+  assert.ok(ui.path('pending').length > 0, '승인 재생이 노랑으로 시작합니다');
+  assert.equal(ui.path('approved').length, 0, '초록은 아직입니다');
+  ui.time(red + GROW_MS + CHECK_MS + 200); ui.run('draw');
+  assert.ok(ui.path('approved').length > 0, '그 다음에 초록');
+});
+
+test('a backlog of refusals is collapsed so the replay never falls more than one stage behind', () => {
+  const ui = scene();
+  ui.run('renderDenials',{ledger:[denial('b1')]},0);
+  ui.time(500); ui.run('draw');
+  const more = ['b2','b3','b4','b5'].map(id => denial(id));
+  ui.run('renderDenials',{ledger:[...more.reverse(), denial('b1')]},500);
+  ui.run('renderDenials',{ledger:[approval('ok'), ...more, denial('b1')]},600);
+  const red = GROW_MS + CHECK_MS + HOLD_MS + FADE_MS;
+  ui.time(red + 300); ui.run('draw');
+  assert.ok(ui.path('pending').length > 0, '첫 빨강 다음에 곧바로 승인이 옵니다, 밀린 거절 넷은 버려집니다');
 });

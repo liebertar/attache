@@ -185,19 +185,31 @@ export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_T
 
 // 고도가 바뀌는 꼭짓점의 수직 구간. 기체는 꼭짓점에서 제자리로 오르내리므로(sim _advance)
 // 그 자리에 세로 점선을 세워야 두 판이 이어져 보입니다. 없으면 회랑이 끊긴 것처럼 읽혔습니다.
-const COLUMN_HALF_M = 4;      // 회랑(18m)보다 가는 기둥
-const VDASH_M = 6;
-const VGAP_M = 4;
+// 모양은 회랑 점선을 그대로 세운 것입니다 — 폭 18 m·두께 3 m 판이 36 m 토막·14 m 간격으로
+// 위로 이어지고, 판의 폭은 회랑처럼 진행 방향에 직각입니다. 정육면체 토막은 딴 물건으로 읽혔습니다.
 
-/** 한 꼭짓점에서 고도 a → b 로 옮기는 세로 점선. 회랑 윗면과 같은 기준(기체 고도 − DROP)입니다. */
-export function altitudeColumn(lat, lon, fromAltM, toAltM) {
+/** 한 꼭짓점에서 고도 a → b 로 옮기는 세로 점선. 회랑 윗면과 같은 기준(기체 고도 − DROP)입니다.
+ * headingLonLat 은 그 꼭짓점에서 나가는 구간의 방향(도수 차이)입니다. */
+export function altitudeColumn(lat, lon, fromAltM, toAltM, headingLonLat = [0, 1]) {
   const low = Math.min(fromAltM, toAltM) - RIBBON_DROP_M;
   const high = Math.max(fromAltM, toAltM) - RIBBON_DROP_M;
+  const scale = Math.cos(lat * Math.PI / 180) || 1;
+  let dLon = headingLonLat[0] * scale, dLat = headingLonLat[1];
+  const len = Math.hypot(dLon, dLat) || 1;
+  dLon /= len; dLat /= len;
+  const half = RIBBON_HALF_M / METRES_PER_DEG_LAT, thin = RIBBON_THICK_M / 2 / METRES_PER_DEG_LAT;
+  const nLat = -dLon * half, nLon = dLat * half / scale;   // 폭 방향(진행 방향에 직각)
+  const tLat = dLat * thin, tLon = dLon * thin / scale;    // 두께 방향(진행 방향)
+  const polygon = [
+    [lon + nLon + tLon, lat + nLat + tLat], [lon - nLon + tLon, lat - nLat + tLat],
+    [lon - nLon - tLon, lat - nLat - tLat], [lon + nLon - tLon, lat + nLat - tLat],
+    [lon + nLon + tLon, lat + nLat + tLat],
+  ];
   const out = [];
-  for (let z = low; z < high; z += VDASH_M + VGAP_M) {
-    const thickness = Math.min(VDASH_M, high - z);
-    if (thickness <= 0 || z + thickness <= 0) continue;
-    out.push({...box(lat, lon, COLUMN_HALF_M, z, thickness), column:true});
+  for (let z = low; z < high; z += DASH_M + GAP_M) {
+    const top = Math.min(z + DASH_M, high);
+    if (top <= 0.5) continue;
+    out.push({polygon, base: Math.max(0, z), height: top, column: true});
   }
   return out;
 }
@@ -232,7 +244,8 @@ export function curveColumns(curve, from, to) {
     const before = curve.altitudes[v], after = curve.altitudes[v + 1];
     if (!(Math.abs(after - before) > 1)) continue;
     const [lon, lat] = curve.points[v];
-    out.push(...altitudeColumn(lat, lon, before, after));
+    const [lon2, lat2] = curve.points[v + 1];
+    out.push(...altitudeColumn(lat, lon, before, after, [lon2 - lon, lat2 - lat]));
   }
   return out;
 }

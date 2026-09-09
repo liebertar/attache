@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Attaché — 기단 지도</title>
+<link rel="icon" href="data:,">
 <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.css" rel="stylesheet">
 <style>
   :root{--panel:rgba(12,17,21,.92);--line:#2a3740;--text:#e9f0f4;--dim:#93a4af;
@@ -42,15 +43,20 @@
   .tier{display:inline-block;padding:0 4px;border-radius:3px;font-size:9.5px;font-weight:700;
         letter-spacing:.4px;background:rgba(118,185,0,.18);color:#a6e05a;vertical-align:1px}
   #legend{bottom:12px;left:12px;font-size:11.5px;color:var(--dim);line-height:1.9}
-  /* 카메라 조작. 왼쪽 세로 버튼. 단축키도 같이 됩니다(툴팁). */
-  #cam{top:200px;left:12px;padding:6px;display:flex;flex-direction:column;gap:4px;width:auto}
-  #cam button{width:34px;height:30px;background:transparent;border:1px solid var(--line);
-    color:var(--text);border-radius:6px;cursor:pointer;font:600 12px inherit;line-height:1}
-  #cam button:hover{border-color:var(--guard);color:#bcd8ff}
-  #cam .sep{height:1px;background:var(--line);margin:2px 0}
+  /* 키 안내. 버튼이 아니라 어떤 키를 같이 누르면 되는지를 적어 둔 판. 왼쪽 세로 중앙. */
+  #keys{top:50%;left:12px;transform:translateY(-50%);width:auto;padding:8px 11px;
+        font-size:11px;color:var(--dim)}
+  #keys h2{margin:0 0 5px;font-size:10.5px;color:var(--dim);letter-spacing:.7px}
+  #keys .key{display:flex;align-items:center;gap:8px;padding:2px 0;white-space:nowrap}
+  #keys .combo{display:inline-flex;align-items:center;gap:2px;min-width:104px;color:var(--text)}
+  #keys kbd{font:600 10.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text);
+        border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px;
+        background:rgba(255,255,255,.04)}
   .k{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;
      vertical-align:-1px}
-  #banner{bottom:12px;right:12px;width:330px;border-color:var(--zone);display:none;
+  /* 공지 배너. 지도의 확대 버튼(오른쪽 아래 세로줄)과 출처 표기(맨 아랫줄) 위에 놓습니다 —
+     구석에 붙이면 둘이 배너의 마지막 줄을 가렸습니다. */
+  #banner{bottom:40px;right:56px;width:330px;border-color:var(--zone);display:none;
           font-size:11.5px}
   a{color:var(--ok);text-decoration:none}
   .route-key{display:inline-block;width:22px;border-top:3px solid #29c76f;
@@ -93,8 +99,24 @@
   .pop dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
   .pop dt{color:var(--dim);font-size:11px}
   .pop dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+  /* 관제 권고. 화면 아래 가운데 — 범례(왼쪽)와 공지 배너(오른쪽) 사이. 정보 카드라 노란 테두리. */
+  #advisory{bottom:12px;left:50%;transform:translateX(-50%);width:min(470px,calc(100% - 740px));
+            border-color:var(--warn);border-left-width:4px;overflow-wrap:anywhere;cursor:pointer}
+  #advisory[hidden]{display:none}
+  #advisory .line1{display:flex;align-items:center;gap:6px;font-size:12.5px}
+  #advisory .line1 b{color:#ffd98a;font-weight:600}
+  #advisory-source{color:var(--dim);margin-left:auto;font-size:10.5px;letter-spacing:.4px}
+  #advisory-summary{margin-top:5px;font-size:12.5px;line-height:1.5}
+  #advisory-options{list-style:none;margin:6px 0 0;padding:0;font-size:11.5px;line-height:1.5}
+  #advisory-options li{padding:2px 0 2px 16px;position:relative;color:var(--dim)}
+  #advisory-options li::before{content:"○";position:absolute;left:0;color:var(--dim)}
+  #advisory-options li.ok{color:var(--text)}
+  #advisory-options li.no{text-decoration:line-through;opacity:.7}
+  #advisory-options li.chosen{color:#ffd98a}
+  #advisory-options li.chosen::before{content:"●";color:var(--warn)}
   @media(max-width:1050px){
     #denial{top:155px;left:12px;transform:none;width:300px}
+    #advisory{left:12px;transform:none;width:330px;bottom:150px}
   }
   @media(max-width:640px){
     #head{width:calc(100% - 24px)}
@@ -157,15 +179,15 @@
   <div class="note" data-t="lg_source"></div>
 </div>
 
-<div class="card" id="cam" aria-label="camera">
-  <button data-cam="left" title="rotate left · Shift+←">⟲</button>
-  <button data-cam="right" title="rotate right · Shift+→">⟳</button>
-  <div class="sep"></div>
-  <button data-cam="up" title="tilt up · Shift+↑">⤒</button>
-  <button data-cam="down" title="tilt down · Shift+↓">⤓</button>
-  <div class="sep"></div>
-  <button data-cam="north" title="north up · N">N</button>
-  <button data-cam="home" title="start view · H">⌂</button>
+<div class="card" id="keys" aria-label="keyboard">
+  <h2 data-t="keys_title"></h2>
+  <div class="key"><span class="combo"><kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd></span><span data-t="keys_rotate"></span></div>
+  <div class="key"><span class="combo"><kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd></span><span data-t="keys_tilt"></span></div>
+  <div class="key"><span class="combo"><kbd>+</kbd><kbd>−</kbd></span><span data-t="keys_zoom"></span></div>
+  <div class="key"><span class="combo"><kbd>N</kbd></span><span data-t="keys_north"></span></div>
+  <div class="key"><span class="combo"><kbd>H</kbd></span><span data-t="keys_home"></span></div>
+  <div class="key"><span class="combo"><kbd>1</kbd>–<kbd>4</kbd></span><span data-t="keys_focus"></span></div>
+  <div class="key"><span class="combo"><kbd data-t="keys_drag"></kbd></span><span data-t="keys_orbit"></span></div>
 </div>
 
 <div class="card" id="banner"></div>
@@ -175,14 +197,26 @@
   <div id="denial-why"></div>
   <div id="denial-more" class="note"></div>
 </div>
+<!-- 관제 권고. 연속 거절 뒤 런타임이 원장에 남긴 정보입니다. 아무것도 바꾸지 않습니다 — 결정은 운영사가. -->
+<div class="card" id="advisory" role="status" aria-atomic="true" hidden>
+  <div class="line1"><span class="tag t-human" id="advisory-tag"></span><b id="advisory-who"></b>
+    <span id="advisory-source"></span></div>
+  <div id="advisory-summary"></div>
+  <ul id="advisory-options"></ul>
+  <div id="advisory-note" class="note"></div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script type="module">
 import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, curveColumns, hex, droneBody, cargoStack, groundDisc, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
-const SIM = `http://${location.hostname}:8100`;
-const RT  = `http://${location.hostname}:8000`;
+// 두 번째 스택을 같은 화면으로 보려고 ?rt=8010&sim=8110 처럼 포트를 바꿀 수 있습니다. 기본은 8000/8100.
+const query = typeof URLSearchParams === "function" ? new URLSearchParams(location.search || "") : new Map();
+const SIM = `http://${location.hostname}:${query.get("sim") || 8100}`;
+const RT  = `http://${location.hostname}:${query.get("rt") || 8000}`;
 const POLL_MS = 500;
 const DENIAL_MS = 8000;
+// 관제 권고 카드. 거절 카드보다 조금 길게 — 선택지 목록을 읽을 시간입니다.
+const ADVISORY_MS = 12000;
 
 // 화면 말. 원장에는 기계 이름이 남고 사람에게는 사람 말이 보입니다.
 // 한 화면에 두 언어를 섞으면 아무도 못 읽어서, 통째로 갈아끼웁니다.
@@ -199,9 +233,10 @@ const TEXT = {
     unapproved_passenger_actions:"Unapproved passenger acts",
     unrecorded_actions:"Acts with no record",
     lg_pending:"PLANNING", lg_ok:"APPROVED", lg_no:"REJECTED",
-    lg_block:"What blocked it", lg_pad:"Charging bay", lg_depot:"Warehouse", lg_landing:"DRONE LANDING AREA",
+    lg_block:"What blocked it", lg_pad:"Charging bay", lg_depot:"Warehouse", lg_landing:"DRONE LANDING AREA", lg_bay:"BAY %s",
     lg_nofly:"No-fly grid", lg_source:"FAA UAS Facility Map · OpenStreetMap buildings — real data.",
-    keys:"<b>Right-drag</b> orbit · <b>Shift+←→</b> rotate · <b>Shift+↑↓</b> tilt · <b>+ −</b> zoom · <b>N</b> north · <b>H</b> home · <b>1–4</b> focus drone",
+    keys_title:"KEYS", keys_rotate:"rotate", keys_tilt:"tilt", keys_zoom:"zoom", keys_north:"north up",
+    keys_home:"start view", keys_focus:"focus drone", keys_drag:"right-drag", keys_orbit:"orbit (mouse)",
     lg_ceil:"Ceiling",
     ph_drawing:"PLANNING…", ph_checking:"AWAITING VERDICT…",
     ph_refused:"REJECTED", ph_approved:"APPROVED",
@@ -223,8 +258,9 @@ const TEXT = {
     d_withdraw:"WITHDRAWN",
     b_notam:"<b>NOTAM</b> (tick %s–%s) · %s — read by %s; approved routes through it are pulled back, new ones refused.",
     b_notam_held:"<b>NOTAM</b> · %s — read by %s, waiting for a person before it applies.",
+    b_notam_confirmed:"<b>NOTAM</b> (tick %s–%s) · %s — confirmed by %s; applies when the window opens.",
     b_notam_raw:"<b>NOTAM</b> (tick %s–%s) · %s — not yet read by the runtime.",
-    src_grammar:"the rule grammar", src_human:"a person", src_model:"the %s model",
+    src_grammar:"the rule grammar", src_human:"a person", src_model:"the %s agent",
     t_auto:"RUN", t_denied:"DENY", t_human:"HUMAN", t_queued:"QUEUE",
     d_reject:"REJECTED", d_recall:"RECALLED",
     d_leg:"leg %s enters %s", d_pulled:"a rule arrived — the approved route is pulled; holding until a new one is approved",
@@ -234,8 +270,8 @@ const TEXT = {
     p_guarded:"via runtime", p_direct:"direct control",
     p_state:"State", p_battery:"Battery", p_alt:"Altitude", p_job:"Delivery",
     p_route:"Approved legs", p_done:"Delivered", p_spend:"Spent", p_none:"none · straight",
-    llm_on:"Nemotron %s · via %s", llm_off:"rules only — no model configured",
-    drafter_nano:"nano", drafter_astar:"A*", drafter_straight:"straight", drafter_model:"model",
+    llm_on:"Nemotron %s · via %s", llm_off:"rules only — no agent model configured",
+    drafter_nano:"nano", drafter_astar:"A*", drafter_straight:"straight", drafter_model:"Agent",
     p_form:"Last form by", p_drafter:"Route by", p_judged:"Judged", by_rules:"rules",
     rule_source:"rule %s",
     fly_route:"delivery route", reserve_pad:"bay reservation", charge:"charge",
@@ -248,6 +284,20 @@ const TEXT = {
     cleared:"cleared · spinning up", awaiting:"awaiting clearance", awaiting_route:"awaiting route",
     awaiting_pad:"awaiting pad",
     diverted:"route pulled",
+    // 관제 권고. 런타임은 선택지 id 와 값만 주고 문구는 여기서 만듭니다.
+    advisory:"tower advisory", adv_tag:"TOWER ADVISORY",
+    adv_src_rules:"rules", adv_src_super:"super",
+    adv_after:"after %s refusals in a row", adv_after_decline:"declined the order after %s refusals",
+    adv_template:"%s was refused %s times in a row. The rules suggest: %s.",
+    adv_template_decline:"%s declined the order after %s refusals. The rules suggest: %s.",
+    adv_note:"information only — the operator still decides, and the same judge reads its next filing",
+    adv_legal:"legal", adv_illegal:"not legal", r_advisory:"advisory · %s",
+    opt_hold:"hold on the ground until tick %s", opt_climb:"climb +%s m on the filed legs",
+    opt_notice_window:"wait for the notice window to close at tick %s",
+    opt_decline:"decline the order", opt_escalate:"escalate to a person",
+    // 공지 원장 줄. 문장은 코드에서, 이유(why)는 런타임 값 그대로.
+    publish_notice:"airspace notice", r_notice_unreadable:"not read by the runtime (%s)",
+    r_notice_published:"confirmed by a person — now enforced", r_notice_refused:"refused by a person — not enforced",
   },
   ko: {
     title:"같은 기단, 다른 배선",
@@ -261,9 +311,10 @@ const TEXT = {
     unapproved_passenger_actions:"승객 영향 무단 실행",
     unrecorded_actions:"기록 없는 실행",
     lg_pending:"경로 산출중", lg_ok:"승인", lg_no:"거절",
-    lg_block:"막은 구역·건물", lg_pad:"충전대", lg_depot:"물류 창고", lg_landing:"드론 착륙장",
+    lg_block:"막은 구역·건물", lg_pad:"충전대", lg_depot:"물류 창고", lg_landing:"드론 착륙장", lg_bay:"자리 %s",
     lg_nofly:"비행금지 격자", lg_source:"FAA UAS Facility Map · OpenStreetMap 건물 — 실제 데이터.",
-    keys:"<b>우클릭 드래그</b> 회전 · <b>Shift+←→</b> 회전 · <b>Shift+↑↓</b> 기울이기 · <b>+ −</b> 확대 · <b>N</b> 정북 · <b>H</b> 처음 · <b>1–4</b> 기체로",
+    keys_title:"키", keys_rotate:"회전", keys_tilt:"기울이기", keys_zoom:"확대·축소", keys_north:"정북",
+    keys_home:"처음 화면", keys_focus:"기체로", keys_drag:"우클릭 드래그", keys_orbit:"돌려보기 (마우스)",
     lg_ceil:"천장",
     ph_drawing:"경로 산출중…", ph_checking:"판정 대기중…",
     ph_refused:"거절", ph_approved:"승인",
@@ -285,8 +336,9 @@ const TEXT = {
     d_withdraw:"물림",
     b_notam:"<b>NOTAM</b> (tick %s–%s) · %s — %s이 읽음. 지나던 승인 경로는 회수되고 새 경로는 거절됩니다.",
     b_notam_held:"<b>NOTAM</b> · %s — %s이 읽음. 사람이 확인해야 적용됩니다.",
+    b_notam_confirmed:"<b>NOTAM</b> (tick %s–%s) · %s — %s이 확인. 창이 열리면 걸립니다.",
     b_notam_raw:"<b>NOTAM</b> (tick %s–%s) · %s — 런타임이 아직 못 읽음.",
-    src_grammar:"규칙 문법", src_human:"사람", src_model:"%s 모델",
+    src_grammar:"규칙 문법", src_human:"사람", src_model:"%s 에이전트",
     t_auto:"실행", t_denied:"거부", t_human:"사람에게", t_queued:"대기",
     d_reject:"거절", d_recall:"회수",
     d_leg:"%s번 구간이 %s 안으로 들어갑니다",
@@ -296,8 +348,8 @@ const TEXT = {
     p_guarded:"런타임 경유", p_direct:"직접 조종",
     p_state:"상태", p_battery:"배터리", p_alt:"고도", p_job:"배달지",
     p_route:"승인된 경유점", p_done:"완료", p_spend:"누적 지출", p_none:"없음 · 직선",
-    llm_on:"Nemotron %s · %s 경유", llm_off:"규칙만 — 모델 설정 없음",
-    drafter_nano:"nano", drafter_astar:"A*", drafter_straight:"직선", drafter_model:"모델",
+    llm_on:"Nemotron %s · %s 경유", llm_off:"규칙만 — 에이전트 모델 없음",
+    drafter_nano:"nano", drafter_astar:"A*", drafter_straight:"직선", drafter_model:"Agent",
     p_form:"신청서 작성", p_drafter:"경로 작성", p_judged:"판정", by_rules:"규칙",
     rule_source:"규칙 %s",
     fly_route:"배달 경로", reserve_pad:"착륙대 예약", charge:"충전",
@@ -310,6 +362,18 @@ const TEXT = {
     cleared:"승인 확인 · 이륙 준비", awaiting:"승인 대기", awaiting_route:"경로 대기",
     awaiting_pad:"이륙장 대기",
     diverted:"경로 회수",
+    advisory:"관제 권고", adv_tag:"관제 권고",
+    adv_src_rules:"규칙", adv_src_super:"super",
+    adv_after:"연속 거절 %s회", adv_after_decline:"거절 %s회 뒤 주문 반려",
+    adv_template:"%s 의 신청이 %s번 연속 거절됐습니다. 규칙의 권고: %s.",
+    adv_template_decline:"%s 가 거절 %s회 뒤 주문을 반려했습니다. 규칙의 권고: %s.",
+    adv_note:"정보일 뿐입니다 — 결정은 운영사가 하고, 다음 신청도 같은 판정을 받습니다",
+    adv_legal:"가능", adv_illegal:"불가", r_advisory:"권고 · %s",
+    opt_hold:"틱 %s 까지 지상 대기", opt_climb:"낸 경로 그대로 +%s m",
+    opt_notice_window:"공지 창이 닫히는 틱 %s 까지 대기",
+    opt_decline:"주문 반려", opt_escalate:"사람에게 올림",
+    publish_notice:"공역 공지", r_notice_unreadable:"런타임이 못 읽음 (%s)",
+    r_notice_published:"사람이 확인 — 이제 걸림", r_notice_refused:"사람이 거부 — 안 걸림",
   },
 };
 
@@ -352,6 +416,7 @@ const flights = new Map();
 let stages = [];
 const queued = new Map();       // 기체별로 다음 구간이 시작할 수 있는 시각
 let seenDenials = new Set(), denialUntil = 0, roundStartedAt = 0;
+let seenAdvisories = new Set(), advisoryUntil = 0;
 
 // 공역은 [위도, 경도] 로 옵니다. GeoJSON 은 [경도, 위도] 이고 고리를 닫아야 합니다.
 function closedRing(points){
@@ -447,6 +512,17 @@ map.on("load", () => {
             "text-line-height":1.2},
     paint:{"text-color":"#18b3a6","text-halo-color":"#0a0e11","text-halo-width":1.3}});
 
+  // 창고 옥상 위 기체 자리 넷. 착륙·하역·적재는 늘 여기서 합니다 — 안 그리면 창고 근처 아무 데나
+  // 앉았다 뜨는 것처럼 보였습니다. 옥상 높이에 얇은 판으로 올립니다.
+  map.addSource("seats", {type:"geojson", data: empty()});
+  map.addLayer({id:"seat-plate", type:"fill-extrusion", source:"seats",
+    paint:{"fill-extrusion-color":"#fff4d5", "fill-extrusion-opacity":.75,
+      "fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"]}}, firstLabel);
+  map.addLayer({id:"seat-label", type:"symbol", source:"seats",
+    layout:{"text-field":["get","name"], "text-size":10.5, "text-font":["Noto Sans Regular"],
+            "text-offset":[0,1.1], "text-anchor":"top", "text-allow-overlap":true},
+    paint:{"text-color":"#fff4d5","text-halo-color":"#18232b","text-halo-width":1.6}});
+
   // 기체는 고도에 뜬 덩어리로 그립니다. MapLibre 는 심볼을 못 띄우므로 아이콘으로는
   // 지면에 붙어 다니는 것처럼 보입니다. 지면에는 이름표만 남습니다.
   map.addSource("craft", {type:"geojson", data:empty()});
@@ -506,7 +582,7 @@ function addAirspaceLayers(before){
   map.addLayer({id:"cells-fill", type:"fill", source:"cells",
     paint:{"fill-color":["case",
         ["==",["get","rule"],"forbidden"], "#c1121f",
-        ["interpolate",["linear"],["get","ceiling"],
+        ["interpolate",["linear"],["coalesce",["get","ceiling"],122],
           15,"#f08c3c", 30,"#f0b73c", 61,"#c9d14a", 91,"#7fc27a", 122,"#4aa3d1"]],
       "fill-opacity":["case",["==",["get","rule"],"forbidden"],.30,.14]}}, before);
   map.addLayer({id:"cells-line", type:"line", source:"cells",
@@ -572,7 +648,9 @@ for (const button of (document.querySelectorAll?.("#lang button") || [])){
     applyLanguage();
   });
 }
-// 카메라 버튼과 키보드. 회전·기울이기는 MapLibre 기본(Shift+화살표)이기도 하고 버튼으로도 됩니다.
+// 키보드만. 왼쪽 안내판에 적힌 조합이 전부이고, 지도를 먼저 눌러 초점을 줄 필요가 없습니다
+// (MapLibre 기본 키 처리는 끄고 여기서 다 받습니다 — 둘 다 살아 있으면 한 번에 두 번 돕니다).
+map.keyboard?.disable?.();
 const HOME_VIEW = {center:[-73.973, 40.718], zoom:14.5, pitch:45, bearing:-28};
 function camera(what){
   if (what === "left") map.easeTo({bearing:map.getBearing() - 30, duration:400});
@@ -582,8 +660,6 @@ function camera(what){
   else if (what === "north") map.easeTo({bearing:0, duration:500});
   else if (what === "home") map.flyTo({...HOME_VIEW, duration:900});
 }
-for (const button of (document.querySelectorAll?.("#cam button") || []))
-  button.addEventListener("click", () => camera(button.dataset.cam));
 document.addEventListener?.("keydown", event => {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const tag = event.target?.tagName;
@@ -592,6 +668,12 @@ document.addEventListener?.("keydown", event => {
   if (key === "n") camera("north");
   else if (key === "h") camera("home");
   else if (/^[1-4]$/.test(key)) focusAsset(`drone-0${key}`);
+  else if (event.shiftKey && key === "arrowleft") camera("left");
+  else if (event.shiftKey && key === "arrowright") camera("right");
+  else if (event.shiftKey && key === "arrowup") camera("up");
+  else if (event.shiftKey && key === "arrowdown") camera("down");
+  else if (key === "+" || key === "=") map.zoomIn({duration:300});
+  else if (key === "-" || key === "_") map.zoomOut({duration:300});
   else return;
   event.preventDefault();
 });
@@ -603,6 +685,9 @@ function focusAsset(id){
   map.flyTo({center:[v.lon, v.lat], zoom:16.4, pitch:58, bearing:map.getBearing(), duration:900});
 }
 document.getElementById("denial")?.addEventListener("click", event => {
+  focusAsset(event.currentTarget.dataset.asset);
+});
+document.getElementById("advisory")?.addEventListener("click", event => {
   focusAsset(event.currentTarget.dataset.asset);
 });
 document.getElementById("feed")?.addEventListener("click", event => {
@@ -676,7 +761,7 @@ function draw(){
           work: workLabel(v), tone: TONE[v.state] || "#c8d4de",
           altitude: cruise === null ? "" : `↑ ${Math.round(cruise)} m`},
       });
-      const altitude = Number(v.alt_m ?? 0);
+      const altitude = roofLifted(point[1], point[0], Number(v.alt_m ?? 0));
       if (visible(world)){
         for (const part of droneBody(point[1], point[0], altitude, heading))
           craft.push(extrusion(part, {world}));
@@ -721,6 +806,18 @@ function ringArea(ring){
   for (let i = 0; i < ring.length - 1; i++)
     twice += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
   return Math.abs(twice) / 2;
+}
+/** 옥상 자리 위에 선 기체의 화면 고도. 시뮬레이터 고도는 지면 기준이라 옥상(9 m) 안에 파묻혀 보였습니다.
+ * 자리 12 m 안에 있고 실제 고도가 옥상보다 낮으면 옥상 위 0.8 m 로 올려 그립니다. 뜬 뒤에는 그대로입니다. */
+function roofLifted(lat, lon, altM){
+  const seats = latest?.worlds?.guarded?.seat_coords || [];
+  for (const seat of seats){
+    const ground = Number(seat.ground_m) || 0;
+    if (!ground || altM >= ground + 0.8) continue;
+    const dLat = (lat - seat.lat) * 111320, dLon = (lon - seat.lon) * 111320 * Math.cos(lat * Math.PI / 180);
+    if (Math.hypot(dLat, dLon) <= 12) return ground + 0.8;
+  }
+  return altM;
 }
 let depotPainted = false;
 // 매 스냅샷마다 시도합니다. 화면이 매 프레임 다시 그려서 지도가 idle 이 되는 순간이 없습니다.
@@ -775,7 +872,9 @@ function paintDepotBuilding(){
 }
 
 function extrusion(piece, properties){
-  return {type:"Feature", properties:{...properties, base:piece.base, height:piece.height, column:!!piece.column},
+  // 높이는 숫자여야 합니다. null 이 스타일 식(["get","height"])에 닿으면 MapLibre 가 경고를 찍습니다.
+  const number = value => (Number.isFinite(Number(value)) ? Number(value) : 0);
+  return {type:"Feature", properties:{...properties, base:number(piece.base), height:number(piece.height), column:!!piece.column},
           geometry:{type:"Polygon", coordinates:[piece.polygon]}};
 }
 
@@ -798,6 +897,7 @@ async function poll(){
     else if (rt.status === "fulfilled") {
       renderFeed(rt.value);
       renderDenials(rt.value, performance.now());
+      renderAdvisories(rt.value, performance.now());
     }
   } catch (error) { console.error("지도 갱신 실패", error); }
   finally { setTimeout(poll, Math.max(0, POLL_MS - (performance.now() - started))); }
@@ -807,6 +907,7 @@ function renderSnapshot(data, runtime){
   lastRuntime = runtime || lastRuntime;   // 출처 표시(tierOf)가 모델 목록을 여기서 봅니다
   if (latest && (data.round !== latest.round || data.tick < latest.tick)){
     motion.clear(); flights.clear(); stages = []; queued.clear(); seenDenials.clear();
+    seenAdvisories.clear(); advisoryUntil = 0;
     denialUntil = 0; roundStartedAt = Date.now() / 1000;
     map.getSource("flightpath")?.setData(empty());
   }
@@ -821,7 +922,8 @@ function renderSnapshot(data, runtime){
       const route = v.route || [];
       let flight = flights.get(key);
       if (route.length && (!flight || !isRemainingRoute(flight.remaining, route))){
-        flight = {curve:makeCurve(v, route), remaining:route, progress:0};
+        flight = {curve:makeCurve({...v, alt_m:roofLifted(v.lat, v.lon, Number(v.alt_m ?? 0))}, route),
+                  remaining:route, progress:0};
         flights.set(key, flight);
       }
       if (flight){
@@ -854,12 +956,19 @@ function renderSnapshot(data, runtime){
 
   // 런타임이 막는 폴리곤 그대로 그립니다. 예전에는 여기서 원을 그렸는데,
   // 그 원은 실제로 금지된 구역과 다른 자리에 있었습니다.
+  // 런타임이 지금 걸어 둔 공지 구역도 같이 칠합니다(applied 만 — 보류 중인 것은 아무것도 안 막습니다).
+  // 시뮬레이터가 아는 구역과 같은 id 면 한 번만.
   const zone = data.worlds.guarded.zone;
-  map.getSource("zone")?.setData({type:"FeatureCollection",
-    features: zone?.active && zone.polygon?.length
-      ? [{type:"Feature", properties:{},
-          geometry:{type:"Polygon", coordinates:[closedRing(zone.polygon)]}}]
-      : []});
+  const zoneFeatures = zone?.active && zone.polygon?.length
+    ? [{type:"Feature", properties:{id:zone.id},
+        geometry:{type:"Polygon", coordinates:[closedRing(zone.polygon)]}}]
+    : [];
+  for (const n of (runtime?.notices || [])){
+    if (!n.applied || !(n.polygon?.length > 2) || (zone?.active && n.id === zone.id)) continue;
+    zoneFeatures.push({type:"Feature", properties:{id:n.id},
+      geometry:{type:"Polygon", coordinates:[closedRing(n.polygon)]}});
+  }
+  map.getSource("zone")?.setData({type:"FeatureCollection", features: zoneFeatures});
 
   const areas = data.worlds.guarded.landing_areas || [];
   map.getSource("landing")?.setData({type:"FeatureCollection", features: areas.map(a => ({
@@ -873,6 +982,11 @@ function renderSnapshot(data, runtime){
   map.getSource("depot")?.setData({type:"FeatureCollection", features:depot ? [{
     type:"Feature", geometry:{type:"Point", coordinates:[depot.lon,depot.lat]}, properties:{},
   }] : []});
+  map.getSource("seats")?.setData({type:"FeatureCollection",
+    features:(data.worlds.guarded.seat_coords || []).map((seat, index) => ({
+      type:"Feature", geometry:{type:"Polygon", coordinates:[groundDisc(seat.lat, seat.lon, 7)]},
+      properties:{name:seat.asset ? `${t("lg_bay", index + 1)} · ${seat.asset}` : t("lg_bay", index + 1),
+                  base:Number(seat.ground_m) || 0, height:(Number(seat.ground_m) || 0) + 0.4}}))});
 
   const g = data.worlds.guarded.scoreboard, d = data.worlds.direct.scoreboard;
   document.getElementById("rows").innerHTML = ROWS.map(key =>
@@ -880,7 +994,7 @@ function renderSnapshot(data, runtime){
          <td class="${g[key]?'hit':'zero'}">${g[key] ?? 0}</td>
          <td class="${d[key]?'hit':'zero'}">${d[key] ?? 0}</td></tr>`).join("");
 
-  if (runtime) { renderFeed(runtime); renderDenials(runtime, now); }
+  if (runtime) { renderFeed(runtime); renderDenials(runtime, now); renderAdvisories(runtime, now); }
   paintDepotBuilding();
 
   // 지금 걸려 있는 공지. 무슨 규칙이 언제 도착했고 무엇을 막는지 그대로 씁니다.
@@ -888,7 +1002,9 @@ function renderSnapshot(data, runtime){
   // 아직 못 읽은 문장은 문장 그대로 보입니다 — 읽었는지 자체가 화면에 나와야 합니다.
   const banner = document.getElementById("banner");
   const bulletins = data.bulletins || [];
-  const notices = (runtime?.notices || []).filter(n => n.applied || n.held);
+  // 걸린 것, 사람을 기다리는 것, 그리고 사람이 확인했지만 창이 아직 안 열린 것. 마지막을 빼면 확인한
+  // 공지가 '아직 못 읽음' 으로 보입니다.
+  const notices = (runtime?.notices || []).filter(n => n.applied || n.held || n.source === "human");
   const known = new Set(notices.map(n => n.id));
   const lines = notices.map(noticeLine);
   for (const b of bulletins){
@@ -910,8 +1026,9 @@ function noticeSource(source){
 }
 function noticeLine(n){
   const name = safe(n.name || n.id);
-  return n.held ? t("b_notam_held", name, noticeSource(n.source))
-    : t("b_notam", n.from_tick ?? "—", n.until_tick ?? "∞", name, noticeSource(n.source));
+  if (n.held) return t("b_notam_held", name, noticeSource(n.source));
+  if (!n.applied) return t("b_notam_confirmed", n.from_tick ?? "—", n.until_tick ?? "∞", name, noticeSource(n.source));
+  return t("b_notam", n.from_tick ?? "—", n.until_tick ?? "∞", name, noticeSource(n.source));
 }
 
 const ROUTED = ["fly_route", "reserve_pad"];
@@ -998,13 +1115,50 @@ function renderDenials(runtime, now){
   denialUntil = now + DENIAL_MS;
 }
 
+/** 선택지 한 줄. 런타임은 id 와 값(until_tick, shift_m)만 주고 문구는 언어에 따라 여기서 만듭니다. */
+function optionLabel(option){
+  const o = option || {};
+  const key = `opt_${o.id}`;
+  if (!(TEXT.en[key])) return safe(o.label || o.id || "");
+  return t(key, o.id === "climb" ? Math.round(Number(o.shift_m) || 30) : o.until_tick ?? "—");
+}
+
+/** 관제 권고 카드. /state.advisories 는 기체마다 마지막 것이라, 원장 번호로 새것만 띄웁니다. */
+function renderAdvisories(runtime, now){
+  const fresh = (runtime?.advisories || []).filter(a => a.ledger_id && !seenAdvisories.has(a.ledger_id)
+    && (!roundStartedAt || (a.at ?? 0) >= roundStartedAt) && Date.now() - (a.at ?? 0) * 1000 < ADVISORY_MS);
+  for (const a of fresh) seenAdvisories.add(a.ledger_id);
+  if (!fresh.length) return;
+  const a = fresh.sort((x, y) => (x.at ?? 0) - (y.at ?? 0)).at(-1);
+  const card = document.getElementById("advisory");
+  if (card.dataset) card.dataset.asset = a.asset;
+  document.getElementById("advisory-tag").textContent = t("adv_tag");
+  document.getElementById("advisory-who").textContent = a.asset;
+  const source = a.source === "super" ? t("adv_src_super") : t("adv_src_rules");
+  const count = (a.refusals || []).length;
+  document.getElementById("advisory-source").textContent =
+    `${source} · ${t(a.trigger === "decline_after_refusals" ? "adv_after_decline" : "adv_after", count)}`;
+  const chosen = (a.options || []).find(o => o.id === a.chosen);
+  // 모델(super)이 쓴 요약은 그대로, 규칙이 고른 것은 화면 말로 조립합니다.
+  document.getElementById("advisory-summary").textContent = a.source === "super" && a.summary
+    ? a.summary
+    : t(a.trigger === "decline_after_refusals" ? "adv_template_decline" : "adv_template",
+        a.asset, count, optionLabel(chosen || {id:a.chosen}));
+  document.getElementById("advisory-options").innerHTML = (a.options || []).map(o =>
+    `<li class="${o.legal ? "ok" : "no"}${o.id === a.chosen ? " chosen" : ""}">${optionLabel(o)} · ${
+      o.legal ? t("adv_legal") : t("adv_illegal")}${o.why && !o.legal ? ` — ${safe(o.why)}` : ""}</li>`).join("");
+  document.getElementById("advisory-note").textContent = t("adv_note");
+  card.hidden = false;
+  advisoryUntil = now + ADVISORY_MS;
+}
+
 /** 닫힌 결정 하나를 되짚어 그릴 구간으로 등록합니다. 좌표는 신청서에 실린 그대로입니다. */
 function stageRoute(entry, now){
   const legs = entry.proposal.params?.legs;
   if (!ROUTED.includes(entry.proposal.action) || !(legs?.length > 1)) return;
   const decision = entry.decision, verdict = decision.verdict;
-  const kind = verdict === "denied" ? "rejected"
-    : (verdict === "auto" || verdict === "human") ? "approved" : null;
+  // 사람에게 간 것(human)은 아직 오간 경로가 아닙니다 — 이제 원장에 남으므로 승인으로 그리면 안 됩니다.
+  const kind = verdict === "denied" ? "rejected" : verdict === "auto" ? "approved" : null;
   if (!kind) return;   // 대기 중인 것은 아직 오간 경로가 아닙니다
   // 같은 신청을 두 번 낸 것은 길이 막힌 게 아닙니다. 원장에는 경유점째 남지만 다시 그리지 않습니다.
   if (decision.code === "duplicate") return;
@@ -1018,6 +1172,15 @@ function stageRoute(entry, now){
   // 있어서, 옛 자리에서 노란 선을 다시 그리면 기체와 따로 노는 선이 하나 더 생깁니다.
   // 그 경우 비행 회랑이 바로 새 경로로 바뀌는 것으로 충분합니다.
   if (Number(latest?.worlds?.guarded?.assets?.[asset]?.alt_m) > 1) return;
+  // 재생은 실시간보다 한 단계까지만 뒤처집니다. 거절이 12초마다 다섯 건씩 오면 큐가 한없이
+  // 밀려 화면이 한참 전 일을 보여주게 되므로, 밀린 예약은 버리고 지금 도는 단계 뒤에 붙입니다.
+  const playing = stages.filter(s => s.asset === asset && s.at <= now);
+  const playingEnd = Math.max(now, ...playing.map(s => s.at + stageLife(s.kind)));
+  const backlog = (queued.get(asset) || 0) - playingEnd;
+  if (backlog > 0){
+    stages = stages.filter(s => s.asset !== asset || s.at <= now);
+    queued.set(asset, playingEnd);
+  }
   const at = Math.max(now, queued.get(asset) || 0);
   queued.set(asset, at + stageLife(kind));
   // 공역 때문에 거절된 것만 '무엇이 막았는가'를 그 자리에 그립니다. 이륙장이 잡혀 있거나
@@ -1027,7 +1190,8 @@ function stageRoute(entry, now){
     id:entry.id, asset, kind, at, by, params, filed:entry.at,
     reason: airspace ? blockedLabel(params) : reasonText(entry),
     drafter: drafterWord(params, legs),
-    curve:makeCurve(legs[0], legs.slice(1)),
+    curve:makeCurve({...legs[0], alt_m:roofLifted(legs[0].lat, legs[0].lon, Number(legs[0].alt_m ?? 0))},
+                    legs.slice(1)),
     blocker: airspace && params.blocked_polygon?.length ? {
       polygon: params.blocked_polygon,
       // 건물만 높이를 가집니다. 구역·격자는 0 → 바닥 채색.
@@ -1084,6 +1248,11 @@ function reasonText(entry){
     case "resource_held": return t("r_resource_held", x.resource, x.holder || "—");
     case "resource_granted": return t("r_resource_granted", x.resource);
     case "recalled": return t("r_recalled", x.resource, x.policy);
+    case "advisory": return t("r_advisory", optionLabel((params.options || []).find(o => o.id === x.chosen)
+                                                        || {id:x.chosen})) + (x.source === "super" ? " · super" : "");
+    case "notice_unreadable": return t("r_notice_unreadable", x.why || "");
+    case "notice_published": return t("r_notice_published");
+    case "notice_refused": return t("r_notice_refused");
     case "": return d.reason;
     default: return t(`r_${d.code}`);
   }
@@ -1103,7 +1272,8 @@ function blockedLabel(params){
     return t(params.blocked_kind === "takeoff" ? "blk_takeoff" : "blk_column",
              id.startsWith("bldg-") ? t("blk_building", height) : params.blocked_name || id);
   if (params.blocked_kind === "landing")
-    return t("blk_landing", id.startsWith("bldg-") ? t("blk_building", height) : params.blocked_name || id);
+    return t("blk_landing", id.startsWith("bldg-") ? t("blk_building", height)
+             : params.blocked_name || id || params.blocked_asset || "");
   if (id.startsWith("bldg-")) return t("blk_building", height);
   if (params.blocked_kind === "ceiling") return t("blk_ceiling", height);
   if (id.startsWith("uasfm-")) return t("blk_grid");
@@ -1187,8 +1357,11 @@ function corridorAlpha(asset, value){
 }
 
 function expireDenials(now){
-  stages = stages.filter(s => stageWindow(s.kind, now - s.at) !== null);
+  // 아직 시작 시각이 안 된 단계(앞 단계 뒤로 예약된 것)는 끝난 게 아닙니다. 창이 null 이라고
+  // 같이 지웠더니, 빨강이 끝나기 직전에 도착한 승인이 노랑을 못 그리고 초록 회랑만 불쑥 나왔습니다.
+  stages = stages.filter(s => now < s.at || stageWindow(s.kind, now - s.at) !== null);
   if (now >= denialUntil) document.getElementById("denial").hidden = true;
+  if (now >= advisoryUntil) document.getElementById("advisory").hidden = true;
 }
 
 const TAG = {auto:["t-auto","t_auto"], denied:["t-deny","t_denied"],
@@ -1196,7 +1369,7 @@ const TAG = {auto:["t-auto","t_auto"], denied:["t-deny","t_denied"],
 
 // 디버그 핸들. 밖(playwright)에서 화면 상태를 읽기만 합니다. 여기로 쓰지 않습니다.
 if (typeof window !== "undefined")
-  window.__attache = {map, motion, flights, queued,
+  window.__attache = {map, motion, flights, queued, api:{sim:SIM, rt:RT},
     get latest(){ return latest; }, get stages(){ return stages; }};
 
 function renderFeed(runtime){
