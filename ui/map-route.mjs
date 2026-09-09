@@ -69,3 +69,91 @@ export function motionPoint(motion, now, duration) {
     ? pointOnCurve(motion.curve, motion.from + (motion.to - motion.from) * t)
     : mix(motion.start, motion.end, t);
 }
+
+// 협상 애니메이션. 신청 → 거절 → 재작성 → 승인이 0.5초 폴링 사이에 다 끝나서,
+// 그대로 두면 화면에는 결과만 남습니다. 실제로 오간 경로를 느리게 되짚어 보여줍니다.
+// 그리는 좌표는 전부 원장/시뮬레이터가 준 것이고, 여기서 새 경로를 만들지 않습니다.
+export const GROW_MS = 900;     // 드론에서 목적지로 선이 뻗는 시간
+export const HOLD_MS = 1100;    // 거절된 경로를 그대로 두는 시간
+export const RETRACT_MS = 600;  // 거절된 경로가 드론 쪽으로 되감기는 시간
+
+const ease = t => 1 - (1 - t) ** 3;
+
+/** 곡선에서 두 진행값 사이만 잘라냅니다. 양 끝은 정확히 그 지점에 찍습니다. */
+export function sliceCurve(curve, from, to) {
+  const total = curve.progress.at(-1);
+  const start = Math.max(0, Math.min(total, from));
+  const end = Math.max(start, Math.min(total, to));
+  const out = [pointOnCurve(curve, start)];
+  for (let i = 0; i < curve.progress.length; i++)
+    if (curve.progress[i] > start && curve.progress[i] < end) out.push(curve.coordinates[i]);
+  out.push(pointOnCurve(curve, end));
+  return out;
+}
+
+/**
+ * 한 구간이 지금 곡선의 어디까지 그려져 있는지. 끝났으면 null.
+ * 승인은 뻗고 끝(그 뒤는 평소의 승인 경로 표시가 이어받습니다).
+ * 거절은 뻗고 · 머물고 · 드론 쪽으로 되감깁니다.
+ */
+export function stageWindow(kind, elapsed) {
+  if (elapsed < 0) return null;
+  if (elapsed < GROW_MS) return [0, ease(elapsed / GROW_MS)];
+  if (kind === "approved") return null;
+  if (elapsed < GROW_MS + HOLD_MS) return [0, 1];
+  const retracting = (elapsed - GROW_MS - HOLD_MS) / RETRACT_MS;
+  return retracting < 1 ? [0, 1 - ease(retracting)] : null;
+}
+
+// 고도를 눈에 보이게 하는 기하. MapLibre 5 에는 공중에 뜨는 선이 없습니다
+// (line-z-offset 이 번들에 아예 없습니다). 대신 fill-extrusion 으로 얇은 리본을
+// 실제 고도에 세웁니다 — base 와 height 사이에 떠 있는 판이 곧 그 구간의 고도입니다.
+const METRES_PER_DEG_LAT = 110_570;
+// 실제 비행 회랑 크기로 잡습니다. 8m 폭으로 그렸더니 화면에서 1~3픽셀이라
+// 아무리 정확해도 안 보였습니다. 보이지 않는 정확함은 화면에서 없는 것과 같습니다.
+const RIBBON_HALF_M = 11;     // 경로 리본 반폭 → 22m 회랑
+const RIBBON_THICK_M = 8;     // 리본 두께(위아래)
+
+/**
+ * 경로를 구간마다 하나씩 사각형으로 만듭니다. 구간마다 승인 고도가 다르므로
+ * 판도 구간마다 따로 떠 있어야 합니다 — 한 덩어리로 만들면 그 차이가 사라집니다.
+ */
+export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_THICK_M) {
+  const out = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    const scale = Math.cos(a.lat * Math.PI / 180) || 1;
+    const dLat = b.lat - a.lat, dLon = (b.lon - a.lon) * scale;
+    const length = Math.hypot(dLat, dLon);
+    if (!(length > 0)) continue;
+    // 진행 방향의 법선. 미터를 위도 도수로 바꿔서 폭을 잡습니다.
+    const half = halfWidthM / METRES_PER_DEG_LAT;
+    const nLat = (-dLon / length) * half, nLon = (dLat / length) * half / scale;
+    const altitude = Number(b.alt_m ?? a.alt_m ?? 0);
+    out.push({
+      polygon: [
+        [a.lon + nLon, a.lat + nLat], [b.lon + nLon, b.lat + nLat],
+        [b.lon - nLon, b.lat - nLat], [a.lon - nLon, a.lat - nLat],
+        [a.lon + nLon, a.lat + nLat],
+      ],
+      base: Math.max(0, altitude - thicknessM / 2),
+      height: Math.max(0.5, altitude + thicknessM / 2),
+    });
+  }
+  return out;
+}
+
+/** 기체 바로 아래에 세우는 기둥. 얼마나 높이 떠 있는지가 이걸로 읽힙니다. */
+export function column(lat, lon, height, sideM = 3) {
+  const half = sideM / METRES_PER_DEG_LAT;
+  const halfLon = half / (Math.cos(lat * Math.PI / 180) || 1);
+  return {
+    polygon: [
+      [lon - halfLon, lat - half], [lon + halfLon, lat - half],
+      [lon + halfLon, lat + half], [lon - halfLon, lat + half],
+      [lon - halfLon, lat - half],
+    ],
+    base: 0,
+    height: Math.max(0.5, Number(height) || 0),
+  };
+}

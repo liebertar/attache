@@ -99,6 +99,8 @@
        <span class="k" style="background:#d8d92c"></span>61m &nbsp;
        <span class="k" style="background:#48c06a"></span>91m &nbsp;
        <span class="k" style="background:#2b8fe0"></span>122m &nbsp;천장 판</div>
+  <div><span class="k" style="background:#29c76f"></span>승인 고도에 뜬 경로 판(아래는 커튼) ·
+    <span class="k" style="background:#3d8bff"></span>기체 아래 고도 기둥</div>
   <div style="margin-top:4px;font-size:10.5px">FAA UAS Facility Map 실제 데이터.
     판을 뚫고 솟은 건물이 못 넘는 선입니다.</div>
 </div>
@@ -110,7 +112,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script type="module">
-import {isRemainingRoute, makeCurve, routeProgress, motionPoint} from './map-route.mjs';
+import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, ribbon, column} from './map-route.mjs';
 const SIM = `http://${location.hostname}:8100`;
 const RT  = `http://${location.hostname}:8000`;
 const POLL_MS = 500;
@@ -128,8 +130,9 @@ const ROWS = [
 const map = new maplibregl.Map({
   container: "map",
   style: "https://tiles.openfreemap.org/styles/positron",
-  // 기체 위치와 무관하게 맨해튼과 브루클린 기지를 한 화면에 잡습니다.
-  center: [-73.975, 40.758], zoom: 11.3, pitch: 45, bearing: -28,
+  // 기지와 배달 반경(4km)을 한 화면에 잡되, 공역이 입체로 읽히는 거리까지 들어갑니다.
+  // 줌 11 대에서는 100m 높이가 화소 이하라 아무리 세워도 평면으로 보입니다.
+  center: [-73.973, 40.718], zoom: 13.5, pitch: 45, bearing: -28,
   attributionControl: {compact: true},
 });
 
@@ -137,7 +140,8 @@ const empty = () => ({type:"FeatureCollection", features:[]});
 // 폴링은 0.5초인데 화면은 60fps 입니다. 그 사이를 채워야 안 끊겨 보입니다.
 const motion = new Map();
 const flights = new Map();
-const rejected = new Map();
+// 원장에 닫힌 결정 하나 = 되짚어 그릴 구간 하나. 신청한 경로를 그대로 씁니다.
+let stages = [];
 let seenDenials = new Set(), denialUntil = 0, roundStartedAt = 0;
 
 function droneIcon(colour){
@@ -157,15 +161,9 @@ function droneIcon(colour){
   return g.getImageData(0,0,size,size);
 }
 
-function ring(lat, lon, metres, points = 72){
-  const coords = [];
-  for (let i = 0; i <= points; i++){
-    const angle = (i / points) * 2 * Math.PI;
-    const dLat = (metres * Math.cos(angle)) / 111320;
-    const dLon = (metres * Math.sin(angle)) / (111320 * Math.cos(lat * Math.PI/180));
-    coords.push([lon + dLon, lat + dLat]);
-  }
-  return {type:"Feature", geometry:{type:"Polygon", coordinates:[coords]}, properties:{}};
+// 공역은 [위도, 경도] 로 옵니다. GeoJSON 은 [경도, 위도] 이고 고리를 닫아야 합니다.
+function closedRing(points){
+  return [...points.map(p => [p[1], p[0]]), [points[0][1], points[0][0]]];
 }
 
 map.on("load", () => {
@@ -228,6 +226,25 @@ map.on("load", () => {
         ...(id === "rejected" ? {"line-dasharray":[3,2]} : {})}});
   }
 
+  // 승인된 고도에 떠 있는 경로 판. 선은 땅에 붙으니 높이를 못 보여줍니다.
+  map.addSource("flightpath", {type:"geojson", data:empty()});
+  // 같은 도형을 두 번 씁니다. 아래는 땅에서 승인 고도까지 올라오는 커튼 — 경로가
+  // 건물 어디쯤을 지나는지가 이걸로 읽힙니다. 위는 실제로 나는 높이의 판입니다.
+  map.addLayer({id:"flightpath-curtain", type:"fill-extrusion", source:"flightpath",
+    paint:{"fill-extrusion-color":"#29c76f",
+      "fill-extrusion-base":0, "fill-extrusion-height":["get","base"],
+      "fill-extrusion-opacity":.12}});
+  map.addLayer({id:"flightpath", type:"fill-extrusion", source:"flightpath",
+    paint:{"fill-extrusion-color":"#29c76f",
+      "fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"],
+      "fill-extrusion-opacity":.75}});
+  // 기체 아래 기둥. 얼마나 높이 떠 있는지가 이걸로 읽힙니다.
+  map.addSource("altitude", {type:"geojson", data:empty()});
+  map.addLayer({id:"altitude-pole", type:"fill-extrusion", source:"altitude",
+    paint:{"fill-extrusion-color":["case",["==",["get","world"],"direct"],"#ff7a3d","#3d8bff"],
+      "fill-extrusion-base":0, "fill-extrusion-height":["get","height"],
+      "fill-extrusion-opacity":.3}});
+
   map.addSource("depot", {type:"geojson", data:empty()});
   map.addLayer({id:"depot-marker", type:"circle", source:"depot",
     paint:{"circle-radius":8,"circle-color":"#eee7ce",
@@ -279,8 +296,14 @@ function draw(){
   requestAnimationFrame(draw);
   const now = performance.now();
   expireDenials(now);
-  if (!latest) return;
-  const approved = [];
+  const staged = drawStages(now);
+  if (!latest){
+    map.getSource("approved")?.setData(
+      {type:"FeatureCollection", features:staged.approved});
+    return;
+  }
+  const approved = [...staged.approved];
+  const ribbons = [], poles = [];
   for (const world of ["guarded","direct"]){
     const features = [];
     for (const v of Object.values(latest.worlds[world].assets)){
@@ -292,7 +315,8 @@ function draw(){
       const heading = point[0] === ahead[0] && point[1] === ahead[1] ? v.heading ?? 0 :
         Math.atan2((ahead[0] - point[0]) * Math.cos(point[1] * Math.PI / 180),
           ahead[1] - point[1]) * 180 / Math.PI;
-      if (world === "guarded" && m.curve?.coordinates.length > 1 &&
+      if (world === "guarded" && !staged.growing.has(v.id) &&
+          m.curve?.coordinates.length > 1 &&
           (v.route?.length || now < m.at + POLL_MS))
         approved.push(lineFeature(m.curve.coordinates, v.id));
       features.push({
@@ -300,10 +324,24 @@ function draw(){
         geometry:{type:"Point", coordinates:point},
         properties:{id:v.id, battery:Math.round(v.battery), heading},
       });
+      const altitude = Number(v.alt_m ?? 0);
+      if (altitude > 1)
+        poles.push(extrusion(column(point[1], point[0], altitude, 7), {world}));
+      if (world === "guarded" && v.route?.length){
+        const ahead = [{lat:point[1], lon:point[0], alt_m:altitude}, ...v.route];
+        for (const piece of ribbon(ahead)) ribbons.push(extrusion(piece, {}));
+      }
     }
     map.getSource(world)?.setData({type:"FeatureCollection", features});
   }
   map.getSource("approved")?.setData({type:"FeatureCollection", features:approved});
+  map.getSource("flightpath")?.setData({type:"FeatureCollection", features:ribbons});
+  map.getSource("altitude")?.setData({type:"FeatureCollection", features:poles});
+}
+
+function extrusion(piece, properties){
+  return {type:"Feature", properties:{...properties, base:piece.base, height:piece.height},
+          geometry:{type:"Polygon", coordinates:[piece.polygon]}};
 }
 
 async function getJSON(url){
@@ -330,7 +368,7 @@ async function poll(){
 
 function renderSnapshot(data, runtime){
   if (latest && (data.round !== latest.round || data.tick < latest.tick)){
-    motion.clear(); flights.clear(); rejected.clear(); seenDenials.clear();
+    motion.clear(); flights.clear(); stages = []; seenDenials.clear();
     trails = {guarded:{}, direct:{}};
     denialUntil = 0; roundStartedAt = Date.now() / 1000;
     map.getSource("rejected")?.setData(empty());
@@ -378,8 +416,7 @@ function renderSnapshot(data, runtime){
   // 같은 등급 칸을 합친 덩어리를 씁니다. 격자로 안 보이게.
   const bands = data.worlds.guarded.bands || [];
   map.getSource("cells")?.setData({type:"FeatureCollection", features: bands.map(b => {
-    const rings = (b.rings || [b.polygon]).map(r =>
-      [...r.map(p => [p[1], p[0]]), [r[0][1], r[0][0]]]);
+    const rings = (b.rings || [b.polygon]).map(closedRing);
     return {
       type:"Feature",
       geometry:{type:"MultiPolygon", coordinates: rings.map(r => [r])},
@@ -387,9 +424,14 @@ function renderSnapshot(data, runtime){
     };
   })});
 
+  // 런타임이 막는 폴리곤 그대로 그립니다. 예전에는 여기서 원을 그렸는데,
+  // 그 원은 실제로 금지된 구역과 다른 자리에 있었습니다.
   const zone = data.worlds.guarded.zone;
   map.getSource("zone")?.setData({type:"FeatureCollection",
-    features:zone?.active ? [ring(zone.lat, zone.lon, zone.radius_m)] : []});
+    features: zone?.active && zone.polygon?.length
+      ? [{type:"Feature", properties:{},
+          geometry:{type:"Polygon", coordinates:[closedRing(zone.polygon)]}}]
+      : []});
 
   const depot = data.worlds.guarded.depot_coords;
   map.getSource("depot")?.setData({type:"FeatureCollection", features:depot ? [{
@@ -433,39 +475,62 @@ function lineFeature(coordinates, asset){
   return {type:"Feature", geometry:{type:"LineString", coordinates}, properties:{asset}};
 }
 
+const ROUTED = ["fly_route", "reserve_pad"];
+
 function renderDenials(runtime, now){
   const closed = runtime.ledger.filter(e => e.outcome !== "pending");
-  const fresh = closed.filter(e => e.decision.verdict === "denied" &&
-    !seenDenials.has(e.id) && e.at >= roundStartedAt && Date.now() - e.at * 1000 < DENIAL_MS);
-  // Keep the current ledger window plus visible rejections, without unbounded history.
-  seenDenials = new Set([...closed.map(e => e.id), ...rejected.keys()]);
-  for (const e of fresh){
-    const legs = e.proposal.params?.legs;
-    if (["fly_route", "reserve_pad"].includes(e.proposal.action) && legs?.length > 1)
-      rejected.set(e.id, {until:now + DENIAL_MS,
-        feature:lineFeature(legs.map(p => [p.lon,p.lat]), e.proposal.asset_id)});
-  }
+  const recent = closed.filter(e => !seenDenials.has(e.id) &&
+    e.at >= roundStartedAt && Date.now() - e.at * 1000 < DENIAL_MS);
+  // Keep the current ledger window plus staged routes, without unbounded history.
+  seenDenials = new Set([...closed.map(e => e.id), ...stages.map(s => s.id)]);
+  for (const e of recent) stageRoute(e, now);
+  const fresh = recent.filter(e => e.decision.verdict === "denied");
   if (!fresh.length) return;
   const e = fresh[0];
   document.querySelector("#denial strong").textContent =
-    `${["fly_route", "reserve_pad"].includes(e.proposal.action) ? "경로" : "요청"} 거절 · 모니터링 필요`;
+    `${ROUTED.includes(e.proposal.action) ? "경로" : "요청"} 거절 · 모니터링 필요`;
   document.getElementById("denial-detail").textContent =
     `${e.proposal.asset_id} · ${e.proposal.action} — ${e.decision.reason}` +
     (fresh.length > 1 ? ` · 새 거절 ${fresh.length}건` : "");
   document.getElementById("denial").hidden = false;
   denialUntil = now + DENIAL_MS;
-  updateRejected();
 }
 
-function updateRejected(){
-  map.getSource("rejected")?.setData({type:"FeatureCollection",
-    features:[...rejected.values()].map(r => r.feature)});
+/** 닫힌 결정 하나를 되짚어 그릴 구간으로 등록합니다. 좌표는 신청서에 실린 그대로입니다. */
+function stageRoute(entry, now){
+  const legs = entry.proposal.params?.legs;
+  if (!ROUTED.includes(entry.proposal.action) || !(legs?.length > 1)) return;
+  const verdict = entry.decision.verdict;
+  const kind = verdict === "denied" ? "rejected"
+    : (verdict === "auto" || verdict === "human") ? "approved" : null;
+  if (!kind) return;   // 대기 중인 것은 아직 오간 경로가 아닙니다
+  stages.push({id:entry.id, asset:entry.proposal.asset_id, kind, at:now,
+               curve:makeCurve(legs[0], legs.slice(1))});
+}
+
+/**
+ * 구간을 지금 시점만큼 잘라 그립니다. 거절은 붉은 점선으로 뻗었다 되감기고,
+ * 승인은 초록으로 드론에서 다시 뻗어 나갑니다. 뻗는 동안에는 완성된 승인 경로를
+ * 겹쳐 그리지 않습니다 — 그러면 애니메이션이 안 보입니다.
+ */
+function drawStages(now){
+  const approved = [], refused = [], growing = new Set();
+  for (const stage of stages){
+    const window = stageWindow(stage.kind, now - stage.at);
+    if (!window) continue;
+    const total = stage.curve.progress.at(-1);
+    if (!(total > 0) || window[1] - window[0] < 1e-3) continue;
+    const feature = lineFeature(
+      sliceCurve(stage.curve, window[0] * total, window[1] * total), stage.asset);
+    if (stage.kind === "approved"){ approved.push(feature); growing.add(stage.asset); }
+    else refused.push(feature);
+  }
+  map.getSource("rejected")?.setData({type:"FeatureCollection", features:refused});
+  return {approved, growing};
 }
 
 function expireDenials(now){
-  let changed = false;
-  for (const [id, r] of rejected) if (r.until <= now){rejected.delete(id); changed = true;}
-  if (changed) updateRejected();
+  stages = stages.filter(s => stageWindow(s.kind, now - s.at) !== null);
   if (now >= denialUntil) document.getElementById("denial").hidden = true;
 }
 

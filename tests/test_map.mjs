@@ -67,7 +67,8 @@ function scene() {
 }
 
 function snapshot(tick=1, round=1, remaining=route, position=start) {
-  const world = {assets:{'drone-01':{id:'drone-01',battery:80,...position,route:remaining}},
+  const world = {assets:{'drone-01':{id:'drone-01',battery:80,alt_m:90,...position,
+      route:remaining.map(p => ({...p, alt_m:110}))}},
     depot_coords:start,scoreboard:{spend_usd:0},fleet_limit:450};
   return {tick,round,recall_tick:null,worlds:{guarded:world,direct:structuredClone(world)}};
 }
@@ -76,6 +77,59 @@ function denial(id='denied-1', extra={}) {
     proposal:{asset_id:'drone-01',action:'fly_route',params:{legs:[start,...route]}},
     decision:{verdict:'denied',reason:'금지 공역 <test>'},...extra};
 }
+
+function approval(id='approved-1', extra={}) {
+  return {id,at:Date.now()/1000,outcome:'executed',
+    proposal:{asset_id:'drone-01',action:'fly_route',params:{legs:[start,...route]}},
+    decision:{verdict:'auto',reason:'한도 안'},...extra};
+}
+
+test('a partial draw keeps the curve endpoints and stays inside the route', () => {
+  const curve = geometry.makeCurve(start,route);
+  const total = curve.progress.at(-1);
+  const half = geometry.sliceCurve(curve,0,total/2);
+  assert.deepEqual(half[0],[start.lon,start.lat]);
+  assert.ok(half.length < geometry.sliceCurve(curve,0,total).length);
+  assert.deepEqual(geometry.sliceCurve(curve,0,total).at(-1),curve.coordinates.at(-1));
+  assert.ok(half.flat().every(Number.isFinite));
+});
+
+test('an approval stops at full draw; a rejection holds then retracts to the drone', () => {
+  assert.deepEqual(geometry.stageWindow('approved',0),[0,0]);
+  assert.equal(geometry.stageWindow('approved',geometry.GROW_MS),null);
+  assert.deepEqual(geometry.stageWindow('rejected',geometry.GROW_MS),[0,1]);
+  const retracted = geometry.stageWindow('rejected',
+    geometry.GROW_MS + geometry.HOLD_MS + geometry.RETRACT_MS / 2);
+  assert.ok(retracted[1] > 0 && retracted[1] < 1);
+  assert.equal(geometry.stageWindow('rejected',
+    geometry.GROW_MS + geometry.HOLD_MS + geometry.RETRACT_MS),null);
+});
+
+test('the flight path floats at the approved altitude and the pole reaches the drone', () => {
+  const climb = [{lon:-73.97,lat:40.71,alt_m:60},{lon:-73.96,lat:40.71,alt_m:120}];
+  const pieces = geometry.ribbon([{lon:-73.97,lat:40.70,alt_m:60},...climb]);
+  assert.equal(pieces.length,2);
+  assert.ok(pieces[0].base > 0, '땅에 붙으면 고도를 못 보여줍니다');
+  assert.ok(pieces[1].base > pieces[0].base, '구간마다 승인 고도가 다르면 판도 따로 떠야 합니다');
+  assert.ok(pieces.every(p => p.height > p.base && p.polygon.length === 5));
+  assert.ok(pieces.flatMap(p => p.polygon).flat().every(Number.isFinite));
+  const pole = geometry.column(40.71,-73.97,88);
+  assert.equal(pole.base,0);
+  assert.equal(pole.height,88);
+});
+
+test('a snapshot raises a flight path and a pole for a drone that is flying', () => {
+  const ui = scene();
+  ui.run('renderSnapshot',snapshot(),null);
+  ui.run('draw');
+  const path = ui.source('flightpath').features;
+  assert.ok(path.length, '승인 경로가 있으면 고도 판이 서야 합니다');
+  assert.ok(path.every(f => f.properties.height > f.properties.base));
+  assert.equal(ui.source('altitude').features.length, 2);   // 두 세계 각각 한 대
+  assert.ok(ui.source('altitude').features.every(f => f.properties.base === 0));
+  ui.run('renderSnapshot',snapshot(1,2,[]),null); ui.run('draw');
+  assert.equal(ui.source('flightpath').features.length, 0);
+});
 
 test('warehouse, curved green path and drone update from snapshots and clear on reset', () => {
   const ui = scene();
@@ -93,18 +147,45 @@ test('warehouse, curved green path and drone update from snapshots and clear on 
   assert.equal(ui.source('guarded-trail').features.length,0);
 });
 
-test('final denials alert once, retain submitted straight legs, and expire without polling', () => {
+test('final denials alert once, grow the submitted legs, and expire without polling', () => {
   const ui = scene(), e = denial();
   ui.run('renderDenials',{ledger:[{...e,outcome:'pending'}]},0);
   assert.equal(ui.element('denial').hidden,true);
   ui.run('renderDenials',{ledger:[e]},100);
   assert.equal(ui.element('denial').hidden,false);
   assert.ok(ui.element('denial-detail').textContent.includes('<test>'));
-  assert.equal(ui.source('rejected').features[0].geometry.coordinates.length,4);
+  // 거절된 경로는 드론 쪽에서 뻗어 나갑니다. 다 뻗은 뒤에 신청서의 끝점에 닿습니다.
+  ui.time(200); ui.run('draw');
+  const partial = ui.source('rejected').features[0].geometry.coordinates;
+  ui.time(1050); ui.run('draw');
+  const full = ui.source('rejected').features[0].geometry.coordinates;
+  assert.ok(full.length > partial.length);
+  assert.deepEqual(full.at(-1),[route.at(-1).lon,route.at(-1).lat]);
   ui.run('renderDenials',{ledger:[e]},7000);
-  ui.run('expireDenials',8101);
+  ui.time(8101); ui.run('draw');
   assert.equal(ui.element('denial').hidden,true);
   assert.equal(ui.source('rejected').features.length,0);
+});
+
+test('an approved route redraws from the drone before the steady line takes over', () => {
+  const ui = scene();
+  ui.run('renderSnapshot',snapshot(),null);
+  ui.run('renderDenials',{ledger:[approval()]},0);
+  ui.time(100); ui.run('draw');
+  const growing = ui.source('approved').features;
+  assert.equal(growing.length,1);           // 완성된 선을 겹쳐 그리지 않습니다
+  ui.time(1000); ui.run('draw');
+  const settled = ui.source('approved').features[0].geometry.coordinates;
+  assert.ok(growing[0].geometry.coordinates.length < settled.length);
+  assert.deepEqual(settled.at(-1),[route.at(-1).lon,route.at(-1).lat]);
+});
+
+test('a queued decision has not travelled anywhere yet, so nothing is drawn', () => {
+  const ui = scene();
+  ui.run('renderDenials',{ledger:[approval('q',{decision:{verdict:'queued',reason:'대기'}})]},0);
+  ui.time(100); ui.run('draw');
+  assert.equal(ui.source('rejected').features.length,0);
+  assert.equal(ui.source('approved').features.length,0);
 });
 
 test('old ledger entries do not replay alerts; non-flight denials do not invent paths', () => {
@@ -115,6 +196,7 @@ test('old ledger entries do not replay alerts; non-flight denials do not invent 
     proposal:{asset_id:'drone-01',action:'fast_charge',params:{}},
   })]},100);
   assert.equal(ui.element('denial').hidden,false);
+  ui.time(1050); ui.run('draw');
   assert.equal(ui.source('rejected').features.length,0);
   assert.match(ui.element('#denial strong').textContent,/요청 거절/);
 });
