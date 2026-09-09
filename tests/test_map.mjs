@@ -50,14 +50,17 @@ function scene() {
     if (!elements.has(id)) elements.set(id,{style:{},hidden:true,textContent:'',innerHTML:''});
     return elements.get(id);
   };
-  const map = {on(){}, getSource(id){
+  const map = {on(){}, addControl(){}, setPaintProperty(){}, getLayer(){return {};},
+    getSource(id){
     if (!sources.has(id)) sources.set(id,{setData(data){this.data=data;}});
     return sources.get(id);
   }};
   const context = vm.createContext({...geometry, console, Date, Map, Set, Math,
     location:{hostname:'localhost'}, performance:{now:()=>now},
     requestAnimationFrame(){}, document:{getElementById:element,querySelector:element},
-    maplibregl:{Map:function(){return map;}}});
+    maplibregl:{Map:function(){return map;}, NavigationControl:function(){},
+      Popup:function(){return {setLngLat(){return this;}, setHTML(){return this;},
+        addTo(){return this;}};}}});
   const html = readFileSync(new URL('../ui/map.html',import.meta.url),'utf8');
   const code = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
     .replace(/^import .*?;\n/m,'');
@@ -94,15 +97,28 @@ test('a partial draw keeps the curve endpoints and stays inside the route', () =
   assert.ok(half.flat().every(Number.isFinite));
 });
 
-test('an approval stops at full draw; a rejection holds then retracts to the drone', () => {
+const {GROW_MS, HOLD_MS, FADE_MS, APPROVED_HOLD_MS} = geometry;
+
+test('a route is drawn out, then holds, then fades where it is', () => {
   assert.deepEqual(geometry.stageWindow('approved',0),[0,0]);
-  assert.equal(geometry.stageWindow('approved',geometry.GROW_MS),null);
-  assert.deepEqual(geometry.stageWindow('rejected',geometry.GROW_MS),[0,1]);
-  const retracted = geometry.stageWindow('rejected',
-    geometry.GROW_MS + geometry.HOLD_MS + geometry.RETRACT_MS / 2);
-  assert.ok(retracted[1] > 0 && retracted[1] < 1);
-  assert.equal(geometry.stageWindow('rejected',
-    geometry.GROW_MS + geometry.HOLD_MS + geometry.RETRACT_MS),null);
+  assert.deepEqual(geometry.stageWindow('approved',GROW_MS),[0,1]);
+  assert.equal(geometry.stageWindow('approved',GROW_MS + APPROVED_HOLD_MS),null);
+  // 거절된 선은 끝까지 그려진 채로 남았다가 흐려집니다. 되감기지 않습니다.
+  assert.deepEqual(geometry.stageWindow('rejected',GROW_MS + HOLD_MS + FADE_MS / 2),[0,1]);
+  assert.equal(geometry.stageWindow('rejected',GROW_MS + HOLD_MS + FADE_MS),null);
+  assert.equal(geometry.stageFade('rejected',GROW_MS + HOLD_MS - 10),1);
+  const fading = geometry.stageFade('rejected',GROW_MS + HOLD_MS + FADE_MS / 2);
+  assert.ok(fading > 0 && fading < 1);
+  assert.equal(geometry.stageFade('rejected',GROW_MS + HOLD_MS + FADE_MS),0);
+  assert.equal(geometry.stagePhase('rejected', GROW_MS / 2),'drawing');
+  assert.equal(geometry.stagePhase('rejected', GROW_MS + 10),'refused');
+  assert.equal(geometry.stagePhase('approved', GROW_MS + 10),'approved');
+});
+
+test('the label sits at the start of the route, not on the moving head', () => {
+  const curve = geometry.makeCurve(start, route);
+  assert.deepEqual(geometry.labelAnchor(curve), curve.coordinates[0]);
+  assert.deepEqual(geometry.labelAnchor(curve), [start.lon, start.lat]);
 });
 
 test('the flight path floats at the approved altitude and the pole reaches the drone', () => {
@@ -153,16 +169,20 @@ test('final denials alert once, grow the submitted legs, and expire without poll
   assert.equal(ui.element('denial').hidden,true);
   ui.run('renderDenials',{ledger:[e]},100);
   assert.equal(ui.element('denial').hidden,false);
-  assert.ok(ui.element('denial-detail').textContent.includes('<test>'));
+  assert.equal(ui.element('denial-who').textContent, 'drone-01');
+  assert.equal(ui.element('denial-what').textContent, 'delivery route');
+  assert.ok(ui.element('denial-why').textContent.includes('<test>'));
   // 거절된 경로는 드론 쪽에서 뻗어 나갑니다. 다 뻗은 뒤에 신청서의 끝점에 닿습니다.
   ui.time(200); ui.run('draw');
-  const partial = ui.source('rejected').features[0].geometry.coordinates;
-  ui.time(1050); ui.run('draw');
+  assert.equal(ui.source('rejected').features.length, 0, '판정 전에는 붉지 않습니다');
+  const partial = ui.source('pending').features[0].geometry.coordinates;
+  ui.time(100 + GROW_MS + 50); ui.run('draw');
   const full = ui.source('rejected').features[0].geometry.coordinates;
+  assert.equal(ui.source('stage-label').features[0].properties.label,'REJECTED');
   assert.ok(full.length > partial.length);
   assert.deepEqual(full.at(-1),[route.at(-1).lon,route.at(-1).lat]);
   ui.run('renderDenials',{ledger:[e]},7000);
-  ui.time(8101); ui.run('draw');
+  ui.time(8101); ui.run('draw');   // 알림 8초, 구간은 그 전에 끝납니다
   assert.equal(ui.element('denial').hidden,true);
   assert.equal(ui.source('rejected').features.length,0);
 });
@@ -172,9 +192,13 @@ test('an approved route redraws from the drone before the steady line takes over
   ui.run('renderSnapshot',snapshot(),null);
   ui.run('renderDenials',{ledger:[approval()]},0);
   ui.time(100); ui.run('draw');
-  const growing = ui.source('approved').features;
-  assert.equal(growing.length,1);           // 완성된 선을 겹쳐 그리지 않습니다
-  ui.time(1000); ui.run('draw');
+  const growing = ui.source('pending').features;
+  assert.equal(growing.length,1);           // 판정 전이라 아직 초록이 아닙니다
+  assert.equal(ui.source('approved').features.length,0);
+  assert.equal(ui.source('stage-label').features[0].properties.label,'PLANNING…');
+  ui.time(GROW_MS + 10); ui.run('draw');
+  assert.match(ui.source('stage-label').features[0].properties.label,/^APPROVED · /);
+  ui.time(GROW_MS + APPROVED_HOLD_MS + 50); ui.run('draw');
   const settled = ui.source('approved').features[0].geometry.coordinates;
   assert.ok(growing[0].geometry.coordinates.length < settled.length);
   assert.deepEqual(settled.at(-1),[route.at(-1).lon,route.at(-1).lat]);
@@ -198,7 +222,7 @@ test('old ledger entries do not replay alerts; non-flight denials do not invent 
   assert.equal(ui.element('denial').hidden,false);
   ui.time(1050); ui.run('draw');
   assert.equal(ui.source('rejected').features.length,0);
-  assert.match(ui.element('#denial strong').textContent,/요청 거절/);
+  assert.equal(ui.element('denial-what').textContent,'fast charge');
 });
 
 test('route completion clears approval after animation and round reset clears alerts', () => {

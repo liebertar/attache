@@ -38,7 +38,7 @@ class AuthorityCheck:
     def evaluate(self, proposal: Proposal, asset: dict, tick: int) -> Decision:
         problems = proposal.validate()
         if problems:
-            return Decision(proposal.id, Verdict.DENIED, "; ".join(problems))
+            return Decision(proposal.id, Verdict.DENIED, "; ".join(problems), code="invalid")
 
         banned: Policy | None = self.policies.hit(
             proposal.action, proposal.resource, asset, tick
@@ -50,6 +50,7 @@ class AuthorityCheck:
                 f"{banned.reason} ({banned.id})",
                 policy_hit=banned.id,
                 forbids=banned.forbid_resource or banned.forbid_action,
+                code="policy", detail={"policy": banned.id},
             )
 
         if proposal.action in self.authority.human_required_actions:
@@ -58,6 +59,7 @@ class AuthorityCheck:
                 Verdict.HUMAN,
                 f"'{proposal.action}' 은 사람이 봐야 하는 행동입니다",
                 authority_hit="human_required_actions",
+                code="human_action", detail={"action": proposal.action},
             )
 
         if proposal.blast_radius in self.authority.human_required_blast:
@@ -66,6 +68,7 @@ class AuthorityCheck:
                 Verdict.HUMAN,
                 f"영향 범위가 '{proposal.blast_radius}' 입니다",
                 authority_hit="human_required_blast",
+                code="human_blast", detail={"blast": proposal.blast_radius},
             )
 
         asset_after = self._spent_by_asset[proposal.asset_id] + proposal.cost_usd
@@ -75,6 +78,8 @@ class AuthorityCheck:
                 Verdict.HUMAN,
                 f"기체 한도 초과: ${asset_after:.0f} > ${self.authority.per_asset_usd:.0f}",
                 authority_hit="per_asset_usd",
+                code="over_asset",
+                detail={"spent": round(asset_after), "cap": round(self.authority.per_asset_usd)},
             )
 
         fleet_after = self._spent_fleet + proposal.cost_usd
@@ -84,6 +89,8 @@ class AuthorityCheck:
                 Verdict.HUMAN,
                 f"기단 한도 초과: ${fleet_after:.0f} > ${self.authority.fleet_usd:.0f}",
                 authority_hit="fleet_usd",
+                code="over_fleet",
+                detail={"spent": round(fleet_after), "cap": round(self.authority.fleet_usd)},
             )
 
-        return Decision(proposal.id, Verdict.AUTO, "한도 안")
+        return Decision(proposal.id, Verdict.AUTO, "한도 안", code="within_limits")

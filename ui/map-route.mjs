@@ -73,9 +73,10 @@ export function motionPoint(motion, now, duration) {
 // 협상 애니메이션. 신청 → 거절 → 재작성 → 승인이 0.5초 폴링 사이에 다 끝나서,
 // 그대로 두면 화면에는 결과만 남습니다. 실제로 오간 경로를 느리게 되짚어 보여줍니다.
 // 그리는 좌표는 전부 원장/시뮬레이터가 준 것이고, 여기서 새 경로를 만들지 않습니다.
-export const GROW_MS = 900;     // 드론에서 목적지로 선이 뻗는 시간
-export const HOLD_MS = 1100;    // 거절된 경로를 그대로 두는 시간
-export const RETRACT_MS = 600;  // 거절된 경로가 드론 쪽으로 되감기는 시간
+export const GROW_MS = 3200;    // 산출 중인 경로가 앞으로 뻗어 나가는 시간
+export const HOLD_MS = 2600;    // 무엇이 막았는지 읽을 시간
+export const FADE_MS = 1400;    // 거절된 선이 사라지는 시간
+export const APPROVED_HOLD_MS = 1800;   // 승인 표시가 남아 있는 시간
 
 const ease = t => 1 - (1 - t) ** 3;
 
@@ -99,10 +100,32 @@ export function sliceCurve(curve, from, to) {
 export function stageWindow(kind, elapsed) {
   if (elapsed < 0) return null;
   if (elapsed < GROW_MS) return [0, ease(elapsed / GROW_MS)];
-  if (kind === "approved") return null;
-  if (elapsed < GROW_MS + HOLD_MS) return [0, 1];
-  const retracting = (elapsed - GROW_MS - HOLD_MS) / RETRACT_MS;
-  return retracting < 1 ? [0, 1 - ease(retracting)] : null;
+  const after = elapsed - GROW_MS;
+  if (kind === "approved") return after < APPROVED_HOLD_MS ? [0, 1] : null;
+  return after < HOLD_MS + FADE_MS ? [0, 1] : null;
+}
+
+/**
+ * 이 구간이 지금 얼마나 진하게 보이는가.
+ * 선을 드론 쪽으로 되감으면 잡아채는 것처럼 보여서, 자리에 둔 채 흐려지게 합니다.
+ */
+export function stageFade(kind, elapsed) {
+  const after = elapsed - GROW_MS;
+  if (after < 0) return 1;
+  if (kind === "approved")
+    return Math.max(0, 1 - after / APPROVED_HOLD_MS);
+  return after < HOLD_MS ? 1 : Math.max(0, 1 - (after - HOLD_MS) / FADE_MS);
+}
+
+/** 이 구간이 지금 어느 단계인가. 화면에 뭐라고 쓸지가 여기서 갈립니다. */
+export function stagePhase(kind, elapsed) {
+  if (elapsed < GROW_MS) return "drawing";
+  return kind === "approved" ? "approved" : "refused";
+}
+
+/** 라벨을 붙일 자리. 선 끝을 따라다니면 글자가 계속 움직여서 읽기가 어렵습니다. */
+export function labelAnchor(curve) {
+  return curve.coordinates[0];
 }
 
 // 고도를 눈에 보이게 하는 기하. MapLibre 5 에는 공중에 뜨는 선이 없습니다

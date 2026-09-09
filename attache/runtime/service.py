@@ -59,14 +59,16 @@ class Runtime:
         seen_at = self._recent_commits.get((proposal.asset_id, proposal.action))
         if seen_at is not None and self.tick - seen_at < self.dedupe_ticks:
             # 같은 신청이 연달아 오면 한 번만 나갑니다. 아니면 중복 청구가 됩니다.
-            decision = Decision(proposal.id, Verdict.DENIED, "직전에 같은 신청이 실행됐습니다")
+            decision = Decision(proposal.id, Verdict.DENIED, "직전에 같은 신청이 실행됐습니다",
+                                code="duplicate")
             self._decisions[proposal.id] = decision
             return decision
 
         blocked = self.check_route(proposal)
         if blocked:
             decision = Decision(proposal.id, Verdict.DENIED, blocked, policy_hit="airspace",
-                                forbids=proposal.params.get("blocked_volume"))
+                                forbids=proposal.params.get("blocked_volume"),
+                                code="airspace")
             self._decisions[proposal.id] = decision
             self.ledger.close_entry(self.ledger.open_entry(proposal, decision), "denied")
             return decision
@@ -111,8 +113,20 @@ class Runtime:
 
         found = first_breach(self.airspace, legs)
         if found is not None:
-            segment, volume, why = found
-            proposal.params = {**proposal.params, "blocked_volume": volume.id}
+            segment, volume, why, at = found
+            # 무엇이 왜 막혔는지를 값으로 남깁니다. 화면이 문장을 다시 뜯으면
+            # 문구를 고칠 때마다 화면이 조용히 깨집니다.
+            proposal.params = {
+                **proposal.params,
+                "blocked_volume": volume.id,
+                "blocked_leg": segment,
+                "blocked_name": volume.name,
+                "blocked_floor_m": volume.floor_m,
+                "blocked_kind": volume.rule,
+                "blocked_at": {"lat": round(at[0], 6), "lon": round(at[1], 6)},
+                "blocked_polygon": [[lat, lon] for lat, lon in volume.polygon],
+                "blocked_ceiling_m": volume.ceiling_m,
+            }
             return f"{segment}번 구간이 규정을 어깁니다 — {why}"
         return None
 
@@ -172,6 +186,8 @@ class Runtime:
                 for proposal, decision, _ in waiting:
                     decision.verdict = Verdict.DENIED
                     decision.reason = f"{resource} 는 {held.asset_id} 가 쓰는 중입니다"
+                    decision.code = "resource_held"
+                    decision.detail = {"resource": resource, "holder": held.asset_id}
                     self.ledger.close_entry(self.ledger.open_entry(proposal, decision), "denied")
                 continue
 
@@ -181,6 +197,8 @@ class Runtime:
                     decision.arbiter = how if len(candidates) > 1 else None
                     decision.verdict = Verdict.AUTO
                     decision.reason = f"{resource} 배정됨"
+                    decision.code = "resource_granted"
+                    decision.detail = {"resource": resource}
                     self.committer.commit(proposal, decision)
                     if decision.committed:
                         self._recent_commits[(proposal.asset_id, proposal.action)] = self.tick
@@ -290,7 +308,8 @@ class Runtime:
         )
         decision = Decision(
             retreat.id, Verdict.AUTO, f"{policy.id} 로 {policy.forbid_resource} 회수",
-            policy_hit=policy.id,
+            policy_hit=policy.id, code="recalled",
+            detail={"resource": policy.forbid_resource, "policy": policy.id},
         )
         self._decisions[retreat.id] = decision
         return self.committer.commit(retreat, decision)

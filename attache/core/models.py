@@ -63,6 +63,10 @@ class Decision:
     approved_by: str | None = None
     ledger_id: str | None = None
     committed: bool = False
+    # 사람이 읽는 문장은 reason 에 그대로 둡니다. 화면은 code 와 detail 로 자기 말을
+    # 만듭니다 — 문구를 고칠 때마다 화면이 조용히 깨지지 않게.
+    code: str = ""
+    detail: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         out = asdict(self)

@@ -152,10 +152,9 @@ class Router:
         path = self._search(start_node, goal_node)
         if path is None:
             return None
-        # 꺾이는 점만 남기면 보기 좋지만, 남긴 두 점 사이를 직선으로 이으면 모서리를
-        # 잘라먹어 금지 구역을 스칠 수 있습니다. 잘라낸 결과를 다시 검사해서
-        # 통과할 때만 씁니다.
-        for nodes in (self._simplify(path), path):
+        # 줄을 당겨 곧게 편 것부터 씁니다. 안 되면 꺾인 점만 남긴 것, 그것도 안 되면
+        # 격자를 한 칸씩 밟은 원본. 어느 쪽이든 마지막에 판정자가 다시 봅니다.
+        for nodes in (self._pull(path), self._simplify(path), path):
             if not self._legal_chain(nodes):
                 continue
             legs = self._pin(self._to_legs(nodes), start, goal)
@@ -177,6 +176,28 @@ class Router:
         legs[0] = Leg(start[0], start[1], legs[0].alt_m)
         legs[-1] = Leg(goal[0], goal[1], legs[-1].alt_m)
         return legs
+
+    def _pull(self, path: list[tuple[int, int]], window: int = 80) -> list[tuple[int, int]]:
+        """줄을 당깁니다. 막는 게 없는 구간은 곧게 펴집니다.
+
+        A* 는 같은 길이면 어느 쪽으로 꺾든 값이 같아서, 뻥 뚫린 강 위에서도 격자를
+        한 칸씩 밟은 계단이 나옵니다. 꺾인 점만 남기는 방식은 한 군데라도 걸리면
+        경로 전체를 원본으로 되돌려서, 장애물이 없는 구간까지 같이 계단이 됐습니다.
+        여기서는 갈 수 있는 데까지 곧게 가고, 막히는 자리에서만 꺾습니다.
+        """
+        if len(path) < 3:
+            return path
+        kept = [path[0]]
+        index = 0
+        while index < len(path) - 1:
+            furthest = index + 1
+            for candidate in range(min(len(path) - 1, index + window), index + 1, -1):
+                if self._legal_chain([path[index], path[candidate]]):
+                    furthest = candidate
+                    break
+            kept.append(path[furthest])
+            index = furthest
+        return kept
 
     def _legal_chain(self, nodes: list[tuple[int, int]]) -> bool:
         """이어 붙인 구간이 금지 구역을 안 지나는가. 격자점이 아니라 선분을 봅니다."""

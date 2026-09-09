@@ -35,6 +35,8 @@ class Committer:
         ):
             decision.verdict = Verdict.DENIED
             decision.reason = f"{proposal.resource} 는 다른 기체가 쓰는 중입니다"
+            decision.code = "resource_held"
+            decision.detail = {"resource": proposal.resource}
             return decision
 
         entry = self.ledger.open_entry(proposal, decision)

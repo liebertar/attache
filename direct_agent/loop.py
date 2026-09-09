@@ -36,6 +36,7 @@ class DirectAgent:
         self.bulletin_period_s = bulletin_period_s
         self.transport = transport
         self.spend = 0.0
+        self._round = None          # 시뮬레이터가 판을 새로 시작하면 따라갑니다
         self.banned_actions: set[str] = set()
         self.cooldown: dict[str, float] = {}
         self.repeat_s = float(os.getenv("REPEAT_COOLDOWN_S", "2"))
@@ -63,8 +64,24 @@ class DirectAgent:
             neighbours = get_json(f"{self.sim_url}/state?world=direct") or {}
             return mine, neighbours.get("assets", {})
         state = get_json(f"{self.sim_url}/state?world=direct") or {}
+        self._follow_round(state.get("round"))
         assets = state.get("assets") or {}
         return assets.get(self.asset_id) or {}, assets
+
+    def _follow_round(self, round_number) -> None:
+        """판이 바뀌면 자기 한도도 새로 셉니다.
+
+        런타임 쪽만 판마다 예산을 새로 시작하고 여기가 누적으로 남으면, 두 번째 판부터
+        직결 기단은 한도가 차서 아무것도 안 합니다. 그건 배선의 차이가 아니라 우리가
+        한쪽을 못나게 만든 것이고, 그러면 두 세계를 비교할 수 없습니다.
+        """
+        if round_number is None or round_number == self._round:
+            return
+        self._round = round_number
+        self.spend = 0.0
+        self.banned_actions.clear()
+        self.cooldown.clear()
+        self._last_bulletin_check = 0.0
 
     def _refresh_bulletins(self, model: str) -> None:
         now = time.time()

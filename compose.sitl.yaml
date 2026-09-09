@@ -49,7 +49,7 @@ services:
     environment:
       ADAPTER: mavlink
       MAVLINK_ENDPOINTS: >-
-        drone-01=udpin:0.0.0.0:14540,drone-02=udpin:0.0.0.0:14541,drone-03=udpin:0.0.0.0:14542
+        drone-01=udpin:0.0.0.0:14540,drone-02=udpin:0.0.0.0:14541
     depends_on: [fleet, sim]
 
   # --- 직접 날리는 세 대 -----------------------------------------------------
@@ -73,13 +73,5 @@ services:
       SIM_URL: http://sim:8100
       VEHICLE_MODEL: dv-hexa
 
-  direct-drone-03:
-    <<: *direct-sitl
-    environment:
-      ASSET_ID: drone-03
-      TRANSPORT: mavlink
-      MAVLINK_ENDPOINT: udpin:0.0.0.0:14545
-      SIM_URL: http://sim:8100
-      VEHICLE_MODEL: dv-x500
 
   # sim 은 그대로 둡니다. 기체는 PX4 가 날리지만 리콜 공지는 여전히 여기서 옵니다.

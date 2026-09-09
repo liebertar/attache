@@ -51,14 +51,15 @@ class Volume:
             return None
         if self.rule == "forbidden":
             if self.ceiling_m is None or self.floor_m <= alt_m <= self.ceiling_m:
-                band = self._band()
+                band = self.band()
                 return f"{self.name} 진입 금지 ({band})"
             return None
         if self.rule == "ceiling" and self.ceiling_m is not None and alt_m > self.ceiling_m:
             return f"{self.name} 허용 고도 초과 ({alt_m:.0f}m > {self.ceiling_m:.0f}m {self.reference})"
         return None
 
-    def _band(self) -> str:
+    def band(self) -> str:
+        """이 구역이 걸리는 고도 띠. 화면이 문장을 다시 뜯지 않도록 따로 냅니다."""
         top = "제한 없음" if self.ceiling_m is None else f"{self.ceiling_m:.0f}m"
         return f"{self.floor_m:.0f}~{top} {self.reference}"
 
@@ -249,5 +250,7 @@ def first_breach(airspace: "Airspace", legs: list[dict], samples: int | None = N
             lon = here["lon"] + (nxt["lon"] - here["lon"]) * fraction
             volume = airspace.breach(lat, lon, altitude)
             if volume is not None:
-                return index + 1, volume, volume.breach(lat, lon, altitude)
+                # 부딪힌 자리까지 같이 돌려줍니다. 화면이 '어디서' 막혔는지 그릴 수
+                # 있어야 승인·거절이 눈에 보입니다.
+                return index + 1, volume, volume.breach(lat, lon, altitude), (lat, lon)
     return None

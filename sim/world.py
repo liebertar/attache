@@ -45,10 +45,15 @@ METRES_PER_CELL_Y = 258.0
 # 재생이 0.2초면 시뮬레이션 시간이 실제보다 4배 빠르게 흐릅니다.
 SIM_SECONDS_PER_TICK = 0.8
 CRUISE_MPS = 22.0             # 배달용 멀티로터 순항 속도
+# 항속. 배터리 관리는 런타임이 아니라 운영사의 몫이라, 여기서는 '충전을 신청할 이유'만
+# 있으면 됩니다 — 충전대 경쟁과 리콜 공지가 물 자리가 그것뿐입니다. 기체가 떨어지는 건
+# 보여줄 것이 아니라 잡음이라, 한 판 안에 소진되지 않을 만큼 넉넉하게 둡니다.
+ENDURANCE_MIN = 35.0
 CLIMB_MPS = 2.0
 DESCENT_MPS = 1.75
 
 STEP_METRES = CRUISE_MPS * SIM_SECONDS_PER_TICK      # 틱당 17.6 m
+BATTERY_PER_TICK = 100.0 / (ENDURANCE_MIN * 60.0) * SIM_SECONDS_PER_TICK
 CLIMB_RATE_M = CLIMB_MPS * SIM_SECONDS_PER_TICK      # 틱당 상승
 DESCENT_RATE_M = DESCENT_MPS * SIM_SECONDS_PER_TICK  # 틱당 하강
 # 경유점에 이만큼 붙으면 다음 구간으로. 한 틱 이동(17.6m)보다 작게 잡아야
@@ -195,9 +200,11 @@ ZONE = {
     "kind": "zone",
     "forbid_resource": "bay:A",
     "reason": "응급헬기 이착륙. 상공 비행금지",
-    "name": "병원 헬리패드 상공",
-    "polygon": [[40.6985, -73.9760], [40.6985, -73.9690],
-                [40.7055, -73.9690], [40.7055, -73.9760]],
+    "name": "bay:A 상공 응급헬기 회랑",
+    # 충전대 하나와 그 접근로만 닫습니다. 예전에는 780x590m 를 덮어서 물류 창고까지
+    # 통째로 빨갛게 칠했는데, 닫으려던 것은 패드 한 자리였습니다.
+    "polygon": [[40.70130, -73.97285], [40.70130, -73.97135],
+                [40.70250, -73.97135], [40.70250, -73.97285]],
     "floor_m": 0, "ceiling_m": None, "reference": "AGL",
     "rule": "forbidden", "source": "예시 데이터",
 }
@@ -307,9 +314,11 @@ def fresh_fleet(seed: int) -> list[Vehicle]:
         # 배달 기단은 창고에 삽니다. 기지(47.8, 54.9) 바로 위에서 하루를 시작합니다.
         # 예전 좌표는 어퍼 맨해튼이었는데, 그때는 남북 이동이 8배 빨라서 기지까지
         # 몇십 틱이면 갔습니다. 실제 속도로는 그 자리에서 배터리가 먼저 끝납니다.
+        # 두 대면 충분합니다. 세 대일 때는 화면에 여섯 대(두 세계)가 겹쳐서
+        # 무엇이 무엇인지 안 읽혔습니다. 충전대가 둘이라 평소에는 다투지 않고,
+        # 구역이 닫혀 하나가 막힐 때만 경쟁이 생깁니다 — 중재가 걸리는 자리도 거기입니다.
         Vehicle("drone-01", "dv-x500", "delivery", 44.0, 52.0, 62.0, cargo=True),
-        Vehicle("drone-02", "dv-hexa", "drone", 48.0, 50.0, 70.0 + rng.random(), cargo=True),
-        Vehicle("drone-03", "dv-x500", "delivery", 52.0, 52.0, 55.0, cargo=True),
+        Vehicle("drone-02", "dv-hexa", "drone", 50.0, 51.0, 70.0 + rng.random(), cargo=True),
     ]
 
 
@@ -371,8 +380,12 @@ class World:
         if action == "decline_job":
             # 규정상 갈 수 없는 주소입니다. 주문을 반려하고 다음 건을 받습니다.
             # 이것도 결정이고 기록에 남습니다 — 어느 주소가 왜 배달 불가인지가 쌓입니다.
+            # 가던 비행도 여기서 끝납니다. 경유점을 남겨두면 옛 목적지까지 날아간 뒤
+            # 새 주문 쪽으로 승인 없이 이어서 갑니다 — 실제로 그러고 있었습니다.
             self.score.declined += 1
             self._log(tick, "배달 불가", f"{vehicle.job_label} — 규정상 경로 없음")
+            vehicle.waypoints = []
+            vehicle.state = "cruising"
             self._assign_job(vehicle)
         elif action == "fly_route":
             # 승인된 경로. 경유점이 있으면 그대로 따라갑니다.
@@ -456,12 +469,12 @@ class World:
         if vehicle.state == "landed" and not vehicle.waypoints:
             vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
 
-        vehicle.battery -= 0.055
+        vehicle.battery -= BATTERY_PER_TICK
         if vehicle.kind == "drone" and tick >= 60:
             vehicle.vibration = min(1.0, vehicle.vibration + 0.006)
         # 자율주행 이상은 배달이 몇 건 돌아간 뒤에 옵니다. 초반에 세워버리면
         # 기단의 3분의 1이 판 내내 멈춰 있습니다.
-        if vehicle.id == "drone-03" and tick >= 900:
+        if vehicle.id == "drone-02" and tick >= 900:
             vehicle.autonomy_health = max(0.0, vehicle.autonomy_health - 0.01)
 
         if vehicle.battery <= 0.0:
@@ -508,6 +521,8 @@ class World:
         if vehicle.assigned_pad:
             return PADS[vehicle.assigned_pad]
         if vehicle.state == "delivering" and vehicle.job_x is not None:
+            # 경유점 없이 목적지로 직행하는 배선. 조종장치는 승인을 안 봅니다 —
+            # 그래서 직결 쪽은 이렇게 날고, 그게 두 세계가 갈리는 자리입니다.
             return (vehicle.job_x, vehicle.job_y)
         return None
 
@@ -660,7 +675,8 @@ class World:
                            "reference", "rule", "reason", "source")}]
                 if ZONE_TICK <= tick <= ZONE_UNTIL else []
             )} if volumes else {}),
-            "zone": {**ZONE, "active": tick >= ZONE_TICK},
+            # 유효기간이 끝나면 꺼집니다. 안 끄면 화면에 영영 빨갛게 남습니다.
+            "zone": {**ZONE, "active": ZONE_TICK <= tick <= ZONE_UNTIL},
             "pads": PADS,
             "pad_coords": {
                 name: {"lat": round(lat, 6), "lon": round(lon, 6)}
