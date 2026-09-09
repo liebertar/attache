@@ -124,6 +124,32 @@ class AirspaceTest(unittest.TestCase):
         self.assertIsNotNone(tall.ceiling_m, "옥상이 없으면 위로도 못 갑니다")
         del above   # 옥상 위는 FAA 천장이 따로 보므로 여기서는 건물만 봅니다
 
+    def test_a_sub_sample_building_crossing_is_rejected_in_both_directions(self):
+        from attache.core.geo import Airspace, Volume, box, first_breach
+
+        # 100m 경로의 8m 표본 사이에 폭 1m 장애물을 놓습니다.
+        obstacle = Volume("thin", "thin building", box(-.0001, .000031, .0001, .000041),
+                          ceiling_m=70)
+        airspace = Airspace([obstacle], default_ceiling_m=None)
+        legs = [{"lat": 0, "lon": 0, "alt_m": 55},
+                {"lat": 0, "lon": .0012, "alt_m": 55}]
+        for path in (legs, list(reversed(legs))):
+            found = first_breach(airspace, path, samples=1)
+            self.assertIsNotNone(found)
+            self.assertEqual(found[1].id, "thin")
+            self.assertTrue(obstacle.covers(*found[3]))
+        self.assertIsNone(first_breach(airspace, [{**p, "alt_m": 71} for p in legs]))
+        self.assertIsNone(first_breach(airspace, [{**p, "lat": .0002} for p in legs]))
+
+    def test_the_measured_139_tick_building_corner_is_rejected(self):
+        from attache.core.geo import Airspace, first_breach
+        from sim.world import AIRSPACE
+
+        building = next(v for v in AIRSPACE.all() if v.id == "bldg-1077589")
+        legs = [{"lat": 40.7106, "lon": -73.985, "alt_m": 55},
+                {"lat": 40.7106, "lon": -73.992, "alt_m": 55}]
+        self.assertIsNotNone(first_breach(Airspace([building]), legs))
+
     def test_a_zero_foot_cell_becomes_a_ban_not_a_ceiling(self):
         """천장 0ft 는 '낮게 날아라'가 아니라 '허가 없이는 못 난다'입니다."""
         from sim.world import AIRSPACE

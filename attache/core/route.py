@@ -13,7 +13,7 @@ import heapq
 import math
 from dataclasses import dataclass
 
-from attache.core.geo import Airspace, _leg_samples, first_breach
+from attache.core.geo import Airspace, first_breach
 
 # 실제 배달 드론이 다니는 높이입니다. Wing 이 약 45m 로 납니다.
 # 허용 천장까지 최대한 올라가면 도시의 건물이 전부 그 아래에 깔려서,
@@ -119,15 +119,10 @@ class Router:
         """
         lat_a, lon_a = self._coords(a)
         lat_b, lon_b = self._coords(b)
-        if not samples:
-            # 판정자와 같은 간격으로 봅니다. 성기게 보면 건물 사이로 빠져나갑니다.
-            samples = _leg_samples({"lat": lat_a, "lon": lon_a}, {"lat": lat_b, "lon": lon_b})
-        for step in range(1, samples):
-            fraction = step / samples
-            if self._forbidden_at(lat_a + (lat_b - lat_a) * fraction,
-                                  lon_a + (lon_b - lon_a) * fraction):
-                return True
-        return False
+        return first_breach(self.airspace, [
+            {"lat": lat_a, "lon": lon_a, "alt_m": self._altitude_at(lat_a, lon_a)},
+            {"lat": lat_b, "lon": lon_b, "alt_m": self._altitude_at(lat_b, lon_b)},
+        ]) is not None
 
     def _ceiling_between(self, a: tuple[int, int], b: tuple[int, int],
                          samples: int = 48) -> float | None:

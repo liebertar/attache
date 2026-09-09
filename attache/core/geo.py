@@ -220,41 +220,76 @@ class Airspace:
         return min(ceilings) if ceilings else None
 
 
-SAMPLE_EVERY_M = 8.0     # 표본 간격. 가장 작은 건물(약 20m)보다 촘촘해야 합니다
-MIN_SAMPLES = 4         # 아주 짧은 구간에도 양 끝 말고 몇 점은 봅니다
-MAX_SAMPLES = 4000
+def _leg_volumes(airspace: Airspace, here: dict, nxt: dict):
+    """선분의 경계 상자에 걸친 후보만 모읍니다. 실제 판정은 first_breach 하나입니다."""
+    if airspace._index_for != airspace.revision:
+        airspace._rebuild_index()
+    south, north = sorted((here["lat"], nxt["lat"]))
+    west, east = sorted((here["lon"], nxt["lon"]))
+    candidates = {v.id: v for v in airspace._everywhere}
+    for row in range(math.floor(south / INDEX_CELL_DEG), math.floor(north / INDEX_CELL_DEG) + 1):
+        for col in range(math.floor(west / INDEX_CELL_DEG), math.floor(east / INDEX_CELL_DEG) + 1):
+            for volume, lo_lat, hi_lat, lo_lon, hi_lon in airspace._grid.get((row, col), EMPTY):
+                if lo_lat <= north and hi_lat >= south and lo_lon <= east and hi_lon >= west:
+                    candidates[volume.id] = volume
+    return candidates.values()
 
 
-def _leg_samples(here: dict, nxt: dict) -> int:
-    """구간 길이에 맞춰 표본 수를 정합니다.
-
-    길이와 무관하게 40개만 찍으면, 2km 구간은 50m마다 보게 됩니다. FAA 격자(약 900m)
-    에는 충분했지만 건물은 30~60m 라 통째로 건너뜁니다. 판정자가 못 본 것은 아무도
-    못 봅니다 — 계획기도 이 함수를 쓰기 때문입니다.
-    """
-    north = (nxt["lat"] - here["lat"]) * 110_570.0
-    east = (nxt["lon"] - here["lon"]) * 84_400.0
-    metres = (north * north + east * east) ** 0.5
-    return max(MIN_SAMPLES, min(MAX_SAMPLES, int(metres / SAMPLE_EVERY_M) + 1))
+def _crossing_fractions(here: dict, nxt: dict, polygon: list[tuple[float, float]]):
+    """다각형의 변을 지나는 비율. 교차점 사이에서는 안/밖이 바뀌지 않습니다."""
+    lat, lon = here["lat"], here["lon"]
+    dy, dx = nxt["lat"] - lat, nxt["lon"] - lon
+    cuts = {0.0, 1.0}
+    for i, (ay, ax) in enumerate(polygon):
+        by, bx = polygon[(i + 1) % len(polygon)]
+        ey, ex = by - ay, bx - ax
+        denominator = dx * ey - dy * ex
+        if abs(denominator) < 1e-20:
+            # 같은 직선 위의 변도 끝점에서 안/밖이 바뀔 수 있습니다.
+            if abs((ax - lon) * dy - (ay - lat) * dx) < 1e-20:
+                for py, px in ((ay, ax), (by, bx)):
+                    if abs(dx) > abs(dy):
+                        t = (px - lon) / dx
+                    else:
+                        t = (py - lat) / dy if dy else 0
+                    if 0 <= t <= 1:
+                        cuts.add(t)
+            continue
+        t = ((ax - lon) * ey - (ay - lat) * ex) / denominator
+        u = ((ax - lon) * dy - (ay - lat) * dx) / denominator
+        if 0 <= t <= 1 and 0 <= u <= 1:
+            cuts.add(t)
+    return sorted(cuts)
 
 
 def first_breach(airspace: "Airspace", legs: list[dict], samples: int | None = None):
-    """경로에서 처음으로 규정을 어기는 지점. 런타임과 계획기가 같은 함수를 씁니다.
+    """선분이 규정을 어기는 첫 구간. 런타임과 계획기가 같은 함수를 씁니다.
 
-    같은 판정을 두 곳에 따로 적으면 반드시 갈라집니다. 계획기는 통과라고 보고 런타임은
-    거절하는 상태가 되고, 그러면 아무 경로도 승인되지 않습니다. 실제로 그렇게 됐었습니다.
+    고정 간격 표본은 건물 모서리의 짧은 관통을 놓칩니다. 다각형 경계에서 선분을
+    나눈 뒤 각 구간을 검사합니다. samples는 기존 호출 호환용이며 정확도를 낮추지 않습니다.
     """
     for index in range(len(legs) - 1):
         here, nxt = legs[index], legs[index + 1]
-        altitude = float(nxt.get("alt_m") or here.get("alt_m") or 0.0)
-        steps = samples if samples is not None else _leg_samples(here, nxt)
-        for step in range(steps + 1):
-            fraction = step / steps
-            lat = here["lat"] + (nxt["lat"] - here["lat"]) * fraction
-            lon = here["lon"] + (nxt["lon"] - here["lon"]) * fraction
-            volume = airspace.breach(lat, lon, altitude)
-            if volume is not None:
-                # 부딪힌 자리까지 같이 돌려줍니다. 화면이 '어디서' 막혔는지 그릴 수
-                # 있어야 승인·거절이 눈에 보입니다.
-                return index + 1, volume, volume.breach(lat, lon, altitude), (lat, lon)
+        altitude = float(nxt.get("alt_m", here.get("alt_m", 0.0)))
+        first = None
+        for volume in _leg_volumes(airspace, here, nxt):
+            cuts = _crossing_fractions(here, nxt, volume.polygon)
+            probes = sorted(set(cuts + [(a + b) / 2 for a, b in zip(cuts, cuts[1:], strict=False)]))
+            for fraction in probes:
+                if first is not None and fraction >= first[0]:
+                    break
+                lat = here["lat"] + (nxt["lat"] - here["lat"]) * fraction
+                lon = here["lon"] + (nxt["lon"] - here["lon"]) * fraction
+                reason = volume.breach(lat, lon, altitude)
+                if reason:
+                    first = (fraction, volume, reason, (lat, lon))
+                    break
+        # 폴리곤 없는 기본 천장도 같은 진입점으로 판정합니다.
+        start_breach = airspace.breach(here["lat"], here["lon"], altitude)
+        if start_breach is not None:
+            return (index + 1, start_breach,
+                    start_breach.breach(here["lat"], here["lon"], altitude),
+                    (here["lat"], here["lon"]))
+        if first is not None:
+            return index + 1, first[1], first[2], first[3]
     return None

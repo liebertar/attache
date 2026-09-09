@@ -249,6 +249,10 @@ class TwoWorldsTest(unittest.TestCase):
     def test_pads_are_never_shared_under_the_runtime(self):
         self.assertEqual(self.guarded["pad_conflicts"], 0)
 
+    def test_guarded_flight_never_enters_forbidden_airspace_or_exceeds_a_ceiling(self):
+        self.assertEqual(self.guarded["airspace_violations"], 0)
+        self.assertEqual(self.guarded["ceiling_breaches"], 0)
+
     def test_every_guarded_action_is_on_the_record(self):
         self.assertEqual(self.guarded["unrecorded_actions"], 0)
 
