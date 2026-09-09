@@ -4,7 +4,7 @@
 `(제안)` 으로 표시했습니다. 상태는 **됨 / 부분 / 안 됨** 셋뿐이고, 부분과 안 됨에는
 무엇이 남았는지 적었습니다. 다음 사람이 이 문서만 읽고 이어받을 수 있어야 합니다.
 
-작성 시점: 2026-09-09 세션 끝. 아래 **0장**이 이 세션에서 바뀐 것과 남은 것의 요약이고,
+작성 시점: 2026-09-09 세션 끝, 2026-09-10 에 0-5·0-8·0-10·0-7 갱신. 아래 **0장**이 바뀐 것과 남은 것의 요약이고,
 그 뒤 A~H 장은 원래 명세에 상태만 갱신한 것입니다. 두 장이 어긋나면 0장이 맞습니다.
 
 ---
@@ -20,7 +20,7 @@ PYTHONPATH=. python3 -m unittest discover -s tests  # 83개 (약 50초 — 두 �
 node --test tests/test_map.mjs                      # 21개
 PYTHONPATH=. python3 tests/test_two_worlds.py       # 점수판 + 기체별 순환 추적(trace)
 ```
-한 판은 `ROUND_TICKS=4000`(13분). `RESTART` 버튼 또는 `curl -X POST localhost:8100/reset`.
+한 판은 `ROUND_TICKS=5000`(0.2 s/틱, 약 17분; 할렘 왕복 4,040틱 + 여유). `RESTART` 버튼 또는 `curl -X POST localhost:8100/reset`.
 화면 검증은 playwright(설치된 Chrome)로 찍었습니다 — `chromium.launch({channel:'chrome'})`.
 지도 디버그 핸들 `window.__attache` = `{map, motion, flights, queued, latest, stages}` (읽기 전용).
 
@@ -100,6 +100,14 @@ PYTHONPATH=. python3 tests/test_two_worlds.py       # 점수판 + 기체별 순�
 - 구역 폐쇄 시나리오(응급헬기 회랑, 560~900틱)는 남겼습니다. 사용자가 "가다가 끊겨 되돌아가는 것"을 없애라고
   했는데, 실제 원인은 위 배경 스레드 버그였고, 회수 자체는 런타임의 핵심 주장(도착한 규칙을 즉시 강제)이라
   "가장 가까운 바깥으로 나가서 즉시 재경로"로 바꿨습니다 — **없앨지 물어볼 것**.
+- **제품 방향(A안, 2026-09-10)**: 기존 배차(dispatch) 옆에 붙는 셋 — ① 사전 승인 게이트(preflight gate)
+  ② 비행별 원장 보고서(`GET /ledger/report`, 0-10) ③ 순응 감시(conformance monitoring: 승인한 창보다 일찍 뜨면
+  `nonconforming`, 나는 중 도착한 규칙은 회수). 배차를 대신하지 않고 검증만 합니다. 표준 위치는 **ASTM F3269
+  (run-time assurance)의 한 사례를 배차 층에 둔 것** — 판정 코드가 안전 감시기, 모델·에이전트가 비검증 구성요소 —
+  이고, 의도는 **F3548 식 4D 의도**(회랑 + 시간 창)로 적습니다. 두 표준이 정하지 않은 자리를 채웁니다:
+  에이전트가 권한자에게 **신청하는 접점**(양식·값으로 된 거절·해결 사다리)과 **출처 기록**(누가 그렸고 어느 검사가
+  잡았는지). A안을 고른 이유는 런타임이 계획·지출·판단을 하지 않는다는 원칙과 맞고 기존 배차를 갈아엎지 않아
+  붙일 자리가 있기 때문입니다 — **사용자 확인 필요**.
 
 ## 0-6. 눈으로 확인 못 한 것
 
@@ -124,12 +132,12 @@ PYTHONPATH=. python3 tests/test_two_worlds.py       # 점수판 + 기체별 순�
 ### 경로 초안의 흐름 (사용자 지시: "드론이 sLLM 으로 경로를 고르되 항상 런타임 허가 아래")
 
 ```
-지상에서 직선 신청 → 런타임 거절(airspace) → 5.6초 뒤(REDRAW_DELAY_S)
+지상에서 직선 신청 → 런타임 거절(airspace) → 그 순간 작업 스레드에서 시작(화면의 거절 표시 5.6초 REDRAW_DELAY_S 는 따로 흐름)
   → nano 에게 지도 읽기와 함께 초안 요청 (원점·목적지·규칙 한 문단·직선이 차례로 부딪히는 것과
     거리·어느 쪽이 열려 있는지·천장이 낮아지는 구간·런타임의 거절 사유)
   → 코드 검사 → 운영사 고도 규칙(구간마다 가장 낮은 안전 고도, planner.straight 와 같은 규칙)
   → 운영사 사본으로 first_breach → 걸리면 걸린 것 전부를 적어 한 번 더
-  → 두 번 안 되면 A* → 어느 쪽이든 런타임이 다시 판정
+  → 두 번 안 되면(또는 거절 시각부터 DRAFT_TIMEOUT_S 60초가 다 되면) A* → 어느 쪽이든 런타임이 다시 판정
 공중 재경로(회수)는 모델에게 묻지 않고 A* 로 바로 냅니다 — 떠 있는 초가 아깝습니다.
 ```
 
@@ -171,7 +179,14 @@ stub/fixture/chaos 초안기를 꽂을 수 있습니다.
 ### 돌리는 법
 
 ```
-# Ollama (로컬)
+# Ollama 로컬 — 드론마다 서버 하나 (아래 "드론마다 서버 하나" 절. 이 Mac 의 기준 실행법)
+ollama pull nemotron-3-nano:4b                 # 기체용 4B(2.8 GB). 런타임 대역은 nemotron-3-nano(:latest, 30B, 24 GB)
+scripts/ollama_fleet.sh start 4                # 11435..11438 에 서버 4개, 4B 를 하나씩 데움. status 4 · stop 4
+export LLM_PER_ASSET_URLS="http://127.0.0.1:11435/v1 http://127.0.0.1:11436/v1 http://127.0.0.1:11437/v1 http://127.0.0.1:11438/v1"
+LLM_BASE_URL=http://localhost:11434/v1 NEBIUS_API_KEY=ollama \
+LLM_REQUEST_EXTRA='{"reasoning_effort":"none"}' LLM_RECORD_DIR=.run/llm ./scripts/dev.sh
+# → 기체 i 는 i 번째 URL(nano=nemotron-3-nano:4b), 런타임은 11434(super 대역=nemotron-3-nano:latest, 기체에는 안 감)
+# Ollama 로컬 — 서버 하나 (예전 방식. 초안이 줄을 서서 잘림, 아래 라이브 1)
 ollama pull nemotron-3-nano
 LLM_BASE_URL=http://localhost:11434/v1 NEBIUS_API_KEY=ollama \
 MODEL_NANO=nemotron-3-nano MODEL_SUPER=nemotron-3-nano MODEL_ULTRA=nemotron-3-nano \
@@ -179,8 +194,11 @@ LLM_REQUEST_EXTRA='{"reasoning_effort":"none"}' LLM_RECORD_DIR=.run/llm ./script
 # Nebius
 NEBIUS_API_KEY=… LLM_BASE_URL=https://api.tokenfactory.nebius.com/v1 ./scripts/dev.sh   # id 는 fleet.yaml 기본값
 ```
-`scripts/dev.sh` 는 `.env` 가 있으면 읽고(환경이 우선) `LLM_*`/`MODEL_*`/`NEBIUS_API_KEY` 를 기체·런타임 프로세스에
-그대로 넘깁니다. 헤더 한 줄 `Nemotron nano · via ollama` 는 `/state.llm` = `{enabled, models, host: ollama|nebius|other|none,
+`scripts/dev.sh` 는 `.env` 가 있으면 읽고(환경이 우선, 값을 감싼 따옴표 한 쌍은 벗김) `LLM_*`/`MODEL_*`/`NEBIUS_API_KEY`
+를 기체·런타임 프로세스에 넘깁니다. `LLM_PER_ASSET_URLS`(공백 구분)가 있으면 런타임 기체 i 에 i 번째 URL 을 주고, 그 URL 이
+Ollama(`:1143x`)이고 `MODEL_NANO` 가 비어 있으면 `nemotron-3-nano:4b`, `MODEL_SUPER` 가 비어 있으면 **런타임에만**
+`nemotron-3-nano:latest` 를 줍니다. URL 이 기체 수보다 적으면 나머지 기체는 `LLM_BASE_URL` 에 `MODEL_NANO` 없이(초안 없음)
+— 문서화 안 된 폴백. 아무것도 없으면 예전 그대로(규칙만). 직결 에이전트는 `DIRECT_LLM=1` 일 때만 모델을 씁니다. 헤더 한 줄 `Nemotron nano · via ollama` 는 `/state.llm` = `{enabled, models, host: ollama|nebius|other|none,
 calls: {tier: {ok, fallback, last_ms}}}` 에서 옵니다(런타임 자신의 호출, 즉 중재만 셉니다).
 
 ### 중재 스레드
@@ -210,7 +228,7 @@ Ultra 가 생각하는 동안 틱·위치·공지가 그만큼 낡은 채로 판
 - 실행 직전에 다시 판정합니다(`Runtime._rejudge`): 사람 승인을 기다리거나 자원 줄에 서 있는 동안 구역이 닫히면
   승인·배정은 그 경로를 살리지 못하고 `airspace` 로 거절됩니다. `RejudgeBeforeCommitTest`.
 
-### 라이브 (Ollama 로 스택을 약 3분 돌린 원장)
+### 라이브 1 — 서버 하나 (2026-09-09, 30B 하나를 기체 4대가 나눔, 약 3분)
 
 | 호출 | 건수 | 결과 |
 |---|---|---|
@@ -219,9 +237,64 @@ Ultra 가 생각하는 동안 틱·위치·공지가 그만큼 낡은 채로 판
 | nano 초안이 승인된 경로 | 0 | 완료된 둘 다 74–81 m 건물을 관통해 `airspace` 거절 → A* 재초안이 승인 |
 
 원인은 모델이 아니라 슬롯입니다. Ollama 가 이 모델(30B-A3B, Mamba 혼합)에는 동시 처리 1 을 강제해서 네 에이전트가
-줄을 서고, 뒤에 선 셋이 타임아웃을 맞습니다. 초안 예산은 30 → 60 s 로 올렸습니다(`DRAFT_TIMEOUT_S`). 다음 손질은
-거절 표시 5.6 s 를 기다린 뒤가 아니라 거절 순간에 초안을 시작하는 것과, 드론마다 작은 모델을 따로 띄우는 것(0-8 참조).
+줄을 서고, 뒤에 선 셋이 타임아웃을 맞습니다. 초안 예산은 30 → 60 s 로 올렸습니다(`DRAFT_TIMEOUT_S`). 거절 순간에
+초안을 시작하는 것과 드론마다 작은 모델을 따로 띄우는 것은 아래 절에서 했습니다.
 데모의 기준 배선은 Nebius Token Factory 입니다 — 슬롯 제한이 없고 출품 요건이기도 합니다.
+
+### 드론마다 서버 하나, 거절 순간에 초안 (2026-09-10)
+
+라이브 1 의 원인(슬롯 1개)을 둘로 풀었습니다. 판정 코드는 손대지 않았습니다.
+
+- **초안은 거절이 오는 순간 시작**합니다(`loop.py`: 거절 → 데몬 스레드 하나에 `drafter.draft(…, deadline)` → 화면의
+  거절 표시 5.6 s(`REDRAW_DELAY_S`)는 그대로 흘려보내고 → 거둡니다). 예산 `DRAFT_TIMEOUT_S`(60 s)는 **거절 시각부터
+  두 질문을 합쳐** 셉니다 — 초안기가 질문마다 남은 예산으로 자르고, 2 s(`MIN_ASK_S`) 아래면 묻지 않습니다(그래서
+  `DRAFT_TIMEOUT_S` < 2 는 초안을 조용히 끕니다). 기체마다 초안 하나만 떠 있고, 초안이 도는 중에 온 거절은 A*
+  (attempts 0)로 갑니다. 거절→재신청 사이는 이제 max(예산, 5.6 s) + 수 ms 이지 5.6 s + 지연이 아닙니다. 출처
+  (`params.drafter`, `draft_attempts`)와 표시 시간 삼총사(CLEARANCE_TICKS 25 ↔ REDRAW_DELAY_S 5.6 ↔ map-route
+  GROW/CHECK/HOLD/FADE/APPROVED_HOLD)는 그대로입니다. 초안을 거두는 사이 기체가 움직였으면 첫 점을 다시 붙이고
+  (≤30 m), 더 갔으면 A*, 떠 있으면 버립니다(옛 첫 점을 그대로 내 "첫 점이 기체 자리에서 70m" 거절이 있었음).
+- **거절 뒤 두 번째 질문**은 걸린 것을 값으로 말합니다: 장애물 id·이름·옥상 높이·필요 고도(옥상 + 50.5 m 올림,
+  `Router.leg_altitude` 와 같은 산수)·그 자리 천장을 넘는지("MUST fly around")·**지날 쪽 하나**(좌표 포함, 이웃
+  장애물끼리 같은 쪽 유지 — 옛 30B 녹음이 "왼쪽 80 m / 오른쪽 80 m" 를 번갈아 골라 건물을 관통했음). 첫 질문은
+  직선 위에서 어느 고도로도 못 넘는 것 전부를 "GO AROUND" 로 앞에 둡니다 — 천장 칸(KLGA 300 ft) 안의 건물은
+  그 칸 천장 − 1 m 로 다시 훑어 찾습니다(처음엔 120 m 로만 훑어 놓쳤고 맥캐런 초안이 그래서 지그재그).
+- **드론마다 Ollama 서버 하나**(`scripts/ollama_fleet.sh start 4` → 11435..11438, `nemotron-3-nano:4b`, 문맥 8192 =
+  3.0 GB 씩. Ollama 기본 256k 문맥이면 4B 하나가 8.4 GB). 런타임은 11434 를 그대로 쓰고 `MODEL_SUPER` 가 비어 있으면
+  `nemotron-3-nano:latest`(30B)를 **Super 대역(stand-in)** 으로 받습니다 — 런타임 프로세스에만. 기체 프로세스는
+  `MODEL_SUPER` 를 비웁니다(급한 신청서가 자기 4B 서버에 30B 를 올리던 누수). 진짜 Super 는 Nebius
+  `nvidia/nemotron-3-super-120b-a12b` 이고 이 Mac 에는 키가 없어 한 번도 안 불렀습니다.
+- 그 밖에: 클라이언트 통계·녹음 번호에 잠금(작업 스레드와 본 루프가 한 `TieredLlm` 을 나눔 — 녹음 파일이 서로
+  덮어쓸 수 있었음, `host_of` 가 11434~11439 를 ollama 로 봄); `alt_ma`/`altitude_m`/`altitude`/`alt` 를 고도 키로
+  받음(4B 답 10건 중 4건이 `alt_ma`, 값 검사는 그대로); 남은 예산이 첫 질문의 지연보다 짧으면 재질문 생략;
+  `propose.possible_now` — 마당에 선 기체가 `charge` 를 적어 런타임이 승인하고 조종장치가 "not on a pad" 로
+  거절하기를 6분에 61번 반복하던 것(운영사 쪽 양식 검사, 판정은 그대로. 수정 후 0).
+
+#### 라이브 2 — 4 × 4B 함대 + 30B 대역 (2026-09-10, 이 Mac)
+
+| | 수정 전 첫 7분 (01:24–01:31) | 같은 스택 65분 (01:24–02:29) | 수정 후 10분 (03:14–03:23, 판 하나 2,856틱) |
+|---|---|---|---|
+| 신청서(nano 4B) | 244건 · 타임아웃 0 · p50 1.2 s · p90 2.6 s · 최대 4.7 s | 2,432건 · 무응답 18 · p50 1.8 s | 미측정 |
+| 경로 초안 호출 | 10(첫 6 + 재 4) · 타임아웃 0 · p50 13.5 s · 최대 28.5 s | 90 · 무응답 13 · p50 20.9 s · p90 33.8 s · 최대 56.3 s | 20 · 무응답 1 · p50 29.1 s · 최대 45.2 s |
+| 거절→초안 거둠 | 13.5~43.3 s, 전부 예산 60 s 안. 5.6 s 안에 끝난 호출 0 | 미측정 | 미측정 |
+| 첫 질문 결과 | 통과 2 · `alt_ma` 2 · 사전 판정 걸림 2(100~164 m 건물) | 재질문 37건으로 승인된 경로 **0** | 미측정 |
+| **nano 초안이 승인·실행된 경로** | **2** (drone-02 는 교차 거절 뒤 +30 m 로 승인, drone-04 6구간) | **9** (신청 11 · 초안 10 · 거절 2 = 교차 1, 옛 첫 점 70 m 1) · 건물·구역 위반 0 | **6** (교차 거절 1 → 사다리로 승인) |
+| 실행된 경로를 누가 그렸나 | nano 2 · A* 5 · 직선 11 | nano 9 · A* 33 · 직선 19 | nano 6 · A* 10 · 직선 6 |
+| 어느 기체가 | drone-02, 04 (브루클린, 3~6구간) | drone-02 8 · drone-04 3 · **drone-01/03(맨해튼 10 km 횡단) 0** | 미측정 |
+| 런타임 세계 점수판 | 위반 전부 0 (배달 4) | 판마다 위반 전부 0 (배달 6~8) | 위반 전부 0 (배달 11) |
+| 직결 세계 | 천장 6 · 구역 5 · 무기록 14 · 분리 4 (배달 6) | 천장 15~16 · 구역 16 · 무기록 24~27 · 분리 5 (배달 12~15) | 11 · 13 · 24 · 5 (보고된 순서대로, 배달 12) |
+| Super 대역(30B, 런타임) | 12 호출 전부 답, p50 3.0 s | 권고 189 · p50 4.8 s · 무응답 13 / 공지 4 중 1 읽음(3 은 20 s 타임아웃) | 공지 8.8 s 에 읽어 보류 · 첫 권고가 `source: super` |
+
+- 솔직하게: 4B 는 **브루클린 짧은 경로(3~6구간)만** 그립니다. 창고→맨해튼 10 km 횡단은 65분 동안 전부 A* 였고,
+  거절 사유를 주고 다시 묻는 재질문은 그 판에서 승인된 경로를 하나도 못 냈습니다(GO AROUND 수정 뒤 판은 미측정).
+  그래도 nano 가 그린 경로 하나하나가 같은 판정(건물·이격·격자·의도·양 끝)을 지나 실행됐고, 거절된 둘은 판정이
+  옳았습니다(남의 회랑 교차, 20 s 초안 사이 70 m 움직인 기체).
+- 65분 스택은 마지막 편집(`service.py`·`notices.py`·`client.py`) 이전 프로세스였고 세션 중간에 sim `/reset` 이 밖에서
+  한 번 들어와(≈01:29:45) 점수판이 판 단위로 끊깁니다. 공지·권고 수치(0-10)는 수정 후 판 것만 믿으면 됩니다.
+- 셀 때: 원장은 같은 id 로 두 줄(pending → 확정)이 남으니 id 로 중복을 걷어야 하고, 점수판은 sim `/compare` 에
+  있지 런타임 `/state` 에는 없습니다. 판 하나는 dev.sh 틱 속도에서 약 15분.
+- fixture: `drafts_nano.json` 에 실주행 4B 통과 초안 둘(맥캐런, 브루클린브리지파크→창고, seed 7)이 들어가
+  `RecordedNanoDraftsFlyTest` 가 skip 없이 돕니다(원장 drafter 는 fixture 모델명 `nano:nemotron-3-nano`; 벽시계에
+  기대던 flaky 는 `backoff_s=0` 으로 고침).
 
 ## 0-9. 분리·의도·공지 (2026-09-09 — 경로 사이의 판정)
 
@@ -301,13 +374,132 @@ Ultra 가 생각하는 동안 틱·위치·공지가 그만큼 낡은 채로 판
 - 떠 있는 기체가 **떠 있는** 상대와 겹치면 거절합니다(물릴 수 없으므로). 그 운영사는 고도만 시도하고
   다음 차례에 다시 냅니다.
 
+## 0-10. 보류된 공지·둘째 공지·관제 권고·비행 보고서 (2026-09-10)
+
+0-9 의 "모델이 읽은 것은 사람 없이 절대 안 걸림" 을 화면과 원장까지 끌고 왔고, 거절이 쌓인 기체에 런타임이
+**권고**(advisory)를 씁니다. 권고는 정보입니다 — 실행·잠금·판정 어느 것도 바꾸지 않고 다음 신청은 똑같이
+판정됩니다(검증 스크립트가 권고 전후의 의도·잠금·공역 판본·보류 카드·지출이 같음을 확인).
+
+### 보류된 공지 (held)
+
+- 모델이 읽은 공지는 컴파일되는 순간부터 `/state.notices` 에 `held: true, applied: false` 로 있고 `first_breach`
+  에도 정책에도 들어가지 않습니다. 승인 화면의 `publish_notice` 카드에 `POST /approve` 하면 `source: "human"` 으로
+  걸리고(날던 경로 회수, 새 경로 거절), `/deny` 면 아무것도 걸리지 않고 그 id 는 다시 묻지 않습니다.
+- 사람이 답하기 전에 창이 닫히거나 공지가 피드에서 빠지면 카드·배너가 사라지고 열린 원장 항목이 outcome `lapsed`,
+  code `notice_lapsed` 로 닫힙니다. 창이 닫힌 뒤의 승인도 `notice_lapsed`(걸리지 않음). 창이 열리기 전에 승인하면
+  `held: false, applied: false, source: human` — 배너는 "confirmed by a person; applies when the window opens"
+  (KR 키 `b_notam_confirmed`), 칠하지 않음. 창이 닫히도록 적용 못 한 확인분은 잊습니다(`stale_confirmed`).
+- **모델 읽기는 세계 스레드 밖**(`Runtime.notice_async`, 데몬 스레드, 예산 `NOTICE_TIMEOUT_S` 기본 60 s; id 마다 한 번에
+  하나, 판이 바뀐 뒤 온 답은 버림). 전에는 세계 폴링 스레드 안에서 동기로 불러 읽는 동안 런타임 틱이 멈췄습니다
+  (라이브 2 수정 전: 판마다 틱 1351 에서 20 s 얼어붙고 sim 과 90틱 차이, 4판 중 3판은 20 s 타임아웃으로 못 읽음).
+  수정 후: 8.8 s(두 번째 실행) / 21.0 s(첫 실행 — 예전 예산이면 잘렸을 것)에 읽어 보류, 틱 정지 0 s, sim 과 최대 5틱.
+- 지도: 적용된 런타임 공지 폴리곤은 바닥에 칠하고(sim 구역 id 와 중복 제거) 보류된 것은 칠하지 않습니다.
+  `map.html?rt=<port>&sim=<port>` 로 다른 스택을 봅니다(`window.__attache.api`). 기록에 `notice_*` 코드 문구.
+- 승인 화면(`ui/index.html`)이 모델이 지은 공지 이름을 이스케이프 없이 innerHTML 에 넣던 것을 고쳤고(`safe()`),
+  `notam.from_model_form` 이 이름에서 `<>&"'` 를 뗍니다 — 모델 출력이 사람 게이트 화면에서 실행되지 않게.
+- `_apply_notices` 가 HTTP 스레드(승인)와 세계 스레드에서 동시에 돌아 같은 공지를 두 번 걸고 같은 기체를 두 번
+  회수할 수 있던 것 → 잠금.
+
+### 둘째 공지 — 문법이 못 읽는 문장
+
+- sim `MEDEVAC_TEXT`: "MEDEVAC INBOUND HARLEM HOSPITAL HELIPAD. KEEP CLEAR WITHIN 0.5 NM OF 404852N0735623W …",
+  0918–0928Z = **틱 1350–2100**(구역 공지 525–900 다음), 반지름 0.5 NM(1 NM 은 10.8 km² 로 `MAX_AREA_M2` 4 km² 를
+  넘어 모델 답이 보류가 아니라 폐기됨), 중심 할렘 병원(40.8144, −73.9397). `parse_notice` 가 None 을 내는지 sim 이
+  assert 합니다. Super 모델이 없으면 `notice_unreadable` 한 번 + 배너에 원문("not yet read by the runtime").
+- 로컬 30B 대역은 양식은 맞추지만 **폴리곤을 잘못 놓습니다**(녹음 4건 전부 ≤200 m 조각, 3 km 남쪽). 그래서 fixture
+  `notices_super.json` 에 녹음(label `ollama-recorded`)과 손으로 쓴 기대 답(label `reference`, 16꼭짓점 0.5 NM 원,
+  `via: authored` 로 표시) 둘을 두고, 승인→회수 경로는 reference 와 단위 시험으로만 검증했습니다. 사람 게이트가
+  장식이 아닌 이유입니다. sim 은 MEDEVAC 원을 점수판에 넣지 않습니다(안 읽혀도 점수는 안 변함).
+- 씨앗 7 하네스(4000틱): 모델 없음 / reference 보류만 / reference 자동 승인 세 경우 모두 런타임 세계 위반 0, 배달 22.
+  자동 승인 때는 세인트니컬러스 착륙장(중심에서 792 m, 원 안)이 막혀 교차 거절 13 → 60.
+
+### 관제 권고 (TOWER ADVISORY)
+
+- 언제: 기체 하나가 **같은 막힘**(action·code·policy_hit·blocked_kind·volume·asset·until_tick 서명)으로 **3번째**
+  거절될 때 한 번(`ADVISORY_AFTER`), 그 막힘에는 다시 없음; 또는 거절 뒤 `decline_job` 이 **실행**될 때
+  (`decline_after_refusals`, 중복 거절된 decline 은 제외). 성공·decline·판 교체에 초기화. 처음 "연속 3번" 으로 두니
+  착륙 예약을 몇 틱마다 다시 내는 기체가 65분에 190건(거의 전부 hold)을 쌓아 서명 기준으로 바꿨습니다 —
+  씨앗 7 하네스 14 → 2, 수정 후 라이브 첫 6분 1건, 다음 10분 0건.
+- 선택지는 코드가 만들고 같은 판정에 넣습니다: `hold`(교차·착륙 거절에 `blocked_until_tick` 이 있고 땅에 있을 때만)
+  → `climb`(마지막 legs +30 m = `CLIMB_M`; 에이전트 `ALTITUDE_SHIFT_M` 과 같은 값이지만 런타임은 에이전트 패키지를
+  import 하지 않아 상수 따로) → `notice_window`(막은 것이 창 있는 공지) → `decline` → `escalate`. 규칙 선택 = 이 순서로
+  첫 합법. Super 는 **목록 안의 합법 id 하나 + 400자 요약**만 낼 수 있고 밖의 답은 `llm.discard` + 규칙 선택 + 템플릿.
+  괄호·따옴표·대소문자는 벗기고 봅니다 — 수정 전 라이브에서 30B 가 브리프의 `- [hold]` 를 그대로 `"[hold]"` 로
+  돌려줘 160건 중 155건이 규칙 폴백이었습니다. 모델 호출은 데몬 스레드(`ADVISORY_TIMEOUT_S` 12 s), 거절 응답은 기다리지
+  않고, 판이 바뀐 뒤 온 답은 버립니다. `reserve_pad` 를 `resource` 만으로 낸 경우도 목적지 검사에 넣습니다.
+- 원장: action `advisory`, verdict auto, outcome `noted`, `detail {resource, chosen, trigger, source}`,
+  `context.checks_run ["advisory"]`, params = 권고 전체. `/state.advisories` 는 기체별 최신
+  `{asset, tick, at, ledger_id, trigger, refusals[], options[{id, label, legal, why, until_tick?, shift_m?}], chosen, summary, model, source}`.
+- 화면: 아래 가운데 TOWER ADVISORY 카드(12 s, 클릭하면 그 기체로; 불가 선택지는 취소선, 고른 것 표시; 규칙 요약은 키로
+  조립, super 요약은 textContent 로 원문), 기록에 `advisory · <선택>` 줄. `source: super` 카드는 fake Super 검증 스택과
+  수정 후 원장에서 확인, 라이브 화면 캡처는 없음.
+
+### 사람 몫 카드 (HUMAN verdict)
+
+- 전에는 `human` 판정이 원장에 한 줄도 없었고(65분 스택: drone-04 가 기체 한도 $320 을 넘은 뒤 309번 `human`, 원장
+  0줄) 카드가 판이 바뀌어도 남았습니다(5장). 이제 모든 `human` 판정이 원장 항목을 엽니다(pending → 승인/거절/lapsed,
+  같은 id). 중복 재신청은 같은 결정을 돌려주며 `outcome: waiting`, `detail.waiting_on`. 판이 바뀌면 보류 공지는
+  `notice_lapsed`, 나머지 카드는 `card_lapsed` 로 닫힙니다. 지도는 `human` 줄을 승인 회랑으로 그리지 않고 HUMAN 으로.
+- 한도 자체(drone-04: 90초에 착륙 예약 $28 × 8 + fast_charge $60 × 2 등 $490)는 그대로 — 0-5·0-7 의 예산 질문.
+
+### 비행별 보고서 `GET /ledger/report`
+
+- `?asset=<id>&format=json|md`. 원장 **파일 전체**(`Ledger.read_all`, 메모리 200줄 아님)를 신청 id 로 접어 비행 하나 =
+  `{proposal, intent, action, filed_at, filed_tick, author, drafter, draft_attempts, checks_run, refusals[], duplicates,
+  approved{tick, code, resolution, holding_for, altitude_shift_m, approved_by, outcome, ledger_id}|null, failed,
+  conformance[], recalled|null, withdrawn|null}` + 기체별 `advisories[]`. md 는 `text/markdown`(`|`·줄바꿈 이스케이프).
+  중복 거절은 `refusals` 가 아니라 `duplicates` 에, 실행 실패는 `failed` 에. 재신청은 같은 id 를 덮어씁니다.
+- 코드는 `attache/runtime/reports/`(하위 패키지) — `tests/test_drafter RuntimeNeverReadsTheDrafterTest` 가
+  `attache/runtime/*.py` 에서 `drafter` 글자를 grep 하므로 읽기 전용 뷰는 한 층 아래에 둡니다. 16.5 MB 원장에 JSON
+  1.28 s, 쓰기 잠금 최대 약 35 ms.
+
+### 시험·캡처
+
+`PYTHONPATH=. python3 -m unittest discover -s tests` → 276개(skip 4, 라이브 스택 떠 있을 때 약 8~15분),
+`node --test tests/test_map.mjs` → 34개. 새 파일 `test_agent_draft_timing.py`(초안 타이밍·데몬·재고정),
+`test_runtime_advisory.py`, `test_runtime_report.py`, `test_human_cards.py`, `test_propose_form.py`; `test_notam.py` 에
+둘째 공지·보류·lapse. 캡처(세션 스크래치, 소실): 보류 배너 `fix-live-notam.png`, TOWER ADVISORY 카드 `live-advisory.png`,
+nano 승인 회랑 `live-approved-nano-corridor.png`, 원문 배너 `live-notam-medevac-raw.png`. 지도 콘솔의 "Expected value
+to be of type number, but found null" 경고 3건은 OpenFreeMap positron 스타일 것(빈 페이지에서도 3건), favicon 404 는
+`data:,` 로 막음.
+
+## 0-11. 화면·판정 손질 (2026-09-10 새벽 — 사용자가 화면을 보고 짚은 것)
+
+| 증상 | 원인 | 고친 곳 |
+|---|---|---|
+| 빨간 거절 뒤 노란 재작성 없이 초록 회랑이 불쑥 | 재생 큐가 "아직 시작 안 한 단계"(앞 단계 뒤로 예약)를 "끝난 단계"와 같이 지움. 승인이 빨강 끝나기 직전(5.6~5.9 s)에 도착하면 예약됐다가 다음 프레임에 삭제 | `expireDenials` 는 시작 전 단계를 남김. 큐는 실시간보다 한 단계까지만 뒤처짐(밀린 거절 재생은 버림). 노드 테스트 2개 |
+| 회랑이 낮은 건물을 파고듦 | 판정 자료가 40 m 이상 건물뿐이고 최저 순항 40 m → 33~37 m 건물 위를 40 m 로 승인(라이브 79구간 중 5건, 전부 이 경우) | 자료를 **20 m 이상**(34,581동, 17 MB; 40 m 자료의 id 는 발자국이 같으면 그대로 유지)으로 다시 뽑고 최저 순항 **70 m**(자료 문턱 20 + 이격 50). 단 70 m 는 **천장이 허락하는 곳에서만** — 천장 61 m 인 FAA 칸 26개가 맨해튼을 가로질러 깔려 있어 70 m 를 못 박으면 센트럴파크 북쪽·할렘 착륙장이 전부 못 가는 곳이 됨. 낮은 칸에서는 천장−1 m 로 날고, 그 칸의 40 m 미만 건물은 이격 20 m(`geo.building_clearance_m`, 742동), 40 m 이상은 50 m 그대로(= 옆으로 돌아야 함). 시뮬레이터가 건물을 넣을 때 칸 천장을 보고 이격을 붙여 런타임에 넘김 |
+| 착륙장 30곳 중 12곳이 "둘레 50 m 안에 건물" 로 착륙 불가 | 20 m 자료에 20~26 m 건물이 둘레에 걸림 | 옥상 40 m 미만 건물은 착륙 둘레 15 m(하강 기둥 폭 = 항법 오차 10 + 도착 반경 6), 높은 건물·구역은 50 m. 그래도 안 되는 5곳은 좌표를 10~50 m 옮김 — 센트럴파크 이스트메도는 5번가 동쪽(공원 밖 주택가)에 찍혀 있어 공원 안(40.7887, −73.9600)으로 |
+| 재시도 피드백에서 돌아야 하는 건물이 빠짐 | 구간의 첫 장애물만 보고 지나친 자리부터 다시 묻다가 짧은 구간 끝의 낮은 건물 뒤에서 멈춤 | `geo.leg_breaches` — 한 구간이 어기는 것 전부를 진행 순서대로. 판정 기준은 `first_breach` 와 같고 판정 자체는 그대로 첫 번째만 |
+| `sim.world` 불러오기가 멈춤 | 건물을 넣으면서 동마다 천장을 물어 색인이 3만 4천 번 다시 만들어짐 | 이격을 넣기 전에 한꺼번에 계산(1.6 s) |
+| 하네스에서 drone-03 이 4000틱 안에 창고로 못 돌아옴 | 둘째 정차가 drone-02 와 같은 착륙장이라 "한 착륙장에 두 대는 없습니다" 로 1300틱(212번) 거절되며 첫 정차에 앉아 있었음. 고친 뒤에도 모닝사이드 왕복이 4,040틱(거절 forbidden 5·traffic 7) | 배차가 다른 기체가 가고 있는 착륙장을 피함(`_assign_job`). 한 판을 **5,000틱**으로(`ROUND_TICKS` 기본값, 하네스 TICKS). 계획기는 같은 공역 판본 안에서 같은 자리→착륙장 답을 기억(`Router._route_memo`; 할렘 쪽 첫 계획 60~160 s) |
+| 세로 점선이 정육면체 | 8 m 정사각 토막 | 회랑 점선을 세운 모양: 폭 18 m·두께 3 m 판, 36 m 토막·14 m 간격, 폭은 진행 방향에 직각 |
+| 창고가 점(원) | 표지 하나 | 타일 건물 바닥면(`footprints` 보이지 않는 fill 레이어로 조회 — 기울인 3D 를 점으로 물으면 옆면이 잡힘) 중 표지 60 m 안 가장 큰 동을 창고색으로. 타일 건물 하나가 단지 전체(다중 다각형 113~231개)라 동 단위로 고름 |
+| 창고 근처 아무 데나 앉았다 뜨는 듯 | 자리 넷이 마당에 있었고 화면에 안 그려짐 | 자리를 창고 **옥상** 긴 축(97 m) 위 31 m 간격 한 줄로(`SEATS`, 기체별 고정 `BAY n · drone-0n`, 바깥 둘은 가장자리에 걸침). 시뮬 고도는 지면 기준이라 자리 12 m 안·옥상보다 낮으면 옥상 위 0.8 m 로 올려 그림(`roofLifted`). 22 m 로 두었더니 옆 자리에 내리는 것이 "서 있는 기체 30 m 안" 으로 거절되고 점수판에 분리 상실이 찍혔음 — 31 m 는 그 규칙 바로 밖. 이륙 기둥(회랑 폭 40 m)은 여전히 겹쳐 동시에 뜨면 런타임이 한 대를 기다리게 함. 비상 착륙대(`pad:launch`)는 옥상이 아니라 마당 동쪽으로 |
+| 카메라 버튼 | 사용자는 키 조합을 글로 원함 | 왼쪽 세로 중앙 `#keys` 판: Shift+←→ 회전, Shift+↑↓ 기울이기, + − 확대, N 정북, H 처음, 1~4 기체로, 우클릭 드래그. 지도 초점 없이도 먹게 문서 keydown 에서 처리하고 MapLibre 기본 키 처리는 끔(두 번 돌던 것) |
+| 피드의 "model" 태그 | 신청서 작성자 티어 단어 | "Agent" (EN/KR) |
+| 4B 가 마당에 선 기체에 `charge` 를 쓰고, 옥상 자리의 기체가 `reserve_pad`(착륙대 예약)를 일곱 번 써 옆 자리 기체 위로 내리려다 전부 거절됨. 착륙 예약 $28 × 8 로 기체 한도 $320 초과 → 사람 카드 | 충전 순환은 뺐는데 양식 목록·규칙에 남아 있었고, 모델이 걱정거리와 무관한 행동을 고를 수 있었고, 돈 한도가 아직 판정에 있었음 | 모델이 고를 수 있는 것은 걱정거리에 맞는 것뿐(`propose.allowed_for`: 배달·이륙·포기, 고장 때만 비상 착륙·자율주행 해제). charge/fast_charge/divert_ground 는 목록에서 제거, `needs_charge` 감지 제거. `fleet.yaml` 한도 `null` = 런타임은 돈을 판정하지 않음(숫자를 넣으면 다시 켜짐, 예산은 운영사 몫). 시뮬 기단 한도도 None 허용 |
+
+- 20 m 자료로 바꾼 뒤 A* 시간: 창고→워싱턴스퀘어 0.1 s, →세인트니콜라스 4.7 s, →토머스제퍼슨 15 s, →할렘미어 159 s(첫 계산; 낮은 칸을 도는 탐색이 큼). `test_cycle` 12개 374 s. 에이전트는 계획을 초안 스레드처럼 밖에서 돌리지 않으므로 긴 계획은 그 기체가 자리에서 기다리는 시간이 됨 — 0-7.
+- Docker: `docker/Dockerfile` 시뮬 이미지에 `configs/airspace` 가 없어 시작 즉시 죽던 것을 넣고, 화면 이미지는 `scripts/serve_ui.py`(no-store). `compose.yaml` 은 드론 서비스마다 `LLM_URL_1..4`(로컬 함대는 `host.docker.internal:1143x`), Super/Ultra 는 런타임에만.
+
 ## 0-7. 남은 것
 
 1. 강 건너(뉴저지) 착륙장 — OSM 건물 보강 후. 지금 뉴저지로는 안 갑니다.
-2. 예산 코드 제거 여부(0-5).
-3. 구역 폐쇄 시나리오 유지 여부(0-5).
-4. E5b(모델이 경로를 그리게) — `NEBIUS_API_KEY` 없이 한 번도 안 돌림.
-5. ruff 는 예전부터 통과하지 못하던 상태(F401/I001/B905/E501 14건, 전부 이 세션 이전 파일). 손대지 않았습니다.
+2. 예산 코드 제거 여부(0-5). 라이브에서 drone-04 가 판 중간에 기체 한도 $320 을 넘어(착륙 예약 $28 씩 재신청)
+   이후 신청이 전부 `human` 카드로 갔습니다 — 카드는 이제 원장에 남고 판마다 닫히지만(0-10), 한도를 런타임에 둘지는
+   미결. 실행 못 할 행동(패드 밖 fast_charge)에 지출을 잡는 것도 같이.
+3. 구역 폐쇄 시나리오 유지 여부(0-5). 둘째 공지(MEDEVAC, 사람 확인)를 더했으니 함께 판정.
+4. Nebius Token Factory — `NEBIUS_API_KEY` 가 없어 이 Mac 에서 한 번도 안 불렀습니다. Super 120B 의 공지 읽기·권고
+   고르기와 Ultra 중재는 로컬 대역(30B)으로만 봤습니다. 데모 배선은 Nebius.
+5. 4B 는 짧은 경로만: 맨해튼 10 km 횡단은 전부 A* 폴백, 거절 사유를 준 재질문은 65분에 승인 0. 천장 칸 안 건물의
+   GO AROUND 수정이 긴 횡단에 효과가 있는지 미측정. 더 가려면 json_schema response_format.
+6. 눈으로 못 본 것: 거절 순간에 초안이 시작되는 타이밍의 화면, `source: super` 권고 카드의 라이브 화면(원장에는 있음),
+   KR 문구, 좁은 화면. 로컬 30B 는 0.5 NM 원을 한 번도 제대로 못 그렸습니다(승인→회수는 authored fixture 로 검증).
+7. `awaiting_human` 카드는 지도에 안 그립니다(승인 화면 `index.html` 에만). `duplicate` 거절(직전과 같은 신청)이 원장에
+   많이 남습니다(65분에 70건) — 예전부터, 손 안 댐. 판 중간에 런타임을 재시작하면 의도 등록부가 사라집니다(재시작
+   직후 분리 상실 1 관측).
+8. ruff 는 예전부터 통과하지 못하던 상태 — 지금 28건(전부 이전 파일 줄), 이 세션에서 더한 것 없음.
 
 ---
 

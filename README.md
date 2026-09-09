@@ -3,8 +3,6 @@
 **에이전트는 신청만 합니다. 실행은 런타임만 합니다.**
 **AI는 결정권자가 아닙니다. 비행기 세계의 규칙이 이미 그렇게 정해놨습니다.**
 
-*[English](README.en.md)*
-
 ---
 
 ## 무슨 문제를 푸나요
@@ -226,6 +224,8 @@ flowchart TB
 |---|---|---|---|
 | 기체 위 인지 | Nemotron Nano Omni (카메라·소리) | **쉬지 않고** | 아니오. 관찰입니다 |
 | 신청서 쓰기 | Nemotron 3 Nano | 이상할 때마다 | 아니오. 양식 작성입니다 |
+| 경로 초안 그리기 | Nemotron 3 Nano (드론마다 하나) | 직선이 거절될 때마다 | 아니오. 제안입니다. 같은 판정을 다시 지납니다 |
+| 거절이 쌓일 때 관제 안내 | Nemotron 3 Super | 같은 막힘 세 번째 거절에 | 아니오. 코드가 만든 합법 선택지 중 하나 |
 | 원인 붙이기 | Nemotron 3 Super | 올라올 때마다 | 아니오. 설명입니다 |
 | 겹칠 때 고르기 | Nemotron 3 Ultra | 충돌마다 | 아니오. 통과한 목록에서 번호 하나 |
 | 공지를 정책으로 | Nemotron 3 Super | 공지 올 때마다 | 아니오. 사람이 확인합니다 |
@@ -267,8 +267,34 @@ Tavily도 같은 규칙입니다. 날씨, 리콜 공지, 요금표를 밖에서 
 docker compose up --build     →  http://localhost:3100
 ```
 
-키가 없어도 그냥 돕니다(규칙 기반). `.env`에 Nebius 키를 넣으면 Nemotron이 신청서를 쓰고
-중재합니다. Docker가 없으면 `make dev`.
+키가 없어도 그냥 돕니다(규칙 기반). `.env`에 Nebius 키를 넣으면 Nemotron이 신청서를 쓰고,
+경로 초안을 그리고, 공지를 읽고, 중재합니다. Docker가 없으면 `make dev`.
+
+### 로컬에서 모델까지 (Mac, Ollama)
+
+Ollama 는 nemotron-3-nano 계열에 동시 처리 슬롯 하나를 강제해서, 서버 하나를 기체 넷이 나누면
+경로 초안이 줄을 서다 잘립니다. 그래서 **드론마다 서버 하나**(작은 4B)를 띄우고 런타임은 기본
+서버(30B)를 씁니다.
+
+```
+ollama pull nemotron-3-nano            # 30B-A3B, 24 GB — 런타임(공지 읽기·관제 안내)
+ollama pull nemotron-3-nano:4b         # 2.8 GB — 기체마다 하나
+scripts/ollama_fleet.sh start 4        # 11435..11438 에 서버 4개, 4B 를 하나씩 데움 (status 4 · stop 4)
+export LLM_PER_ASSET_URLS="http://127.0.0.1:11435/v1 http://127.0.0.1:11436/v1 http://127.0.0.1:11437/v1 http://127.0.0.1:11438/v1"
+LLM_BASE_URL=http://localhost:11434/v1 NEBIUS_API_KEY=ollama \
+LLM_REQUEST_EXTRA='{"reasoning_effort":"none"}' LLM_RECORD_DIR=.run/llm ./scripts/dev.sh
+```
+
+기체 i 는 i 번째 서버에서 신청서를 쓰고 경로 초안을 그리고, 런타임은 11434 의 30B 를 Nemotron 3 Super 의
+로컬 대역으로 써서 공지를 읽고 안내를 씁니다. 같은 값을 `.env` 에 적어도 됩니다(`.env.example` 의
+"로컬 함대" 블록). 이 Mac 에서 4B 가 그린 경로가 런타임 판정을 지나 실행되는 것을 확인했습니다 —
+짧은 브루클린 경로만이고, 맨해튼 횡단은 A* 로 넘어갑니다. 판정은 누가 그렸든 같습니다.
+
+**데모 배선은 Nebius Token Factory 입니다.** `.env` 에 `NEBIUS_API_KEY` 와
+`LLM_BASE_URL=https://api.tokenfactory.nebius.com/v1` 만 넣으면 Nano/Super/Ultra 가 `configs/fleet.yaml` 의
+id(`nvidia/nemotron-3-super-120b-a12b` 등)로 붙습니다 — 슬롯 제한이 없고 함대 스크립트도 필요 없습니다.
+이 저장소를 만든 Mac 에는 키가 없어 그 경로는 아직 돌려 보지 못했습니다(`python3 scripts/llm_probe.py` 가
+id·지연을 확인합니다).
 
 화면에 세계가 **두 개** 뜹니다. 같은 씨앗, 같은 기체, 같은 에이전트 코드,
 같은 신청서 작성기입니다. **다른 건 배선 하나뿐입니다.**
