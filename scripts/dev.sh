@@ -40,7 +40,7 @@ for asset in drone-01 drone-02 drone-03 drone-04; do
     python3 -m direct_agent.loop &
 done
 
-( cd ui && python3 -m http.server 3100 >/dev/null 2>&1 ) &
+python3 scripts/serve_ui.py 3100 ui >/dev/null 2>&1 &
 echo
 echo "  화면: http://localhost:3100"
 echo "  런타임: http://localhost:8000/state   세계: http://localhost:8100/compare"
