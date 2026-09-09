@@ -14,14 +14,14 @@ from sim.world import Simulation
 class ReceiptTest(unittest.TestCase):
     def test_an_open_actuator_obeys_anyone(self):
         world = Simulation(lock_actuator=False).worlds["direct"]
-        result = world.act("drone-01", "reserve_pad", {"pad": "bay:A"}, None, "schedule",
+        result = world.act("drone-01", "reserve_pad", {"pad": "pad:launch"}, None, "schedule",
                            None, 1)
         self.assertTrue(result["ok"])
         self.assertEqual(world.score.unrecorded_actions, 1)
 
     def test_a_locked_actuator_refuses_a_command_with_no_receipt(self):
         world = Simulation(lock_actuator=True).worlds["direct"]
-        result = world.act("drone-01", "reserve_pad", {"pad": "bay:A"}, None, "schedule",
+        result = world.act("drone-01", "reserve_pad", {"pad": "pad:launch"}, None, "schedule",
                            None, 1)
         self.assertFalse(result["ok"])
         self.assertEqual(world.score.refused_without_receipt, 1)
@@ -29,7 +29,7 @@ class ReceiptTest(unittest.TestCase):
 
     def test_a_locked_actuator_still_obeys_the_runtime(self):
         world = Simulation(lock_actuator=True).worlds["direct"]
-        result = world.act("drone-01", "reserve_pad", {"pad": "bay:A"}, "l_abc123",
+        result = world.act("drone-01", "reserve_pad", {"pad": "pad:launch"}, "l_abc123",
                            "schedule", None, 1)
         self.assertTrue(result["ok"])
         self.assertEqual(world.score.refused_without_receipt, 0)
@@ -39,7 +39,7 @@ class ReceiptTest(unittest.TestCase):
         """런타임을 거치는 쪽은 잠그든 안 잠그든 결과가 같습니다."""
         for locked in (False, True):
             world = Simulation(lock_actuator=locked).worlds["guarded"]
-            result = world.act("drone-01", "reserve_pad", {"pad": "bay:A"}, "l_1",
+            result = world.act("drone-01", "reserve_pad", {"pad": "pad:launch"}, "l_1",
                                "schedule", None, 1)
             self.assertTrue(result["ok"], f"locked={locked}")
 
@@ -73,11 +73,11 @@ class LedgerTruthTest(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             ledger = Ledger(handle.name)
         authority = AuthorityCheck(Authority(200, 500), PolicyBook())
-        committer = Committer(LocalAdapter(), LockTable(["bay:A"]), ledger, authority)
+        committer = Committer(LocalAdapter(), LockTable(["pad:launch"]), ledger, authority)
 
         proposal = Proposal(asset_id="drone-01", action="reserve_pad", cost_usd=28.0,
-                            blast_radius="schedule", rationale="", resource="bay:A",
-                            params={"pad": "bay:A"})
+                            blast_radius="schedule", rationale="", resource="pad:launch",
+                            params={"pad": "pad:launch"})
         committer.commit(proposal, Decision(proposal.id, Verdict.AUTO, "한도 안"))
 
         closed = [e for e in ledger.tail(10) if e["outcome"] != "pending"]

@@ -18,10 +18,9 @@ from attache.agent.loop import build_llm
 from attache.agent.propose import COSTS, Proposer
 from attache.core.http import get_json, post_json
 
-PADS = ["bay:A", "bay:B"]
+PADS = ["pad:launch"]
 PAD_COORDS = {   # 운영사가 자기 기지 좌표는 압니다
-    "bay:A": (40.7019, -73.9721),
-    "bay:B": (40.7019, -73.9680),
+    "pad:launch": (40.7019, -73.97072),
 }
 
 

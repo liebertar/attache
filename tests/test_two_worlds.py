@@ -22,7 +22,7 @@ from sim.world import RECALL, RECALL_TICK, ZONE, ZONE_TICK, Simulation
 # 22 m/s 로 날면 브루클린-맨해튼 한 번 왕복이 1100틱 안팎입니다.
 # 구역 폐쇄(560~900틱) 이후까지 봐야 두 세계가 갈리는 지점이 나옵니다.
 TICKS = 1500
-PADS = ["bay:A", "bay:B"]
+PADS = ["pad:launch"]
 
 
 class LocalAdapter:
@@ -99,6 +99,8 @@ class GuardedSide:
         # 다시 그리라고 했습니다.
         legs = self.planner.draw(here, goal)
         if not legs:
+            if proposal.action != "fly_route":
+                return decision   # 이륙장을 못 간다고 주문을 반려하지는 않습니다
             declined = Proposal.from_dict({**proposal.to_dict(), "action": "decline_job",
                                            "cost_usd": 0.0, "blast_radius": "none",
                                            "params": {}, "resource": None})

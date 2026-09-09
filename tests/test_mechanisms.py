@@ -38,10 +38,11 @@ class RecallTest(unittest.TestCase):
 
     def test_the_tick_the_recall_lands_it_stops(self):
         self.policies.add(self.recall)
-        decision = self.check.evaluate(proposal(), self.asset, 0)
+        banned = proposal(action=RECALL["forbid_action"])
+        decision = self.check.evaluate(banned, self.asset, 0)
         self.assertIs(decision.verdict, Verdict.DENIED)
         self.assertEqual(decision.policy_hit, RECALL["id"])
-        self.assertEqual(decision.forbids, "fast_charge")
+        self.assertEqual(decision.forbids, RECALL["forbid_action"])
 
     def test_an_agent_polling_on_its_own_has_a_window(self):
         """강제점이 없으면 공지와 이행 사이가 빕니다. 그 창이 위험의 크기입니다."""
@@ -54,8 +55,9 @@ class RecallTest(unittest.TestCase):
             simulation.step()
         # 공지는 나갔고, 기체는 아직 다음 폴링 전입니다
         self.assertTrue(any(b["id"] == RECALL["id"] for b in simulation.bulletins()))
-        world.vehicles["drone-01"].state = "landed"   # 충전은 패드 위에서만 됩니다
-        result = world.act("drone-01", "fast_charge", {}, None, "none", None,
+        vehicle = world.vehicles["drone-01"]
+        vehicle.state = "cruising"
+        result = world.act("drone-01", RECALL["forbid_action"], {}, None, "schedule", None,
                            simulation.tick_count)
         self.assertGreater(world.score.post_recall_violations, 0,
                            "강제점이 없으면 이 창에서 금지 행동이 실제로 나갑니다")
@@ -148,11 +150,11 @@ class PadContentionTest(unittest.TestCase):
         for asset in ("drone-01", "drone-02"):
             vehicle = world.vehicles[asset]
             vehicle.battery = 40.0
-            result = world.act(asset, "reserve_pad", {"pad": "bay:A"}, None, "schedule",
+            result = world.act(asset, "reserve_pad", {"pad": "pad:launch"}, None, "schedule",
                                None, 1)
             self.assertTrue(result["ok"], "조종장치가 아무나 받습니다")
             vehicle.state = "landed"
-            vehicle.assigned_pad = "bay:A"
+            vehicle.assigned_pad = "pad:launch"
 
         world._detect_pad_conflicts(2)
         self.assertGreater(world.score.pad_conflicts, 0)
@@ -160,10 +162,10 @@ class PadContentionTest(unittest.TestCase):
     def test_a_lock_table_hands_the_pad_to_one_of_them(self):
         from attache.runtime.locks import LockTable
 
-        locks = LockTable(["bay:A", "bay:B"])
-        self.assertTrue(locks.acquire("bay:A", "drone-01", "p1"))
-        self.assertFalse(locks.acquire("bay:A", "drone-02", "p2"))
-        self.assertEqual(locks.holder("bay:A").asset_id, "drone-01")
+        locks = LockTable(["pad:launch", "pad:launch"])
+        self.assertTrue(locks.acquire("pad:launch", "drone-01", "p1"))
+        self.assertFalse(locks.acquire("pad:launch", "drone-02", "p2"))
+        self.assertEqual(locks.holder("pad:launch").asset_id, "drone-01")
 
 
 class RoundResetTest(unittest.TestCase):
@@ -205,11 +207,11 @@ class RoundResetTest(unittest.TestCase):
         runtime = self._runtime()
         runtime.telemetry = {"drone-01": {}}
         runtime._follow_round(0)
-        runtime.locks.acquire("bay:A", "drone-01", "p_1")
-        runtime.policies.add(Policy("nofly-x", "지난 판의 공지", forbid_resource="bay:A"))
+        runtime.locks.acquire("pad:launch", "drone-01", "p_1")
+        runtime.policies.add(Policy("nofly-x", "지난 판의 공지", forbid_resource="pad:launch"))
 
         runtime._follow_round(1)
-        self.assertIsNone(runtime.locks.holder("bay:A"),
+        self.assertIsNone(runtime.locks.holder("pad:launch"),
                           "기체가 새로 세워졌는데 지난 판의 예약이 남으면 아무도 못 씁니다")
         self.assertEqual(runtime.policies.all(), [])
 

@@ -20,10 +20,9 @@ from attache.core.geo import Airspace, Volume
 # 실제 배송 기업이 도심 배달 거점을 두는 자리이고, 강을 건너야 해서 헬리포트 주변
 # 0ft 구역을 지나게 됩니다. 그게 이 데모의 전부입니다.
 DEPOT = (47.8, 54.9)                       # 브루클린 네이비야드 40.702,-73.970
-PADS = {                                    # 충전대 두 자리. 기체는 셋입니다.
-    "bay:A": (46.0, 54.9),
-    "bay:B": (49.6, 54.9),
-}
+# 이륙장 하나. 창고 바로 옆입니다. 두 자리를 350m 떨어뜨려 놨더니 한 거점으로
+# 안 읽혔고, 자리가 남으면 두 기체가 다툴 일도 없어 잠금표와 중재가 놀았습니다.
+PADS = {"pad:launch": (47.4, 54.9)}
 
 # 맨해튼. 배터리파크에서 센트럴파크 북단까지, 이스트강 건너 롱아일랜드시티까지.
 # 여기를 고른 이유는 FAA 가 격자마다 허용 고도를 공개하기 때문입니다.
@@ -50,6 +49,8 @@ CRUISE_MPS = 22.0             # 배달용 멀티로터 순항 속도
 # 보여줄 것이 아니라 잡음이라, 한 판 안에 소진되지 않을 만큼 넉넉하게 둡니다.
 ENDURANCE_MIN = 35.0
 CLIMB_MPS = 2.0
+DROP_TICKS = 18          # 내려놓는 데 걸리는 시간(약 14 시뮬레이션 초)
+CLEARANCE_TICKS = 12     # 승인을 확인하고 출발하기까지
 DESCENT_MPS = 1.75
 
 STEP_METRES = CRUISE_MPS * SIM_SECONDS_PER_TICK      # 틱당 17.6 m
@@ -78,7 +79,7 @@ COSTS = {
 
 # 기체가 기지에 닿는 데 468~605틱 걸립니다(22 m/s). 공지와 구역 폐쇄는
 # 그들이 실제로 충전대에 있을 때 도착해야 의미가 있습니다.
-RECALL_TICK = 520
+RECALL_TICK = 1050
 
 # 상시 공역. 한 동네 안에서도 허용 고도가 갈립니다 — 실제 데이터가 그렇게 생겼습니다.
 # FAA UAS Facility Map 은 격자마다 천장이 다르고, ED-269 구역은 하한·상한을 갖습니다.
@@ -198,13 +199,13 @@ ZONE_UNTIL = 900   # 응급헬기가 뜨고 내리는 동안만. 구역에는 �
 ZONE = {
     "id": "nofly-2026-09-hospital",
     "kind": "zone",
-    "forbid_resource": "bay:A",
+    "forbid_resource": "pad:launch",
     "reason": "응급헬기 이착륙. 상공 비행금지",
-    "name": "bay:A 상공 응급헬기 회랑",
-    # 충전대 하나와 그 접근로만 닫습니다. 예전에는 780x590m 를 덮어서 물류 창고까지
-    # 통째로 빨갛게 칠했는데, 닫으려던 것은 패드 한 자리였습니다.
-    "polygon": [[40.70130, -73.97285], [40.70130, -73.97135],
-                [40.70250, -73.97135], [40.70250, -73.97285]],
+    "name": "이륙장 상공 응급헬기 회랑",
+    # 이륙장과 그 접근로만 닫습니다. 예전에는 780x590m 를 덮어서 일대를 통째로
+    # 빨갛게 칠했는데, 닫으려던 것은 그 한 자리였습니다.
+    "polygon": [[40.70125, -73.97125], [40.70125, -73.96975],
+                [40.70255, -73.96975], [40.70255, -73.97125]],
     "floor_m": 0, "ceiling_m": None, "reference": "AGL",
     "rule": "forbidden", "source": "예시 데이터",
 }
@@ -212,13 +213,16 @@ ZONE = {
 # 폴리곤을 브루클린으로 옮길 때 원은 안 옮겨져서 이스트강 한복판을 세고 있었습니다.
 # 런타임이 막는 곳, 점수판이 세는 곳, 화면이 그리는 곳이 같아야 합니다.
 ZONE_VOLUME = Volume.from_dict(ZONE)
+# 규제기관이 특정 기종의 운항을 세우는 지시. 배터리 관리 같은 운영사의 몫이 아니라,
+# 밖에서 도착해서 즉시 강제되어야 하는 규칙입니다 — 그게 런타임이 있는 이유입니다.
 RECALL = {
-    "id": "recall-2026-09-dv-x500",
+    "id": "ad-2026-09-dv-x500",
     "kind": "recall",
-    "forbid_action": "fast_charge",
+    "forbid_action": "fly_route",
     "applies_to": {"model": "dv-x500"},
-    "reason": "dv-x500 급속충전 중 배터리 발화 사례. 급속충전 금지",
+    "reason": "감항성 지시 — dv-x500 운항 정지",
 }
+RECALL_UNTIL = 1350
 
 
 AIRSPACE = Airspace()
@@ -248,6 +252,8 @@ class Vehicle:
     job_label: str = ""            # 배달지 주소
     job_x: float | None = None
     job_y: float | None = None
+    hold_ticks: int = 0             # 승인 확인 후 출발까지. 즉시 튀어나가지 않습니다
+    work_ticks: int = 0             # 내려놓는 데 걸리는 시간
     delivered: int = 0
     waypoints: list = field(default_factory=list)   # 승인된 경로. 없으면 못 움직입니다
 
@@ -364,12 +370,12 @@ class World:
         if blast == "passenger" and not approved_by:
             self.score.unapproved_passenger_actions += 1
         if (
-            tick >= RECALL_TICK
+            RECALL_TICK <= tick <= RECALL_UNTIL
             and action == RECALL["forbid_action"]
             and vehicle.model == RECALL["applies_to"]["model"]
         ):
             self.score.post_recall_violations += 1
-            self._log(tick, "리콜 위반", f"{asset} 가 리콜 이후 급속충전")
+            self._log(tick, "지시 위반", f"{asset} 가 운항 정지 지시 이후 비행")
 
         cost = COSTS[action]
         vehicle.spend += cost
@@ -393,11 +399,13 @@ class World:
             vehicle.waypoints = self._to_waypoints(params.get("legs"), vehicle)
             vehicle.assigned_pad = None
             vehicle.state = "delivering"
+            vehicle.hold_ticks = CLEARANCE_TICKS
             if not vehicle.waypoints:
                 vehicle.cruise_alt = float(params.get("alt_m") or CRUISE_ALT_M)
         elif action == "reserve_pad":
             vehicle.assigned_pad = params["pad"]
             vehicle.state = "approaching"
+            vehicle.hold_ticks = CLEARANCE_TICKS
             vehicle.waypoints = self._to_waypoints(params.get("legs"), vehicle)
             # 승인된 순항 고도. 안 주면 기본값으로 납니다 — 그게 규정 위반일 수 있습니다.
             vehicle.cruise_alt = float(params.get("alt_m") or CRUISE_ALT_M)
@@ -458,6 +466,17 @@ class World:
         self._detect_ceiling_breaches(tick)
 
     def _advance(self, vehicle: Vehicle, tick: int) -> None:
+        if vehicle.state == "dropping":
+            vehicle.battery -= BATTERY_PER_TICK
+            vehicle.work_ticks -= 1
+            if vehicle.work_ticks <= 0:
+                self._deliver(vehicle, tick)
+            return
+        if vehicle.hold_ticks > 0:
+            # 승인이 떨어졌다고 그 자리에서 방향을 트는 기체는 없습니다.
+            vehicle.hold_ticks -= 1
+            vehicle.battery -= BATTERY_PER_TICK
+            return
         if vehicle.state == "charging":
             gain = 2.4 if vehicle.charge_mode == "fast" else 1.0
             vehicle.battery = min(100.0, vehicle.battery + gain)
@@ -505,7 +524,9 @@ class World:
             vehicle.waypoints.pop(0)   # 이 구간 끝. 다음 구간으로
             return
         if vehicle.state == "delivering" and not vehicle.waypoints and self._at(vehicle, target):
-            self._deliver(vehicle, tick)
+            # 도착했다고 물건이 사라지지 않습니다. 내려놓는 동안 그 자리에 머뭅니다.
+            vehicle.state = "dropping"
+            vehicle.work_ticks = DROP_TICKS
         if (
             vehicle.state == "approaching"
             and vehicle.assigned_pad
@@ -741,8 +762,9 @@ class Simulation:
         if ZONE_TICK <= self.tick_count <= ZONE_UNTIL:
             out.append({**ZONE,
                         "published_tick": ZONE_TICK, "until_tick": ZONE_UNTIL})
-        if self.tick_count >= RECALL_TICK:
-            out.append({**RECALL, "published_tick": RECALL_TICK})
+        if RECALL_TICK <= self.tick_count <= RECALL_UNTIL:
+            out.append({**RECALL, "published_tick": RECALL_TICK,
+                        "until_tick": RECALL_UNTIL})
         return out
 
     def reset(self, keep_rounds: bool = False) -> None:

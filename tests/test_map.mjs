@@ -97,22 +97,24 @@ test('a partial draw keeps the curve endpoints and stays inside the route', () =
   assert.ok(half.flat().every(Number.isFinite));
 });
 
-const {GROW_MS, HOLD_MS, FADE_MS, APPROVED_HOLD_MS} = geometry;
+const {GROW_MS, CHECK_MS, HOLD_MS, FADE_MS, APPROVED_HOLD_MS} = geometry;
 
-test('a route is drawn out, then holds, then fades where it is', () => {
+test('a route is drawn, waits for a verdict, then holds and fades where it is', () => {
   assert.deepEqual(geometry.stageWindow('approved',0),[0,0]);
   assert.deepEqual(geometry.stageWindow('approved',GROW_MS),[0,1]);
-  assert.equal(geometry.stageWindow('approved',GROW_MS + APPROVED_HOLD_MS),null);
+  assert.equal(geometry.stageWindow('approved',geometry.stageLife('approved')),null);
   // 거절된 선은 끝까지 그려진 채로 남았다가 흐려집니다. 되감기지 않습니다.
-  assert.deepEqual(geometry.stageWindow('rejected',GROW_MS + HOLD_MS + FADE_MS / 2),[0,1]);
-  assert.equal(geometry.stageWindow('rejected',GROW_MS + HOLD_MS + FADE_MS),null);
-  assert.equal(geometry.stageFade('rejected',GROW_MS + HOLD_MS - 10),1);
-  const fading = geometry.stageFade('rejected',GROW_MS + HOLD_MS + FADE_MS / 2);
+  assert.deepEqual(geometry.stageWindow('rejected',GROW_MS + CHECK_MS + HOLD_MS),[0,1]);
+  assert.equal(geometry.stageWindow('rejected',geometry.stageLife('rejected')),null);
+  assert.equal(geometry.stageFade('rejected',GROW_MS + CHECK_MS + HOLD_MS - 10),1);
+  const fading = geometry.stageFade('rejected',GROW_MS + CHECK_MS + HOLD_MS + FADE_MS / 2);
   assert.ok(fading > 0 && fading < 1);
-  assert.equal(geometry.stageFade('rejected',GROW_MS + HOLD_MS + FADE_MS),0);
+  assert.equal(geometry.stageFade('rejected',geometry.stageLife('rejected')),0);
+  // 다 그린 다음 판정을 기다리는 순간이 있어야 무엇이 결정됐는지가 보입니다.
   assert.equal(geometry.stagePhase('rejected', GROW_MS / 2),'drawing');
-  assert.equal(geometry.stagePhase('rejected', GROW_MS + 10),'refused');
-  assert.equal(geometry.stagePhase('approved', GROW_MS + 10),'approved');
+  assert.equal(geometry.stagePhase('rejected', GROW_MS + 10),'checking');
+  assert.equal(geometry.stagePhase('rejected', GROW_MS + CHECK_MS + 10),'refused');
+  assert.equal(geometry.stagePhase('approved', GROW_MS + CHECK_MS + 10),'approved');
 });
 
 test('the label sits at the start of the route, not on the moving head', () => {
@@ -176,13 +178,15 @@ test('final denials alert once, grow the submitted legs, and expire without poll
   ui.time(200); ui.run('draw');
   assert.equal(ui.source('rejected').features.length, 0, '판정 전에는 붉지 않습니다');
   const partial = ui.source('pending').features[0].geometry.coordinates;
-  ui.time(100 + GROW_MS + 50); ui.run('draw');
+  ui.time(100 + GROW_MS + CHECK_MS + 50); ui.run('draw');
   const full = ui.source('rejected').features[0].geometry.coordinates;
-  assert.equal(ui.source('stage-label').features[0].properties.label,'REJECTED');
+  assert.match(ui.source('stage-label').features[0].properties.label,/^REJECTED/);
   assert.ok(full.length > partial.length);
   assert.deepEqual(full.at(-1),[route.at(-1).lon,route.at(-1).lat]);
   ui.run('renderDenials',{ledger:[e]},7000);
-  ui.time(8101); ui.run('draw');   // 알림 8초, 구간은 그 전에 끝납니다
+  ui.time(100 + geometry.stageLife('rejected') + 50); ui.run('draw');
+  assert.equal(ui.source('rejected').features.length,0);
+  ui.time(8101); ui.run('draw');   // 알림은 8초
   assert.equal(ui.element('denial').hidden,true);
   assert.equal(ui.source('rejected').features.length,0);
 });
@@ -196,9 +200,9 @@ test('an approved route redraws from the drone before the steady line takes over
   assert.equal(growing.length,1);           // 판정 전이라 아직 초록이 아닙니다
   assert.equal(ui.source('approved').features.length,0);
   assert.equal(ui.source('stage-label').features[0].properties.label,'PLANNING…');
-  ui.time(GROW_MS + 10); ui.run('draw');
+  ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
   assert.match(ui.source('stage-label').features[0].properties.label,/^APPROVED · /);
-  ui.time(GROW_MS + APPROVED_HOLD_MS + 50); ui.run('draw');
+  ui.time(geometry.stageLife('approved') + 50); ui.run('draw');
   const settled = ui.source('approved').features[0].geometry.coordinates;
   assert.ok(growing[0].geometry.coordinates.length < settled.length);
   assert.deepEqual(settled.at(-1),[route.at(-1).lon,route.at(-1).lat]);

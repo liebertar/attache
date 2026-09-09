@@ -2,8 +2,7 @@
 name: manhattan-delivery
 
 resources:
-  - bay:A
-  - bay:B
+  - pad:launch
 
 authority:
   # 기체 한 대가 사람 없이 쓸 수 있는 돈

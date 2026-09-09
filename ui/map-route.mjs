@@ -73,10 +73,18 @@ export function motionPoint(motion, now, duration) {
 // 협상 애니메이션. 신청 → 거절 → 재작성 → 승인이 0.5초 폴링 사이에 다 끝나서,
 // 그대로 두면 화면에는 결과만 남습니다. 실제로 오간 경로를 느리게 되짚어 보여줍니다.
 // 그리는 좌표는 전부 원장/시뮬레이터가 준 것이고, 여기서 새 경로를 만들지 않습니다.
-export const GROW_MS = 3200;    // 산출 중인 경로가 앞으로 뻗어 나가는 시간
+export const GROW_MS = 3600;    // 산출 중인 경로가 앞으로 뻗어 나가는 시간
+export const CHECK_MS = 1000;    // 다 그린 뒤 판정을 기다리는 순간
 export const HOLD_MS = 2600;    // 무엇이 막았는지 읽을 시간
-export const FADE_MS = 1400;    // 거절된 선이 사라지는 시간
-export const APPROVED_HOLD_MS = 1800;   // 승인 표시가 남아 있는 시간
+export const FADE_MS = 1600;    // 거절된 선이 사라지는 시간
+export const APPROVED_HOLD_MS = 2200;   // 승인 표시가 남아 있는 시간
+
+/** 이 구간 하나가 화면에서 살아 있는 시간. 다음 구간을 언제 시작할지가 여기서 나옵니다. */
+export function stageLife(kind) {
+  return kind === "approved"
+    ? GROW_MS + CHECK_MS + APPROVED_HOLD_MS
+    : GROW_MS + CHECK_MS + HOLD_MS + FADE_MS;
+}
 
 const ease = t => 1 - (1 - t) ** 3;
 
@@ -100,9 +108,7 @@ export function sliceCurve(curve, from, to) {
 export function stageWindow(kind, elapsed) {
   if (elapsed < 0) return null;
   if (elapsed < GROW_MS) return [0, ease(elapsed / GROW_MS)];
-  const after = elapsed - GROW_MS;
-  if (kind === "approved") return after < APPROVED_HOLD_MS ? [0, 1] : null;
-  return after < HOLD_MS + FADE_MS ? [0, 1] : null;
+  return elapsed < stageLife(kind) ? [0, 1] : null;
 }
 
 /**
@@ -110,16 +116,18 @@ export function stageWindow(kind, elapsed) {
  * 선을 드론 쪽으로 되감으면 잡아채는 것처럼 보여서, 자리에 둔 채 흐려지게 합니다.
  */
 export function stageFade(kind, elapsed) {
-  const after = elapsed - GROW_MS;
+  const after = elapsed - GROW_MS - CHECK_MS;
   if (after < 0) return 1;
-  if (kind === "approved")
-    return Math.max(0, 1 - after / APPROVED_HOLD_MS);
+  if (kind === "approved") return Math.max(0, 1 - after / APPROVED_HOLD_MS);
   return after < HOLD_MS ? 1 : Math.max(0, 1 - (after - HOLD_MS) / FADE_MS);
 }
 
 /** 이 구간이 지금 어느 단계인가. 화면에 뭐라고 쓸지가 여기서 갈립니다. */
 export function stagePhase(kind, elapsed) {
   if (elapsed < GROW_MS) return "drawing";
+  // 다 그린 다음 판정이 내려오는 순간. 이게 없으면 그리자마자 색이 바뀌어서
+  // 누가 무엇을 정했는지가 안 보입니다.
+  if (elapsed < GROW_MS + CHECK_MS) return "checking";
   return kind === "approved" ? "approved" : "refused";
 }
 

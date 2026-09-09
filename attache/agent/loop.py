@@ -18,7 +18,7 @@ from attache.core.http import get_json, post_json
 from attache.core.route import Router
 from attache.llm.client import TieredLlm
 
-FALLBACK_PADS = ["bay:A", "bay:B"]
+FALLBACK_PADS = ["pad:launch"]
 
 
 class GuardedAgent:
@@ -74,6 +74,10 @@ class GuardedAgent:
         self.planner.note_refusal(decision.get("forbids"))
         legs = self.planner.draw(here, goal)
         if not legs:
+            if proposal.action != "fly_route":
+                # 이륙장에 갈 길이 없는 것과 주문을 못 받는 것은 다른 일입니다.
+                # 예전에는 충전대가 막혔다고 배달을 반려하고 있었습니다.
+                return decision
             # 규정을 지키면서 갈 수 있는 길이 없습니다. 이 주문은 드론이 못 합니다.
             return post_json(f"{self.runtime_url}/proposals",
                              {**proposal.to_dict(), "action": "decline_job",
