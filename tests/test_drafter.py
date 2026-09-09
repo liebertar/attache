@@ -196,11 +196,13 @@ class DraftFlowTest(unittest.TestCase):
         import time
 
         drafter = self.drafter(json.dumps(_hand_drawn()), json.dumps(_hand_drawn()))
-        drafter.llm.unreachable_at = time.monotonic()
+        # 초안 호출이 잘린 직후(skip_until). 신청서 호출이 잘린 것(llm.unreachable_at)은 초안과 무관합니다.
+        drafter.skip_until = time.monotonic() + drafter.backoff_s
         self.assertIsNone(drafter.draft(START, GOAL))
         self.assertEqual(drafter.last_attempts, 0)
         self.assertIn("skipped", drafter.last_failures[0])
-        drafter.llm.unreachable_at = time.monotonic() - drafter.backoff_s - 1
+        drafter.skip_until = time.monotonic() - 1
+        drafter.llm.unreachable_at = time.monotonic()      # 신청서가 방금 잘렸어도 초안은 묻습니다
         self.assertIsNotNone(drafter.draft(START, GOAL))
         self.assertEqual(drafter.last_attempts, 1)
 

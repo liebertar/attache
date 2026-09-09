@@ -19,6 +19,7 @@ caller draws with A*.
 import json
 import math
 import os
+import time
 
 from attache.core.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, Volume, first_breach
 from attache.llm.client import LlmTier, TieredLlm, parse_json_object
@@ -128,6 +129,10 @@ class ModelDrafter:
                           if timeout_s is None else float(timeout_s))
         self.backoff_s = (float(os.getenv("DRAFT_BACKOFF_S", str(DRAFT_BACKOFF_S)))
                           if backoff_s is None else float(backoff_s))
+        # 초안 호출이 잘린 뒤 이 시각까지는 묻지 않습니다. 신청서(6초) 호출이 잘린 것과는 별개입니다 —
+        # 같은 서버 상태를 공유했더니 바쁜 Ollama 에서 신청서가 한 번 잘릴 때마다 초안을 30초씩
+        # 건너뛰어, 실주행에서 nano 초안이 한 건도 없었습니다.
+        self.skip_until = 0.0
         self.last_attempts = 0
         self.last_failures: list[str] = []
         self.last_raised = 0            # 운영사의 고도 규칙이 올린 구간 수
@@ -152,8 +157,8 @@ class ModelDrafter:
         self.last_raised = 0
         if not self.enabled:
             return None
-        if self.llm.unreachable_within(self.backoff_s):
-            # 서버가 방금 답을 못 줬습니다. 또 물으면 또 기다릴 뿐이라 이번은 A* 차례입니다.
+        if time.monotonic() < self.skip_until:
+            # 초안 호출이 방금 잘렸습니다. 또 물으면 또 기다릴 뿐이라 이번은 A* 차례입니다.
             self.last_failures.append("server unreachable a moment ago, skipped")
             return None
         airspace = self.planner.airspace
@@ -169,6 +174,7 @@ class ModelDrafter:
                                  timeout_s=self.timeout_s)
             if reply is None:
                 self.last_failures.append("no reply")
+                self.skip_until = time.monotonic() + self.backoff_s
                 return None   # 서버가 없거나 느립니다. 또 물어봐야 또 기다립니다
             form = parse_json_object(reply.text)
             legs, problem = self.validate(form, start, goal, bbox)

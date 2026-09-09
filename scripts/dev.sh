@@ -30,9 +30,14 @@ PORT=8100 TICK_SECONDS="${TICK_SECONDS:-0.2}" FLEET_LIMIT_USD=720 \
 PORT=8000 CONFIG=configs/fleet.yaml SIM_URL=http://localhost:8100 \
   LEDGER_PATH=.run/ledger.jsonl python3 -m attache.runtime.service & sleep 1
 
+# 직결 세계도 같은 신청서 작성기를 쓰지만, 로컬 Ollama 한 슬롯을 프로세스 8개가 나누면 런타임 쪽
+# 경로 초안이 굶습니다(라이브에서 초안 0건). 기본은 직결 쪽만 규칙으로 쓰고, DIRECT_LLM=1 이면 같이 켭니다.
+DIRECT_LLM_URL="${LLM_BASE_URL}"
+[ "${DIRECT_LLM:-0}" = "1" ] || DIRECT_LLM_URL=""
 for asset in drone-01 drone-02 drone-03 drone-04; do
   ASSET_ID=$asset RUNTIME_URL=http://localhost:8000 python3 -m attache.agent.loop &
-  ASSET_ID=$asset TRANSPORT=http SIM_URL=http://localhost:8100 python3 -m direct_agent.loop &
+  ASSET_ID=$asset TRANSPORT=http SIM_URL=http://localhost:8100 LLM_BASE_URL="$DIRECT_LLM_URL" \
+    python3 -m direct_agent.loop &
 done
 
 ( cd ui && python3 -m http.server 3100 >/dev/null 2>&1 ) &
