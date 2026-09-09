@@ -760,12 +760,12 @@ function stageRoute(entry, now){
   if (!kind) return;   // 대기 중인 것은 아직 오간 경로가 아닙니다
   const params = entry.proposal.params || {};
   const by = decision.approved_by || decision.arbiter || t("guarded");
-  // 거절은 줄을 세우고, 승인은 곧바로 시작합니다.
-  // 승인까지 뒤로 밀면 기체는 이미 날고 있는데 화면은 아직 '산출중'이라, 승인 전에
-  // 날아가는 것처럼 보입니다. 시뮬레이터도 승인 재생이 끝날 때까지 기체를 잡아둡니다.
+  // 한 기체에 한 선만. 앞 구간이 완전히 사라진 다음에 다음 구간이 시작합니다.
+  // 노란 선 → 거절되어 회수 → 그 다음에 새 노란 선 → 승인. 절대 겹치지 않습니다.
+  // 시뮬레이터도 이 재생이 끝날 때까지 기체를 잡아둡니다(CLEARANCE_TICKS).
   const asset = entry.proposal.asset_id;
-  const at = kind === "approved" ? now : Math.max(now, queued.get(asset) || 0);
-  if (kind !== "approved") queued.set(asset, at + stageLife(kind));
+  const at = Math.max(now, queued.get(asset) || 0);
+  queued.set(asset, at + stageLife(kind));
   stages.push({
     id:entry.id, asset, kind, at, by, params,
     altitude: Number(legs[0].alt_m) || 55,

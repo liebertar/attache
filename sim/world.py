@@ -51,9 +51,10 @@ ENDURANCE_MIN = 35.0
 CLIMB_MPS = 2.0
 DROP_TICKS = 18          # 내려놓는 데 걸리는 시간(약 14 시뮬레이션 초)
 LOAD_TICKS = 22          # 이륙장에서 싣는 시간
-# 승인을 확인하고 출발하기까지. 화면이 승인 장면을 다 보여줄 만큼은 잡아둬야
-# '승인 전에 날아간다'로 보이지 않습니다 (UI 의 GROW+CHECK+APPROVED_HOLD 와 맞춤).
-CLEARANCE_TICKS = 34
+# 승인을 확인하고 출발하기까지. 화면이 신청·거절·재신청·승인을 순서대로 다 보여줄
+# 만큼 잡아둬야 '승인 전에 날아간다'로 보이지 않습니다.
+# UI 기준: 거절 한 구간 8.8초 + 승인 한 구간 6.8초 = 15.6초. 틱 0.2초이므로 78틱.
+CLEARANCE_TICKS = 78
 DESCENT_MPS = 1.75
 
 STEP_METRES = CRUISE_MPS * SIM_SECONDS_PER_TICK      # 틱당 17.6 m
@@ -481,10 +482,14 @@ class World:
                 vehicle.state = "cruising"
             return
         if vehicle.hold_ticks > 0:
-            # 승인이 떨어졌다고 그 자리에서 방향을 트는 기체는 없습니다.
-            vehicle.hold_ticks -= 1
-            vehicle.battery -= BATTERY_PER_TICK
-            return
+            # 승인 확인은 지상에서만 합니다. 공중에서 멈춰 서면 그 자리에 붙박이가 되고,
+            # 마침 닫힌 구역 위였다면 거기 그대로 머물게 됩니다 — 실제로 그랬습니다.
+            if vehicle.alt > 1.0:
+                vehicle.hold_ticks = 0
+            else:
+                vehicle.hold_ticks -= 1
+                vehicle.battery -= BATTERY_PER_TICK
+                return
         if vehicle.state == "charging":
             gain = 2.4 if vehicle.charge_mode == "fast" else 1.0
             vehicle.battery = min(100.0, vehicle.battery + gain)
