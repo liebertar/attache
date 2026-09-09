@@ -40,12 +40,12 @@
 
 ## D. 모델 (Nemotron, 결정권 없음)
 - [x] Ollama 로컬: `nemotron-3-nano`(30B-A3B, 24GB) 받음
-- [ ] LLM 클라이언트: reasoning 필드·<think> 처리, JSON 강제, 타임아웃, 기록(fixture)
-- [ ] 모델 ID 정리(Nebius: Super 120B-A12B, Ultra 550B-A55B, Nano/3.5 Lightning), `.env.example`(Nebius + Ollama)
-- [ ] 드론마다 Nano가 경로 초안(경유점+고도)을 그림 → 런타임 판정 → 거절이면 사유 받아 재초안 → 두 번 안 되면 A* (E5b)
-- [ ] 중재(Ultra): 통과한 후보 중 번호 + 한 줄 이유, 배경 스레드 밖에서
-- [ ] 모델 호출 시험: 녹음된 답으로 오프라인, 임의·악의 경유점 fuzz → 실행된 경로는 항상 위반 0
-- [ ] 실제 호출 증거: Ollama 로 한 판 돌린 원장(author = 모델 id) + 캡처
+- [x] LLM 클라이언트: reasoning 필드·<think> 처리, JSON 강제, 타임아웃, 기록(fixture) ✓
+- [x] 모델 ID 정리(Nebius: Super 120B-A12B, Ultra 550B-A55B, Nano/3.5 Lightning), `.env.example`(Nebius + Ollama) — Nebius 쪽 id 는 키가 없어 목록 확인 못 함(`scripts/llm_probe.py`)
+- [x] 드론마다 Nano가 경로 초안(경유점+고도)을 그림 → 런타임 판정 → 거절이면 사유 받아 재초안 → 두 번 안 되면 A* (E5b) ✓ — `attache/agent/drafter.py`, 원장 `params.drafter`
+- [x] 중재(Ultra): 통과한 후보 중 번호 + 한 줄 이유, 배경 스레드 밖에서 ✓ (`decision.detail.arbiter_reason`, 3초 느린 중재도 틱을 안 멈춤)
+- [x] 모델 호출 시험: 녹음된 답으로 오프라인, 임의·악의 경유점 fuzz → 실행된 경로는 항상 위반 0 ✓ (`tests/fixtures/llm`, `ChaosDraftsNeverFlyTest` 1500틱)
+- [x] 실제 호출 증거: Ollama 로 한 판 돌린 원장(author = 모델 id) — REQUIREMENTS 0-8. 캡처는 미착수
 
 ## E. 문서·검증
 - [ ] REQUIREMENTS 0장 갱신, README 모델 역할·실행법(Nebius/Ollama)

@@ -108,6 +108,112 @@ PYTHONPATH=. python3 tests/test_two_worlds.py       # 점수판 + 기체별 순�
 - 충전대 경쟁(4대 중 둘이 동시에 40% 아래) 장면.
 - 모바일/좁은 화면.
 
+## 0-8. 모델 (2026-09-09 밤 세션 — Nemotron 이 실제로 무엇을 하나)
+
+**모델은 세 자리에서 쓰이고, 세 자리 모두 결정권이 없습니다.** 모델이 내놓는 것은 전부 양식이고,
+양식이 아니면 버리고 규칙이 대신합니다. 판정 함수(`attache/core/geo.first_breach`, `landing_breach`,
+런타임 검사)는 모델 코드가 건드리지 않습니다. 런타임 코드는 `drafter` 라는 글자를 읽지 않습니다
+(`tests/test_drafter.py RuntimeNeverReadsTheDrafterTest` 가 grep 으로 못박음).
+
+| 자리 | 티어 | 모델이 내는 것 | 코드가 하는 것 | 못 하면 |
+|---|---|---|---|---|
+| 신청서 (`attache/agent/propose.py`) | nano (급하면 super) | `{"action","pad","rationale"}` | 행동 목록·패드 이름 검사 | `by_rule` 이 씀 |
+| **경로 초안** (`attache/agent/drafter.py`, 새로 넣음) | nano | `{"legs":[{lat,lon,alt_m}…]}` | 양식·12구간·서비스 상자·고도 40~120·양 끝 고정·길이 2.5배·운영사 고도 규칙·운영사 사본으로 `first_breach` → 한 번 더 묻기 | A* (`OperatorPlanner.draw`) |
+| 중재 (`attache/runtime/arbiter.py`) | ultra | `{"choice": n, "reason": "…"}` (번호만도 됨) | 번호 범위 검사, 이유 140자 → `decision.detail.arbiter_reason` | `by_rule` (영향 범위 > 배터리 > 순서) |
+
+### 경로 초안의 흐름 (사용자 지시: "드론이 sLLM 으로 경로를 고르되 항상 런타임 허가 아래")
+
+```
+지상에서 직선 신청 → 런타임 거절(airspace) → 5.6초 뒤(REDRAW_DELAY_S)
+  → nano 에게 지도 읽기와 함께 초안 요청 (원점·목적지·규칙 한 문단·직선이 차례로 부딪히는 것과
+    거리·어느 쪽이 열려 있는지·천장이 낮아지는 구간·런타임의 거절 사유)
+  → 코드 검사 → 운영사 고도 규칙(구간마다 가장 낮은 안전 고도, planner.straight 와 같은 규칙)
+  → 운영사 사본으로 first_breach → 걸리면 걸린 것 전부를 적어 한 번 더
+  → 두 번 안 되면 A* → 어느 쪽이든 런타임이 다시 판정
+공중 재경로(회수)는 모델에게 묻지 않고 A* 로 바로 냅니다 — 떠 있는 초가 아깝습니다.
+```
+
+신청서마다 `params.drafter` = `"straight"` | `"nano:<모델 id>"` | `"astar"`, `params.draft_attempts` = 모델에게 물은 횟수.
+원장과 `/state` 에 그대로 남고 화면은 그 값으로 "Route by nano / A*" 를 씁니다. 판정은 이 값을 보지 않습니다.
+`tests/test_two_worlds.py GuardedSide` 는 `loop.py` 의 이 흐름을 그대로 베낀 것이라(의도적 중복) 시험이
+stub/fixture/chaos 초안기를 꽂을 수 있습니다.
+
+### 실제로 재 본 것 (Ollama, Mac, nemotron-3-nano 30B-A3B q4_K_M 24GB)
+
+- **Ollama `/v1/chat/completions` 는 생각(thinking)을 기본으로 켭니다.** 답은 `message.content`, 생각은
+  `message.reasoning` 에 따로 옵니다. 사소한 질문도 첫 호출 12.8초(157 토큰 생각 + 적재).
+  `"reasoning_effort":"none"` 을 보내면 생각 없이 답합니다(1.1초). `"think": false` 는 `/v1` 에서 무시되고
+  원생 `/api/chat` 에서만 먹습니다(0.4초). `response_format: {type: json_object}` 는 받습니다.
+  → `.env.example` 의 Ollama 블록은 `LLM_REQUEST_EXTRA={"reasoning_effort":"none"}`.
+- **클라이언트(`attache/llm/client.py`)**: `content` → `reasoning_content` → `reasoning` 순으로 답을 찾고, 앞머리
+  `<think>…</think>` 는 떼며, 닫히지 않은 `<think>` 는 전부 생각으로 봅니다. 생각 속에만 있는 JSON 은 답이
+  아닙니다. `json_object=True` 면 `response_format` 을 붙이고 서버가 400 으로 거절하면 빼고 한 번만 다시 냅니다
+  (타임아웃은 다시 안 냄). `LLM_TIMEOUT_S`(런타임 20, 기체 6 — `loop.build_llm`), `LLM_REQUEST_EXTRA`(JSON, 요청에
+  섞음), `LLM_RECORD_DIR`(호출마다 `{tier, model, system, user, text, via, latency_ms}` 파일). 답은
+  `LlmReply(text, model, latency_ms, via)`.
+- **지연 (생각 끔, 이 Mac)**: 신청서 0.5~1.4초(첫 호출 3.1초), 중재 1.3~1.4초, **경로 초안 한 번에 5~19초**
+  (700 토큰 한도, 6구간 안팎; 한가한 서버에서 같은 프롬프트 재생 8.7~8.9초), 두 번 물으면 8~30초. 기체 공통
+  타임아웃(6초)으로는 초안이 전부 잘려 첫 라이브(15건)에서 nano 가 그린 경로가 0건이었습니다. 그래서 초안 호출은
+  자기 예산을 듭니다 — `DRAFT_TIMEOUT_S`(기본 30, `drafter.py`) — 신청서·중재는 그대로 6/20초. 서버가 방금
+  타임아웃했으면 `DRAFT_BACKOFF_S`(기본 30) 동안은 묻지 않고 A* 로 갑니다(끝나지 못할 호출 뒤에 기체를 세우지
+  않으려고). 라이브 측정값은 아래 표.
+- **nano 의 초안 성적 (녹음 18건)**: 창고 → 센트럴파크 북쪽·모닝사이드·피어76·이스트메도 같은 **10km 급 맨해튼
+  횡단은 0/8** — 윌리엄스버그 탑을 0~9m 로 스치거나 0ft 격자 옆을 1m 로 지납니다. 5자리 위경도로 14,837동을
+  피하는 것은 이 크기 모델이 글로 할 수 있는 일이 아닙니다. **강 건너 짧은 구간은 3/10** (콜리어스훅 2/2,
+  이스트리버파크 1/2, 브루클린브리지파크 0/4, 거버너스 0/2). 실패는 전부 운영사 사전 판정에서 잡혀 A* 로
+  넘어갔고, 그것이 이 설계가 말하는 바입니다 — 누가 그리든 보장은 같습니다.
+- **Nebius Token Factory**: 키가 없어 이 세션에서 한 번도 못 불렀습니다. `configs/fleet.yaml` 의 id 는
+  super `nvidia/nemotron-3-super-120b-a12b`(확인됨), ultra `nvidia/Nemotron-3-Ultra-550b-a55b`(대소문자 미확인),
+  nano `nvidia/Nemotron-3_5-Lightning`(목록에 30B Nano 가 없을 때의 자리). `python3 scripts/llm_probe.py` 가
+  GET /v1/models 로 실제 목록을 보여주고 티어마다 양식 하나씩 물어 id/via/지연/파싱 결과를 찍습니다(하나라도
+  못 쓰면 exit 1). 예전 id(Super 100B-A10B)는 존재하지 않아 전부 갈았습니다(compose.yaml, robot.yaml 포함).
+
+### 돌리는 법
+
+```
+# Ollama (로컬)
+ollama pull nemotron-3-nano
+LLM_BASE_URL=http://localhost:11434/v1 NEBIUS_API_KEY=ollama \
+MODEL_NANO=nemotron-3-nano MODEL_SUPER=nemotron-3-nano MODEL_ULTRA=nemotron-3-nano \
+LLM_REQUEST_EXTRA='{"reasoning_effort":"none"}' LLM_RECORD_DIR=.run/llm ./scripts/dev.sh   # 초안 예산은 DRAFT_TIMEOUT_S(기본 30)
+# Nebius
+NEBIUS_API_KEY=… LLM_BASE_URL=https://api.tokenfactory.nebius.com/v1 ./scripts/dev.sh   # id 는 fleet.yaml 기본값
+```
+`scripts/dev.sh` 는 `.env` 가 있으면 읽고(환경이 우선) `LLM_*`/`MODEL_*`/`NEBIUS_API_KEY` 를 기체·런타임 프로세스에
+그대로 넘깁니다. 헤더 한 줄 `Nemotron nano · via ollama` 는 `/state.llm` = `{enabled, models, host: ollama|nebius|other|none,
+calls: {tier: {ok, fallback, last_ms}}}` 에서 옵니다(런타임 자신의 호출, 즉 중재만 셉니다).
+
+### 중재 스레드
+
+`_settle_contended` 는 이제 자기 데몬 스레드(0.25초)에서 돕니다. 세계 갱신(`_pull_world`)과 한 스레드에 있으면
+Ultra 가 생각하는 동안 틱·위치·공지가 그만큼 낡은 채로 판정됐습니다. `tests/test_locks_and_arbiter.py` 가
+3초 느린 중재 동안 틱이 계속 오르는지 봅니다. 중재 프롬프트에서 돈·예산 문구를 뺐습니다(안전 검사는 이미
+끝났고 남은 것은 순서뿐).
+
+### 시험과 fixture
+
+- `tests/fixtures/llm/drafts_nano.json` — 진짜 nano 초안 10건(통과 3, 거절 7, `expect` 로 표시, `seed`·`start`·`goal`).
+  `forms_nano.json` — 신청서 4건 + 중재 1건. `tests/fixture_llm.py FixtureLlm` 이 티어 + 바늘(needle, 프롬프트 부분
+  문자열)로 답하고 없으면 None(규칙 차례). `LLM_RECORD_DIR` 파일에 `needle` 만 붙이면 fixture 가 됩니다.
+- `tests/test_llm_client.py`(19) 클라이언트·fixture·녹음 신청서, `tests/test_drafter.py`(16) 검사·흐름·녹음 초안·grep,
+  `tests/test_locks_and_arbiter.py`(+7) JSON 중재·느린 중재, `tests/test_two_worlds.py`:
+  `ChaosDraftsNeverFlyTest` — 건물 관통·0ft 진입·5000m·상자 밖·13구간·쓰레기·생각 속 JSON 을 내는 모델을
+  **운영사 사전 판정을 일부러 뺀 초안기(RecklessDrafter)** 에 꽂아 1500틱: `airspace_violations == 0`,
+  `ceiling_breaches == 0`, 조종장치 문턱에서 실행 순간 재판정(`JudgingAdapter.unjudged == 0`), 원장의 done
+  경로는 전부 `auto`. `RecordedNanoDraftsFlyTest` — seed 2(drone-04 → 콜리어스훅)에서 녹음된 nano 초안이
+  승인·실행되고 원장 `params.drafter == "nano:nemotron-3-nano"`.
+- 런타임은 숫자가 아닌 legs 를 받으면 판정 함수에 넣지 않고 "경로 양식이 아닙니다" 로 거절합니다(혼돈 시험이
+  요청 하나를 500 으로 죽이던 것). 유한하기만 한 값도 양식이 아닙니다: 음수 고도(모든 구역의 '아래' 로 빠져
+  건물을 관통하던 것 — 판정 자체도 이제 땅 밑을 땅으로 봅니다, `geo.ground_clamped`), 지구 밖 좌표, 50km 를
+  넘는 구간(색인 격자를 1e10 칸 돌며 판정이 영영 안 끝나던 것 — `geo.MAX_LEG_CELLS` 가 마지막 방어선).
+  `tests/test_mechanisms.py RouteFormTest`.
+- 실행 직전에 다시 판정합니다(`Runtime._rejudge`): 사람 승인을 기다리거나 자원 줄에 서 있는 동안 구역이 닫히면
+  승인·배정은 그 경로를 살리지 못하고 `airspace` 로 거절됩니다. `RejudgeBeforeCommitTest`.
+
+### 라이브 (Ollama 로 스택을 약 3분 돌린 원장)
+
+LIVE_TABLE_PLACEHOLDER
+
 ## 0-7. 남은 것
 
 1. 강 건너(뉴저지) 착륙장 — OSM 건물 보강 후. 지금 뉴저지로는 안 갑니다.
