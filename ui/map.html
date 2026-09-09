@@ -178,7 +178,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script type="module">
-import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, hex, droneBody, cargoStack, groundDisc, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
+import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, curveColumns, hex, droneBody, cargoStack, groundDisc, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
 const SIM = `http://${location.hostname}:8100`;
 const RT  = `http://${location.hostname}:8000`;
 const POLL_MS = 500;
@@ -216,6 +216,15 @@ const TEXT = {
     r_over_fleet:"fleet cap: $%s > $%s", r_duplicate:"same request just executed",
     r_airspace:"leg %s enters %s", r_resource_held:"%s is held by %s",
     r_resource_granted:"%s granted", r_recalled:"%s pulled back by %s",
+    r_withdrawn:"undeparted route withdrawn to make room for %s",
+    r_nonconforming:"took off at tick %s, cleared for tick %s — intent moved to the real departure",
+    conformance:"departure check", site_conflicts:"Landings onto a parked aircraft",
+    blk_origin:"START %s m FROM THE AIRCRAFT", blk_destination:"END %s m FROM THE DESTINATION",
+    d_withdraw:"WITHDRAWN",
+    b_notam:"<b>NOTAM</b> (tick %s–%s) · %s — read by %s; approved routes through it are pulled back, new ones refused.",
+    b_notam_held:"<b>NOTAM</b> · %s — read by %s, waiting for a person before it applies.",
+    b_notam_raw:"<b>NOTAM</b> (tick %s–%s) · %s — not yet read by the runtime.",
+    src_grammar:"the rule grammar", src_human:"a person", src_model:"the %s model",
     t_auto:"RUN", t_denied:"DENY", t_human:"HUMAN", t_queued:"QUEUE",
     d_reject:"REJECTED", d_recall:"RECALLED",
     d_leg:"leg %s enters %s", d_pulled:"a rule arrived — the approved route is pulled; holding until a new one is approved",
@@ -269,6 +278,15 @@ const TEXT = {
     r_over_fleet:"기단 한도 초과: $%s > $%s", r_duplicate:"직전에 같은 신청이 실행됨",
     r_airspace:"%s번 구간이 %s 안으로", r_resource_held:"%s 는 %s 가 쓰는 중",
     r_resource_granted:"%s 배정됨", r_recalled:"%s 회수 — %s",
+    r_withdrawn:"%s 에 자리를 내주려 아직 안 뜬 경로를 물림",
+    r_nonconforming:"틱 %s 에 떴음, 승인은 틱 %s — 의도를 실제 출발로 옮김",
+    conformance:"출발 확인", site_conflicts:"서 있는 기체 위로 착륙",
+    blk_origin:"출발점이 기체에서 %s m", blk_destination:"끝점이 목적지에서 %s m",
+    d_withdraw:"물림",
+    b_notam:"<b>NOTAM</b> (tick %s–%s) · %s — %s이 읽음. 지나던 승인 경로는 회수되고 새 경로는 거절됩니다.",
+    b_notam_held:"<b>NOTAM</b> · %s — %s이 읽음. 사람이 확인해야 적용됩니다.",
+    b_notam_raw:"<b>NOTAM</b> (tick %s–%s) · %s — 런타임이 아직 못 읽음.",
+    src_grammar:"규칙 문법", src_human:"사람", src_model:"%s 모델",
     t_auto:"실행", t_denied:"거부", t_human:"사람에게", t_queued:"대기",
     d_reject:"거절", d_recall:"회수",
     d_leg:"%s번 구간이 %s 안으로 들어갑니다",
@@ -310,7 +328,7 @@ const t = (key, ...args) => {
 };
 
 // 착륙대 충돌 행은 뺐습니다. 충전대 순환이 없어져 두 세계 다 0이 되는 행은 뜻이 없습니다.
-const ROWS = ["separation_losses", "zone_incursions", "zone_dwell_ticks",
+const ROWS = ["separation_losses", "site_conflicts", "zone_incursions", "zone_dwell_ticks",
               "post_recall_violations", "unapproved_passenger_actions",
               "unrecorded_actions"];
 
@@ -358,7 +376,17 @@ map.on("load", () => {
         "fill-extrusion-opacity":.92,
       },
     }, firstLabel);
+    // 보이지 않는 바닥면. 기울인 지도에서 3D 건물을 점으로 물으면 옆면·지붕이 잡혀 자리와 다른 동이
+    // 나옵니다. 바닥면은 좌표 그대로라 그 점이 실제로 올라선 동만 답합니다.
+    map.addLayer({id:"footprints", type:"fill", source:"openmaptiles",
+      "source-layer":"building", minzoom:13, paint:{"fill-opacity":0}}, firstLabel);
   }
+  // 창고는 점이 아니라 건물입니다. 창고 좌표 밑에 있는 타일 건물을 그대로 창고색으로 칠합니다.
+  // 건물 도형은 타일이 그려진 뒤에야 물을 수 있어서(idle), 그때 한 번 찾아 붙입니다.
+  map.addSource("depot-building", {type:"geojson", data:empty()});
+  map.addLayer({id:"depot-building", type:"fill-extrusion", source:"depot-building",
+    paint:{"fill-extrusion-color":"#eee7ce", "fill-extrusion-opacity":.98,
+      "fill-extrusion-height":["get","height"], "fill-extrusion-base":["get","base"]}}, firstLabel);
 
 
   // 경로 데이터는 공중 회랑 한 벌뿐입니다. 기체별 레이어는 독립적으로 깜빡이기 위함입니다.
@@ -633,7 +661,7 @@ function draw(){
         const total = m.curve.progress.at(-1);
         if (total - flown > 1e-9 && visible(world)){
           corridorAlpha(v.id, 1);
-          for (const piece of curveRibbon(m.curve, flown, total))
+          for (const piece of [...curveColumns(m.curve, flown, total), ...curveRibbon(m.curve, flown, total)])
             ribbons.push(extrusion(piece, {asset:v.id, phase:"approved"}));
         }
       }
@@ -665,8 +693,89 @@ function draw(){
   map.getSource("cargo")?.setData({type:"FeatureCollection", features:cargo});
 }
 
+/** 점이 고리 안에 있나. 교차 횟수 홀짝 — 바닥 다각형 하나 고르는 데는 이걸로 충분합니다. */
+function insideRing(ring, lon, lat){
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++){
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+/** 점에서 고리의 변까지 가장 짧은 거리(m). 올라선 동이 없을 때 곁의 동을 고르는 용도. */
+function ringGapM(ring, lon, lat){
+  const scale = Math.cos(lat * Math.PI / 180) || 1;
+  const px = lon * scale, py = lat;
+  let best = Infinity;
+  for (let i = 0; i < ring.length - 1; i++){
+    const ax = ring[i][0] * scale, ay = ring[i][1], bx = ring[i + 1][0] * scale, by = ring[i + 1][1];
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    const u = len2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+    best = Math.min(best, Math.hypot(px - (ax + u * dx), py - (ay + u * dy)) * 111320);
+  }
+  return best;
+}
+/** 고리의 넓이(도수 단위 상대값). 곁의 동 여럿 중 큰 것을 고르는 데만 씁니다. */
+function ringArea(ring){
+  let twice = 0;
+  for (let i = 0; i < ring.length - 1; i++)
+    twice += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+  return Math.abs(twice) / 2;
+}
+let depotPainted = false;
+// 매 스냅샷마다 시도합니다. 화면이 매 프레임 다시 그려서 지도가 idle 이 되는 순간이 없습니다.
+// 창고와 자리가 다 화면 안에 들어온 채로 타일이 그려졌을 때 한 번 칠하고 끝냅니다.
+function paintDepotBuilding(){
+  if (depotPainted || !map.getLayer?.("apartments") || !map.queryRenderedFeatures) return;
+  const world = latest?.worlds?.guarded;
+  const depot = world?.depot_coords;
+  if (!depot) return;
+  // 창고 표지와 기체 자리 넷 밑의 건물. 자리는 창고 지붕 위에 한 줄이라 그 건물들이 곧 창고입니다.
+  const spots = [depot, ...(world.seat_coords || [])];
+  const canvas = map.getCanvas();
+  const hits = new Map();
+  let offscreen = 0;
+  for (const spot of spots){
+    const point = map.project([spot.lon, spot.lat]);
+    if (!(point.x >= 0 && point.y >= 0 && point.x <= canvas.clientWidth && point.y <= canvas.clientHeight)){
+      offscreen += 1;
+      continue;
+    }
+    const layers = map.getLayer("footprints") ? ["footprints"] : ["apartments"];
+    // 점 밑, 없으면 둘레 40 픽셀. 마당에 선 자리라면 곁의 동을 고르기 위해서입니다.
+    const found = map.queryRenderedFeatures(point, {layers});
+    if (!found.length)
+      found.push(...map.queryRenderedFeatures([[point.x - 40, point.y - 40], [point.x + 40, point.y + 40]], {layers}));
+    for (const hit of found) hits.set(hit.id ?? JSON.stringify(hit.geometry.coordinates[0][0]), hit);
+  }
+  if (!hits.size) return;
+  // 타일의 건물 하나가 단지 전체(다중 다각형)일 수 있습니다. 창고나 자리가 실제로 올라선 동만 칠하고,
+  // 올라선 동이 없으면(자리가 마당이면) 가장 가까운 동 하나만.
+  const features = [], candidates = [];
+  for (const hit of hits.values()){
+    const polygons = hit.geometry.type === "MultiPolygon" ? hit.geometry.coordinates
+      : hit.geometry.type === "Polygon" ? [hit.geometry.coordinates] : [];
+    for (const polygon of polygons){
+      const feature = {type:"Feature", geometry:{type:"Polygon", coordinates:polygon},
+        properties:{height:Number(hit.properties?.render_height) || 10,
+                    base:Number(hit.properties?.render_min_height) || 0}};
+      if (spots.some(spot => insideRing(polygon[0], spot.lon, spot.lat))) features.push(feature);
+      else candidates.push({feature, gap:ringGapM(polygon[0], depot.lon, depot.lat), area:ringArea(polygon[0])});
+    }
+  }
+  if (!features.length){
+    // 표지 둘레 60 m 안의 동 가운데 가장 큰 것. 가장 가까운 것은 창고 옆 헛간이었습니다.
+    const beside = candidates.filter(c => c.gap <= 60).sort((a, b) => b.area - a.area)[0];
+    if (beside) features.push(beside.feature);
+  }
+  if (!features.length) return;
+  map.getSource("depot-building")?.setData({type:"FeatureCollection", features});
+  map.setLayoutProperty("depot-marker", "visibility", "none");
+  depotPainted = offscreen === 0;
+}
+
 function extrusion(piece, properties){
-  return {type:"Feature", properties:{...properties, base:piece.base, height:piece.height},
+  return {type:"Feature", properties:{...properties, base:piece.base, height:piece.height, column:!!piece.column},
           geometry:{type:"Polygon", coordinates:[piece.polygon]}};
 }
 
@@ -772,14 +881,37 @@ function renderSnapshot(data, runtime){
          <td class="${d[key]?'hit':'zero'}">${d[key] ?? 0}</td></tr>`).join("");
 
   if (runtime) { renderFeed(runtime); renderDenials(runtime, now); }
+  paintDepotBuilding();
 
   // 지금 걸려 있는 공지. 무슨 규칙이 언제 도착했고 무엇을 막는지 그대로 씁니다.
+  // 공지는 문장으로 옵니다. 런타임이 읽어서 구역으로 만든 것(notices)이 있으면 그것을 쓰고,
+  // 아직 못 읽은 문장은 문장 그대로 보입니다 — 읽었는지 자체가 화면에 나와야 합니다.
   const banner = document.getElementById("banner");
   const bulletins = data.bulletins || [];
-  banner.style.display = bulletins.length ? "block" : "none";
-  banner.innerHTML = bulletins.map(b => b.kind === "zone"
-    ? t("b_zone", b.published_tick, b.until_tick, b.name || b.id)
-    : t("b_recall", b.published_tick, b.until_tick, b.applies_to?.model || b.id)).join("<br>");
+  const notices = (runtime?.notices || []).filter(n => n.applied || n.held);
+  const known = new Set(notices.map(n => n.id));
+  const lines = notices.map(noticeLine);
+  for (const b of bulletins){
+    if (b.kind === "zone") lines.push(t("b_zone", b.published_tick, b.until_tick, b.name || b.id));
+    else if (b.kind === "notam"){
+      if (!known.has(b.id)) lines.push(t("b_notam_raw", b.published_tick, b.until_tick, safe(b.text || b.id)));
+    } else lines.push(t("b_recall", b.published_tick, b.until_tick, b.applies_to?.model || b.id));
+  }
+  banner.style.display = lines.length ? "block" : "none";
+  banner.innerHTML = lines.join("<br>");
+}
+
+/** 누가 공지를 읽었는가. 원장에는 model id 가 남고 화면에는 티어 한 단어만. */
+function noticeSource(source){
+  const s = String(source || "");
+  if (s.startsWith("model:")) return t("src_model", tierOf(s.slice(6)) || t("drafter_model"));
+  if (s === "human") return t("src_human");
+  return t("src_grammar");
+}
+function noticeLine(n){
+  const name = safe(n.name || n.id);
+  return n.held ? t("b_notam_held", name, noticeSource(n.source))
+    : t("b_notam", n.from_tick ?? "—", n.until_tick ?? "∞", name, noticeSource(n.source));
 }
 
 const ROUTED = ["fly_route", "reserve_pad"];
@@ -836,12 +968,14 @@ function renderDenials(runtime, now){
   // 거절만이 아니라 회수도 사람이 봐야 할 일입니다. 이미 승인해서 날고 있는 기체를
   // 규칙이 도착해서 되돌리는 것 — 화면에서 기체가 실제로 방향을 트는 그 순간입니다.
   const recalled = e => e.proposal.author === "runtime" && e.decision.policy_hit;
-  const fresh = recent.filter(e => e.decision.verdict === "denied" || recalled(e));
+  // '직전에 같은 신청' 거절은 사람이 볼 일이 아닙니다. 원장에는 남고 카드에는 안 뜹니다.
+  const fresh = recent.filter(e => (e.decision.verdict === "denied" && e.decision.code !== "duplicate")
+                                   || recalled(e));
   if (!fresh.length) return;
   const e = fresh[0], params = e.proposal.params || {};
-  const pulled = recalled(e);
+  const pulled = recalled(e), withdrawn = e.decision.code === "withdrawn";
   const tag = document.querySelector("#denial .tag");
-  tag.textContent = pulled ? t("d_recall") : t("d_reject");
+  tag.textContent = withdrawn ? t("d_withdraw") : pulled ? t("d_recall") : t("d_reject");
   tag.className = pulled ? "tag t-human" : "tag t-deny";
   document.getElementById("denial").style.borderColor =
     pulled ? "var(--warn)" : "var(--zone)";
@@ -850,13 +984,13 @@ function renderDenials(runtime, now){
   if (card.dataset) card.dataset.asset = e.proposal.asset_id;
   document.getElementById("denial-what").textContent = t(e.proposal.action);
   // 런타임이 값으로 남긴 것을 조립합니다. 문장을 다시 뜯지 않습니다.
-  document.getElementById("denial-why").textContent = pulled
+  document.getElementById("denial-why").textContent = pulled && !withdrawn
     ? `${t("d_pulled")} — ${reasonText(e)}`
     : reasonText(e);
   const floor = Math.round(Number(params.blocked_floor_m) || 0);
   const top = Math.round(Number(params.blocked_ceiling_m) || 0);
   const source = params.blocked_volume || e.decision.policy_hit || "";
-  const notes = [params.blocked_leg ? `${floor}–${top || "∞"} m AGL` : "",
+  const notes = [params.blocked_volume && params.blocked_leg ? `${floor}–${top || "∞"} m AGL` : "",
                  source ? t("rule_source", source) : "",
                  fresh.length > 1 ? t("d_more", fresh.length - 1) : ""];
   document.getElementById("denial-more").textContent = notes.filter(Boolean).join(" · ");
@@ -872,6 +1006,8 @@ function stageRoute(entry, now){
   const kind = verdict === "denied" ? "rejected"
     : (verdict === "auto" || verdict === "human") ? "approved" : null;
   if (!kind) return;   // 대기 중인 것은 아직 오간 경로가 아닙니다
+  // 같은 신청을 두 번 낸 것은 길이 막힌 게 아닙니다. 원장에는 경유점째 남지만 다시 그리지 않습니다.
+  if (decision.code === "duplicate") return;
   const params = entry.proposal.params || {};
   const by = approvedWord(decision, params);
   // 한 기체에 한 선만. 앞 구간이 완전히 사라진 다음에 다음 구간이 시작합니다.
@@ -935,7 +1071,11 @@ function workLabel(v){
 function reasonText(entry){
   const d = entry.decision, x = d.detail || {}, params = entry.proposal.params || {};
   switch (d.code || ""){          // 코드가 없는 결정은 런타임이 준 문장을 그대로 씁니다
-    case "airspace": return t("r_airspace", params.blocked_leg, blockedLabel(params));
+    case "airspace": return ENDPOINTS.has(params.blocked_kind)
+      ? blockedLabel(params) : t("r_airspace", params.blocked_leg, blockedLabel(params));
+    case "withdrawn": return t("r_withdrawn", x.for || params.withdrawn_for || "—");
+    case "nonconforming": return t("r_nonconforming", params.actual_depart_tick ?? "—",
+                                   x.planned_depart_tick ?? params.planned_depart_tick ?? "—");
     case "policy": return t("r_policy", x.policy);
     case "human_action": return t("r_human_action", t(x.action) || x.action);
     case "human_blast": return t("r_human_blast", x.blast);
@@ -950,9 +1090,14 @@ function reasonText(entry){
 }
 
 /** 무엇이 막았는지를 화면 말로. 런타임은 값만 주고 문구는 여기서 만듭니다. */
+const ENDPOINTS = new Set(["origin", "destination"]);
 function blockedLabel(params){
   const id = params.blocked_volume || "";
   const height = Math.round(Number(params.blocked_ceiling_m) || 0);
+  // 경로의 양끝이 기체·목적지와 안 맞으면 판정 밖을 나는 구간이 생깁니다. 막은 건 물체가 아니라 간격입니다.
+  if (ENDPOINTS.has(params.blocked_kind))
+    return t(params.blocked_kind === "origin" ? "blk_origin" : "blk_destination",
+             Math.round(Number(params.blocked_gap_m) || 0));
   if (params.blocked_kind === "traffic") return t("blk_traffic", params.blocked_asset || "");
   if (params.blocked_kind === "takeoff" || params.blocked_kind === "column")
     return t(params.blocked_kind === "takeoff" ? "blk_takeoff" : "blk_column",
@@ -978,7 +1123,8 @@ function drawStages(now, corridors){
     const phase = stagePhase(stage.kind, elapsed);
     // 판정 전후 모두 같은 공중 도형입니다. 색과 불투명도만 바뀝니다.
     const band = phase === "approved" ? "approved" : phase === "refused" ? "rejected" : "pending";
-    for (const piece of curveRibbon(stage.curve, window[0] * total, window[1] * total))
+    for (const piece of [...curveColumns(stage.curve, window[0] * total, window[1] * total),
+                         ...curveRibbon(stage.curve, window[0] * total, window[1] * total)])
       corridors.push(extrusion(piece, {asset:stage.asset, phase:band}));
     const headline =
       phase === "approved" ? `${t("ph_approved")} · ${stage.by}`

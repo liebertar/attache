@@ -183,6 +183,25 @@ export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_T
   return out;
 }
 
+// 고도가 바뀌는 꼭짓점의 수직 구간. 기체는 꼭짓점에서 제자리로 오르내리므로(sim _advance)
+// 그 자리에 세로 점선을 세워야 두 판이 이어져 보입니다. 없으면 회랑이 끊긴 것처럼 읽혔습니다.
+const COLUMN_HALF_M = 4;      // 회랑(18m)보다 가는 기둥
+const VDASH_M = 6;
+const VGAP_M = 4;
+
+/** 한 꼭짓점에서 고도 a → b 로 옮기는 세로 점선. 회랑 윗면과 같은 기준(기체 고도 − DROP)입니다. */
+export function altitudeColumn(lat, lon, fromAltM, toAltM) {
+  const low = Math.min(fromAltM, toAltM) - RIBBON_DROP_M;
+  const high = Math.max(fromAltM, toAltM) - RIBBON_DROP_M;
+  const out = [];
+  for (let z = low; z < high; z += VDASH_M + VGAP_M) {
+    const thickness = Math.min(VDASH_M, high - z);
+    if (thickness <= 0 || z + thickness <= 0) continue;
+    out.push({...box(lat, lon, COLUMN_HALF_M, z, thickness), column:true});
+  }
+  return out;
+}
+
 /** 같은 곡선을 공중 점선으로 표시합니다. 점선 간격은 출발점에 고정돼
  * 지나온 부분을 지워도 남은 도형이 밀리지 않습니다. 고도는 각 신청 구간을 따릅니다. */
 export function curveRibbon(curve, from, to) {
@@ -198,6 +217,22 @@ export function curveRibbon(curve, from, to) {
       out.push(...ribbon(sliceCurve(curve, left, right).map(([lon, lat]) =>
         ({lon, lat, alt_m:curve.altitudes[leg + 1]}))));
     }
+  }
+  return out;
+}
+
+/** 회랑의 꼭짓점마다 고도가 바뀌면 세로 점선. 꼭짓점 v 의 앞 구간 고도는 altitudes[v],
+ * 뒤 구간 고도는 altitudes[v+1] 입니다. 출발점(v=0)은 지상에서 첫 구간 고도로 오르는 이륙 기둥.
+ * 지나온 꼭짓점(from 앞)과 아직 안 그린 꼭짓점(to 뒤)은 회랑과 같이 창 밖입니다. */
+export function curveColumns(curve, from, to) {
+  const out = [];
+  for (let v = 0; v < curve.lengths.length - 1; v++) {
+    const at = curve.lengths[v];
+    if (at < from || at > to) continue;
+    const before = curve.altitudes[v], after = curve.altitudes[v + 1];
+    if (!(Math.abs(after - before) > 1)) continue;
+    const [lon, lat] = curve.points[v];
+    out.push(...altitudeColumn(lat, lon, before, after));
   }
   return out;
 }

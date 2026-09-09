@@ -396,3 +396,69 @@ test('the elevated curve keeps per-leg altitude and fixed dash positions after f
   assert.equal(all[0].base,47.5);
   assert.equal(all.at(-1).height,70.5);
 });
+
+test('a vertex where the altitude changes carries a vertical dotted column, level legs do not', () => {
+  const level = geometry.makeCurve({...start, alt_m:0}, [{...route[0], alt_m:90}, {...route[1], alt_m:90}]);
+  const stepped = geometry.makeCurve({...start, alt_m:0}, [{...route[0], alt_m:60}, {...route[1], alt_m:100}]);
+  const total = stepped.lengths.at(-1);
+  assert.ok(geometry.curveRibbon(stepped, 0, total).every(p => !p.column), '회랑 조각은 회랑만');
+  const columns = geometry.curveColumns(stepped, 0, total);
+  assert.ok(columns.every(p => p.column));
+  const [lon, lat] = stepped.points[1];
+  const atVertex = columns.filter(p => Math.abs(p.polygon[0][0] - lon) < 2e-4 && Math.abs(p.polygon[0][1] - lat) < 2e-4);
+  const takeoff = columns.filter(p => Math.abs(p.polygon[0][1] - start.lat) < 2e-4);
+  assert.ok(atVertex.length >= 3, `꼭짓점 기둥 토막 ${atVertex.length}`);
+  assert.ok(takeoff.length >= 3, `이륙 기둥 토막 ${takeoff.length}`);
+  // 기둥은 60m 판 윗면(55.5)에서 100m 판 윗면(95.5)까지 채우고, 조각은 6m 토막입니다.
+  assert.ok(atVertex.every(p => p.base >= 55.4 && p.height <= 95.6 && p.height - p.base <= 6.01));
+  assert.equal(geometry.curveColumns(level, 0, level.lengths.at(-1)).filter(p => Math.abs(p.polygon[0][1] - start.lat) > 2e-4).length, 0,
+    '고도가 같으면 꼭짓점 기둥이 없습니다');
+  assert.equal(geometry.curveColumns(stepped, total * 0.9, total).length, 0, '지나온 꼭짓점의 기둥은 창 밖입니다');
+});
+
+test('a duplicate refusal is neither replayed as a route nor raised as a card', () => {
+  const ui = scene();
+  ui.run('renderDenials',{ledger:[denial('dup',{decision:{verdict:'denied',reason:'같은 신청',code:'duplicate'}})]},0);
+  assert.equal(ui.element('denial').hidden, true);
+  ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
+  assert.equal(ui.path('rejected').length, 0);
+});
+
+test('an endpoint refusal names the gap, not a leg; a withdrawal is its own card', () => {
+  const ui = scene();
+  const gap = denial('e1', {proposal:{asset_id:'drone-01', action:'fly_route',
+    params:{legs:[start,...route], blocked_kind:'origin', blocked_leg:0, blocked_gap_m:240.4,
+            blocked_at:{lat:start.lat, lon:start.lon}}},
+    decision:{verdict:'denied', reason:'출발점', code:'airspace'}});
+  ui.run('renderDenials',{ledger:[gap]},0);
+  assert.equal(ui.element('denial-why').textContent, 'START 240 m FROM THE AIRCRAFT');
+  assert.equal(ui.element('denial-more').textContent, '', '막은 물체가 없으니 고도 띠도 없습니다');
+  ui.time(GROW_MS + CHECK_MS + HOLD_MS / 6); ui.run('draw');
+  assert.match(ui.source('stage-label').features[0].properties.label, /^REJECTED · START 240 m FROM THE AIRCRAFT/);
+  const withdrawn = {id:'w1', at:Date.now()/1000, outcome:'done',
+    proposal:{asset_id:'drone-03', action:'divert_ground', author:'runtime',
+              params:{withdrawn_for:'drone-02', intent:'i1'}},
+    decision:{verdict:'auto', reason:'물림', policy_hit:'traffic', code:'withdrawn', detail:{for:'drone-02'}}};
+  ui.run('renderDenials',{ledger:[withdrawn]},0);
+  assert.equal(ui.element('#denial .tag').textContent, 'WITHDRAWN');
+  assert.match(ui.element('denial-why').textContent, /drone-02/);
+  assert.doesNotMatch(ui.element('denial-why').textContent, /a rule arrived/);
+});
+
+test('the banner says who read a NOTAM, and shows the raw text while nobody has', () => {
+  const ui = scene();
+  const bulletin = {id:'n1', kind:'notam', text:'AREA BOUNDED BY 404310N0735920W SFC-400FT AGL 0907-0912Z',
+                    published_tick:525, until_tick:900};
+  ui.run('renderSnapshot', {...snapshot(), bulletins:[bulletin]}, {ledger:[], notices:[]});
+  assert.match(ui.element('banner').innerHTML, /NOTAM/);
+  assert.match(ui.element('banner').innerHTML, /not yet read/);
+  ui.run('renderSnapshot', {...snapshot(), bulletins:[bulletin]}, {ledger:[], notices:[
+    {id:'n1', name:'East Village helipad', applied:true, held:false, source:'grammar', from_tick:525, until_tick:900}]});
+  assert.match(ui.element('banner').innerHTML, /East Village helipad/);
+  assert.match(ui.element('banner').innerHTML, /rule grammar/);
+  assert.doesNotMatch(ui.element('banner').innerHTML, /not yet read/);
+  ui.run('renderSnapshot', {...snapshot(), bulletins:[]}, {ledger:[], notices:[
+    {id:'n2', name:'Harlem TFR', applied:false, held:true, source:'model:nvidia/nemotron-3-super-120b-a12b'}]});
+  assert.match(ui.element('banner').innerHTML, /waiting for a person/);
+  assert.equal(ui.element('banner').style.display, 'block');
+});

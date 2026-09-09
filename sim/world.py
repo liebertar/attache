@@ -1044,6 +1044,11 @@ class World:
                 "lat": round(to_latlon(*DEPOT)[0], 6),
                 "lon": round(to_latlon(*DEPOT)[1], 6),
             },
+            # 기체 자리. 화면이 그 밑의 건물을 창고로 칠합니다 — 창고는 점이 아니라 건물입니다.
+            "seat_coords": [
+                {"lat": round(to_latlon(*seat_of(i))[0], 6), "lon": round(to_latlon(*seat_of(i))[1], 6)}
+                for i in range(len(self.vehicles))
+            ],
             "landing_areas": LANDING_AREAS,
             "assets": {vid: v.public() for vid, v in self.vehicles.items()},
             "scoreboard": self.score.public(),
