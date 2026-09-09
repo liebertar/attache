@@ -15,10 +15,10 @@ from dataclasses import dataclass
 
 from attache.core.geo import Airspace, first_breach
 
-# 실제 배달 드론이 다니는 높이입니다. Wing 이 약 45m 로 납니다.
-# 허용 천장까지 최대한 올라가면 도시의 건물이 전부 그 아래에 깔려서,
-# 경로가 건물을 아예 안 보게 됩니다.
-CRUISE_ALT_M = 55.0
+# 기체가 다니고 싶은 높이. 건물 위로는 옥상에서 50m(geo.VERTICAL_CLEARANCE_M)를 띄워야 하므로
+# 90m 면 40m 아래 건물은 넘어가고 그보다 높은 건물은 옆으로 돌아갑니다 — 맨해튼에서 실제로
+# 우회로가 나오는 높이입니다. 25m 로 해 봤더니 어떤 건물도 못 넘어 길이 하나도 안 났습니다.
+CRUISE_ALT_M = 90.0
 
 # 목적지에서 이만큼 벗어난 곳까지는 우회로로 봅니다. 도시 한 구역을 크게
 # 돌아가는 경로가 나올 수 있어야 합니다.
@@ -73,6 +73,7 @@ class Router:
         self.min_alt_m = min_alt_m
         self.cruise_alt_m = cruise_alt_m or CRUISE_ALT_M
         self._blocked_memo: dict[tuple[int, int], bool] = {}
+        self._crossing_memo: dict[tuple, bool] = {}
         self._memo_for = -1
 
     @staticmethod
@@ -95,7 +96,7 @@ class Router:
         붙이는 값과 같은 규칙입니다. 두 곳이 다른 높이를 쓰면 계획기가 통과라고 본
         경로를 판정자가 거절합니다.
         """
-        return self.airspace.forbidden_at(lat, lon, self._altitude_at(lat, lon))
+        return self.airspace.too_close(lat, lon, self._altitude_at(lat, lon))
 
     def _altitude_at(self, lat: float, lon: float) -> float:
         ceiling = self.airspace.ceiling_at(lat, lon)
@@ -117,12 +118,22 @@ class Router:
         양 끝은 바깥이라 통과로 보이고, 그 경로는 first_breach 에서 반드시 떨어집니다.
         판정자가 선분을 보므로 계획기도 선분을 봐야 합니다.
         """
+        key = (a, b) if a <= b else (b, a)
+        known = self._crossing_memo.get(key)
+        if known is not None:
+            return known
         lat_a, lon_a = self._coords(a)
         lat_b, lon_b = self._coords(b)
-        return first_breach(self.airspace, [
-            {"lat": lat_a, "lon": lon_a, "alt_m": self._altitude_at(lat_a, lon_a)},
-            {"lat": lat_b, "lon": lon_b, "alt_m": self._altitude_at(lat_b, lon_b)},
+        # 구간 고도는 양 끝 중 낮은 쪽입니다. 끝점 고도를 따로 주면 판정자는 구간 전체를
+        # 도착점 고도로 보므로, 천장 낮은 칸에서 높은 칸으로 나가는 구간이 낮은 칸 안에서
+        # 천장을 넘어 늘 거절됩니다 — 낮은 칸에 들어간 기체가 영영 못 나오던 원인입니다.
+        altitude = min(self._altitude_at(lat_a, lon_a), self._altitude_at(lat_b, lon_b))
+        known = first_breach(self.airspace, [
+            {"lat": lat_a, "lon": lon_a, "alt_m": altitude},
+            {"lat": lat_b, "lon": lon_b, "alt_m": altitude},
         ]) is not None
+        self._crossing_memo[key] = known
+        return known
 
     def _ceiling_between(self, a: tuple[int, int], b: tuple[int, int],
                          samples: int = 48) -> float | None:
@@ -143,10 +154,14 @@ class Router:
     def plan(self, start: tuple[float, float], goal: tuple[float, float]) -> Route | None:
         if self._memo_for != self.airspace.revision:
             self._blocked_memo.clear()          # 공역이 바뀌면 기억한 답도 버립니다
+            self._crossing_memo.clear()
             self._memo_for = self.airspace.revision
-        start_node, goal_node = self._node(*start), self._node(*goal)
-        if self._blocked(goal_node):
-            return None  # 목적지 자체가 금지 구역이면 우회로가 없습니다
+        if self.airspace.landing_breach(*goal) is not None:
+            return None  # 내려앉을 수 없는 자리입니다. 길이 있어도 소용없습니다
+        start_node = self._free_node_near(start)
+        goal_node = self._free_node_near(goal)
+        if start_node is None or goal_node is None:
+            return None  # 출발점이나 목적지 둘레에 열린 격자점이 없습니다
 
         direct = self._straight(start_node, goal_node)
         if direct is not None:
@@ -165,6 +180,30 @@ class Router:
             legs = self._pin(self._to_legs(nodes), start, goal)
             if first_breach(self.airspace, [leg.to_dict() for leg in legs]) is None:
                 return Route(legs, detoured=True, reason="금지 구역을 피해 우회")
+        return None
+
+    def _free_node_near(self, point: tuple[float, float]) -> tuple[int, int] | None:
+        """이 지점에서 이어 붙일 수 있는 가장 가까운 열린 격자점.
+
+        격자점은 실제 지점에서 최대 35m 벗어납니다. 주소는 건물 옆이고, 회수돼 떠 있는 자리는
+        구역 경계 바로 밖이라, 딱 떨어지는 격자점이 건물 안이거나 이격 거리 안인 일이 흔합니다.
+        그러면 목적지가 멀쩡한데도 '길이 없다'가 나왔습니다. 둘레 두 칸 안에서 지점까지의
+        직선이 통과하는 가장 가까운 점을 씁니다. _pin 이 마지막에 실제 지점으로 잇습니다.
+        """
+        centre = self._node(*point)
+        candidates = sorted(
+            ((centre[0] + di, centre[1] + dj) for di in range(-2, 3) for dj in range(-2, 3)),
+            key=lambda node: math.dist(self._coords(node), point),
+        )
+        for node in candidates:
+            if self._blocked(node):
+                continue
+            lat, lon = self._coords(node)
+            altitude = min(self._altitude_at(lat, lon), self._altitude_at(*point))
+            hop = [{"lat": point[0], "lon": point[1], "alt_m": altitude},
+                   {"lat": lat, "lon": lon, "alt_m": altitude}]
+            if first_breach(self.airspace, hop) is None:
+                return node
         return None
 
     @staticmethod

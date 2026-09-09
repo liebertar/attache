@@ -127,8 +127,8 @@ class AirspaceTest(unittest.TestCase):
     def test_a_sub_sample_building_crossing_is_rejected_in_both_directions(self):
         from attache.core.geo import Airspace, Volume, box, first_breach
 
-        # 100m 경로의 8m 표본 사이에 폭 1m 장애물을 놓습니다.
-        obstacle = Volume("thin", "thin building", box(-.0001, .000031, .0001, .000041),
+        # 100m 경로의 8m 표본 사이에 폭 1m 장애물을 놓습니다. 건물이라 이격은 10m 입니다.
+        obstacle = Volume("bldg-thin", "thin building", box(-.0001, .000031, .0001, .000041),
                           ceiling_m=70)
         airspace = Airspace([obstacle], default_ceiling_m=None)
         legs = [{"lat": 0, "lon": 0, "alt_m": 55},
@@ -136,19 +136,21 @@ class AirspaceTest(unittest.TestCase):
         for path in (legs, list(reversed(legs))):
             found = first_breach(airspace, path, samples=1)
             self.assertIsNotNone(found)
-            self.assertEqual(found[1].id, "thin")
+            self.assertEqual(found[1].id, "bldg-thin")
             self.assertTrue(obstacle.covers(*found[3]))
         self.assertIsNone(first_breach(airspace, [{**p, "alt_m": 71} for p in legs]))
         self.assertIsNone(first_breach(airspace, [{**p, "lat": .0002} for p in legs]))
 
-    def test_the_measured_139_tick_building_corner_is_rejected(self):
-        from attache.core.geo import Airspace, first_breach
+    def test_a_low_line_across_lower_manhattan_hits_a_building(self):
+        """기체가 승인된 경로에서 건물 모서리를 139틱 스치던 실측 구간. 8m 표본으로는 놓쳤습니다."""
+        from attache.core.geo import first_breach
         from sim.world import AIRSPACE
 
-        building = next(v for v in AIRSPACE.all() if v.id == "bldg-1077589")
         legs = [{"lat": 40.7106, "lon": -73.985, "alt_m": 55},
                 {"lat": 40.7106, "lon": -73.992, "alt_m": 55}]
-        self.assertIsNotNone(first_breach(Airspace([building]), legs))
+        found = first_breach(AIRSPACE, legs)
+        self.assertIsNotNone(found)
+        self.assertTrue(found[1].id.startswith("bldg-"))
 
     def test_a_zero_foot_cell_becomes_a_ban_not_a_ceiling(self):
         """천장 0ft 는 '낮게 날아라'가 아니라 '허가 없이는 못 난다'입니다."""
@@ -217,9 +219,10 @@ class RouterAgreesWithTheJudgeTest(unittest.TestCase):
                      (40.800006809, -73.991672612), (40.791673474, -73.991672612)],
         ))
         router = Router(airspace)
-        # 하나는 구역 동쪽 바로 밖, 하나는 남쪽 바로 밖. 잇는 선분은 귀퉁이를 지납니다.
+        # 하나는 구역 동쪽 밖, 하나는 남쪽 밖(이격 거리 10m 보다는 떨어진 자리).
+        # 잇는 선분은 남동쪽 귀퉁이를 지납니다.
         outside_east = router._node(40.7934, -73.9908)
-        outside_south = router._node(40.7916, -73.9926)
+        outside_south = router._node(40.79115, -73.9926)
         self.assertFalse(router._blocked(outside_east))
         self.assertFalse(router._blocked(outside_south))
         self.assertTrue(router._crosses(outside_east, outside_south))
@@ -236,9 +239,13 @@ class RouterAgreesWithTheJudgeTest(unittest.TestCase):
         planner = OperatorPlanner()
         planner.load(Sim().worlds["guarded"].snapshot(0, volumes=True)["volumes"])
 
-        bay = (40.7019, -73.9721)
-        starts = [(40.7969, -73.9704), (40.7580, -73.9855), (40.7280, -73.9955),
-                  (40.7750, -73.9600), (40.7100, -74.0100)]
+        from sim.world import PADS, to_latlon
+
+        bay = to_latlon(*PADS["pad:launch"])     # 내려앉을 수 있는 자리여야 합니다(착륙 둘레 50m)
+        # 출발점은 지정 착륙장. 미드타운 한복판 같은 자리는 둘레 두 칸 안에 열린 격자점이 없어
+        # 길이 없다고 답하는 것이 맞고, 그건 이 시험이 보려는 것이 아닙니다.
+        starts = [(40.70335, -74.01565), (40.7308, -73.9973), (40.7359, -73.99063),
+                  (40.7425, -73.9605), (40.7206, -73.952)]
         drawn = 0
         for start in starts:
             legs = planner.draw(start, bay)
@@ -258,19 +265,23 @@ class WeavingBetweenBuildingsTest(unittest.TestCase):
     경로가 아니라 '경로 없음'만 나옵니다.
     """
 
+    # 이륙장에서 워싱턴스퀘어(지정 착륙장)까지. 목적지는 내려앉을 수 있는 자리여야 합니다.
+    START = (40.7019, -73.97049)
+    GOAL = (40.7308, -73.9973)
+
     def _router(self):
         from attache.core.route import Router
         from sim.world import AIRSPACE, BUILDINGS
 
         if not BUILDINGS:
-            self.skipTest("건물 데이터가 없습니다 (scripts/fetch_buildings.py)")
+            self.skipTest("건물 데이터가 없습니다 (scripts/fetch_tile_buildings.mjs)")
         return Router(AIRSPACE)
 
     def test_a_route_through_the_city_exists_and_survives_the_judge(self):
         from attache.core.geo import first_breach
 
         router = self._router()
-        route = router.plan((40.7019, -73.97049), (40.7250, -73.9900))
+        route = router.plan(self.START, self.GOAL)
         self.assertIsNotNone(route, "도심을 가로지르는 경로가 하나도 안 나옵니다")
         legs = [leg.to_dict() for leg in route.legs]
         self.assertIsNone(first_breach(router.airspace, legs),
@@ -289,9 +300,9 @@ class WeavingBetweenBuildingsTest(unittest.TestCase):
 
         if not BUILDINGS:
             self.skipTest("건물 데이터가 없습니다")
-        start, goal = (40.7019, -73.97049), (40.7250, -73.9900)
-        high = Router(AIRSPACE, cruise_alt_m=70).plan(start, goal)
-        low = Router(AIRSPACE, cruise_alt_m=25).plan(start, goal)
+        # 옥상 위 50m 규칙이라 120m 는 70m 아래 건물을 넘어가고, 90m 는 40m 아래 건물만 넘어갑니다.
+        high = Router(AIRSPACE, cruise_alt_m=120).plan(self.START, self.GOAL)
+        low = Router(AIRSPACE, cruise_alt_m=90).plan(self.START, self.GOAL)
         self.assertIsNotNone(high)
         self.assertIsNotNone(low)
         self.assertGreater(len(low.legs), len(high.legs),
@@ -300,7 +311,7 @@ class WeavingBetweenBuildingsTest(unittest.TestCase):
     def test_the_route_starts_where_you_are_and_ends_where_you_are_going(self):
         """격자점에서 끝나면 남은 100m 를 아무도 판정한 적 없는 채로 날게 됩니다."""
         router = self._router()
-        start, goal = (40.7019, -73.9721), (40.7250, -73.9900)
+        start, goal = self.START, self.GOAL
         route = router.plan(start, goal)
         self.assertIsNotNone(route)
         self.assertAlmostEqual(route.legs[0].lat, start[0], places=5)
