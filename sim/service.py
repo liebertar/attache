@@ -15,7 +15,9 @@ def main() -> None:
         tick_seconds=float(os.getenv("TICK_SECONDS", "0.2")),
         lock_actuator=os.getenv("LOCK_ACTUATOR", "0") == "1",
         # 화면을 켜두면 계속 돌아야 합니다. 한 판이 끝나면 알아서 다시 시작합니다.
-        max_ticks=int(os.getenv("ROUND_TICKS", "420")),
+        max_ticks=int(os.getenv("ROUND_TICKS", "1800")),
+        # 22 m/s 로 날면 브루클린에서 맨해튼 한 건이 300틱 안팎입니다.
+        # 420틱이던 시절은 격자 단위로 움직여 남북이 8배 빨랐을 때의 값입니다.
     )
 
     def clock() -> None:
@@ -30,7 +32,9 @@ def main() -> None:
         world = simulation.worlds.get(name)
         if world is None:
             return 404, {"error": f"unknown world {name}"}
-        return 200, world.snapshot(simulation.tick_count)
+        # 판 번호를 같이 보냅니다. 런타임이 한 판짜리 상태(예산·잠금)를 언제
+        # 비워야 하는지 알 방법이 이것뿐입니다.
+        return 200, {**world.snapshot(simulation.tick_count), "round": simulation.rounds}
 
     def act(body, query):
         world = simulation.worlds.get(body.get("world", "guarded"))

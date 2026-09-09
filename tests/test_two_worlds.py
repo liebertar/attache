@@ -13,12 +13,14 @@ import unittest
 from attache.agent.detect import detect
 from attache.agent.planner import OperatorPlanner
 from attache.agent.propose import COSTS, by_rule
-from attache.core.config import Policy
+from attache.core.config import load as config_load
 from attache.core.models import Proposal, Verdict
 from attache.runtime.service import Runtime
 from sim.world import RECALL, RECALL_TICK, ZONE, ZONE_TICK, Simulation
 
-TICKS = 1200
+# 22 m/s 로 날면 브루클린-맨해튼 한 번 왕복이 1100틱 안팎입니다.
+# 구역 폐쇄(560~900틱) 이후까지 봐야 두 세계가 갈리는 지점이 나옵니다.
+TICKS = 1500
 PADS = ["bay:A", "bay:B"]
 
 
@@ -177,9 +179,15 @@ class DirectSide:
         return open_pads[0] if open_pads else PADS[0]
 
 
+CONFIG = "configs/fleet.yaml"
+
+
 def run(tmp_ledger: str):
-    simulation = Simulation(seed=7, fleet_limit=500.0)
-    runtime = Runtime("configs/fleet.yaml", "http://unused", tmp_ledger, window_s=0.0)
+    # 점수판이 재는 한도와 런타임이 강제하는 한도는 같은 숫자여야 합니다.
+    # 따로 적어두면 런타임 기준으로는 정상인데 점수판만 초과라고 합니다.
+    limit = config_load(CONFIG).authority.fleet_usd
+    simulation = Simulation(seed=7, fleet_limit=limit)
+    runtime = Runtime(CONFIG, "http://unused", tmp_ledger, window_s=0.0)
     guarded_world = simulation.worlds["guarded"]
     adapter = LocalAdapter(guarded_world, lambda: simulation.tick_count)
     runtime.adapter = adapter
@@ -201,19 +209,8 @@ def run(tmp_ledger: str):
         tick = simulation.tick_count
 
         # 제한하는 공지는 런타임이 도착 즉시 겁니다. 푸는 정책만 사람이 풉니다.
-        known = {p.id for p in runtime.policies.all()}
-        for item in simulation.bulletins():
-            if item["id"] in known:
-                continue
-            policy = Policy(
-                id=item["id"],
-                reason=item["reason"],
-                forbid_action=item.get("forbid_action"),
-                forbid_resource=item.get("forbid_resource"),
-                applies_to=item.get("applies_to", {}),
-            )
-            runtime.policies.add(policy)
-            runtime.revoke_under(policy)
+        # 실서비스와 같은 코드로 받습니다 — 두 벌로 적으면 갈라집니다.
+        runtime.absorb(simulation.bulletins())
 
         runtime.tick = tick
         guarded_snapshot = guarded_world.snapshot(tick)
@@ -274,9 +271,9 @@ class TwoWorldsTest(unittest.TestCase):
         self.assertEqual(self.direct["unrecorded_actions"], self.direct["actions"])
         self.assertGreater(self.direct["actions"], 0)
 
-    def test_pads_are_shared_without_a_lock_table(self):
-        """동질 기단은 같은 순간에 같은 것을 원합니다. 예약 의도는 서로 안 보입니다."""
-        self.assertGreater(self.direct["pad_conflicts"], 0)
+    # 패드 충돌은 "그 판에 두 대가 같은 순간에 같은 패드를 골랐는가"에 달려 있어서
+    # 시나리오가 조금만 달라져도 났다 안 났다 합니다. 위 docstring 이 말하는 그 경우라
+    # 결정적으로 볼 수 있는 test_mechanisms.PadContentionTest 로 옮겼습니다.
 
     def test_the_direct_side_never_gets_a_human_look(self):
         self.assertEqual(self.direct["human_approvals"], 0)

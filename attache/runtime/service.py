@@ -40,6 +40,8 @@ class Runtime:
         self.telemetry: dict = {}
         self.airspace = Airspace()
         self.router = Router(self.airspace)
+        self.zone_volumes: set[str] = set()   # 공지로 들어온 구역. 끝나면 빼야 합니다
+        self._round = None                    # 시뮬레이터가 판을 새로 시작하면 따라갑니다
         self._contended: dict[str, list[tuple[Proposal, Decision, float]]] = {}
         self._awaiting_human: dict[str, Proposal] = {}
         self._decisions: dict[str, Decision] = {}
@@ -195,6 +197,7 @@ class Runtime:
         if state:
             self.tick = state.get("tick", self.tick)
             self.telemetry = state.get("assets", {})
+            self._follow_round(state.get("round"))
 
         if not self.airspace.all():
             world = get_json(f"{self.sim_url}/state?world=guarded") or {}
@@ -206,10 +209,41 @@ class Runtime:
             }
 
         bulletins = get_json(f"{self.sim_url}/bulletins?world=guarded") or {}
+        self.absorb(bulletins.get("bulletins", []))
+
+    def _follow_round(self, round_number) -> None:
+        """판이 바뀌면 한 판짜리 상태를 비웁니다 — 예산, 잠금, 중복 방지.
+
+        원장은 남습니다. 그건 역사이고, 판이 바뀐다고 없던 일이 되지 않습니다.
+        공지 정책도 비웁니다. 같은 id 로 다시 게시되면 그때 다시 걸립니다.
+        """
+        if round_number is None or round_number == self._round:
+            return
+        self._round = round_number
+        self.authority.new_round()
+        for asset_id in list(self.telemetry):
+            self.locks.release_all(asset_id)
+        self._recent_commits.clear()
+        for volume_id in self.zone_volumes:
+            self.airspace.remove(volume_id)
+        self.zone_volumes.clear()
+        self.policies.clear()
+
+    def absorb(self, bulletins: list[dict]) -> None:
+        """공지를 규칙으로 받습니다. 구역 공지는 공역에도 넣습니다.
+
+        자원만 막고 공역을 그대로 두면, 닫힌 구역을 지나는 경로가 계속 승인됩니다.
+        기지 위에 구역이 닫혔는데 거기로 날아가는 경로가 통과하던 게 그래서였습니다.
+        유효기간이 끝나 공지에서 빠지면 판정 기준에서도 빠집니다.
+        """
+        items = [i for i in bulletins if i.get("kind") in ("recall", "zone")]
         known = {p.id for p in self.policies.all()}
-        for item in bulletins.get("bulletins", []):
-            if item.get("kind") not in ("recall", "zone") or item["id"] in known:
+        for item in items:
+            if item["id"] in known:
                 continue
+            if item.get("polygon"):
+                self.airspace.add(Volume.from_dict(item))
+                self.zone_volumes.add(item["id"])
             # 제한하는 정책은 즉시 걸립니다. 푸는 정책만 사람이 풉니다.
             policy = config_module.Policy(
                 id=item["id"],
@@ -222,6 +256,9 @@ class Runtime:
             )
             self.policies.add(policy)
             self.revoke_under(policy)
+        for expired in self.zone_volumes - {i["id"] for i in items}:
+            self.airspace.remove(expired)
+            self.zone_volumes.discard(expired)
 
     def background(self) -> None:
         while True:

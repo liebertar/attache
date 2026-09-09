@@ -117,12 +117,17 @@ class Airspace:
                  default_ceiling_m: float | None = DEFAULT_CEILING_M):
         self._volumes: dict[str, Volume] = {v.id: v for v in (volumes or [])}
         self.default_ceiling_m = default_ceiling_m
+        # 구역이 하나 열리고 하나 닫히면 개수는 그대로입니다. 캐시를 개수로 무효화하면
+        # 그 순간을 놓칩니다. 그래서 바뀔 때마다 올라가는 번호를 둡니다.
+        self.revision = 0
 
     def add(self, volume: Volume) -> None:
         self._volumes[volume.id] = volume
+        self.revision += 1
 
     def remove(self, volume_id: str) -> None:
-        self._volumes.pop(volume_id, None)
+        if self._volumes.pop(volume_id, None) is not None:
+            self.revision += 1
 
     def all(self) -> list[Volume]:
         return list(self._volumes.values())

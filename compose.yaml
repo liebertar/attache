@@ -39,7 +39,7 @@ services:
     environment:
       PORT: 8100
       SEED: ${SEED:-7}
-      FLEET_LIMIT_USD: 500
+      FLEET_LIMIT_USD: 720
       TICK_SECONDS: ${TICK_SECONDS:-0.2}
     ports: ["8100:8100"]
     networks: [world]

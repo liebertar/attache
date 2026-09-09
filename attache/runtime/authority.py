@@ -21,6 +21,15 @@ class AuthorityCheck:
     def asset_spend(self, asset_id: str) -> float:
         return round(self._spent_by_asset[asset_id], 2)
 
+    def new_round(self) -> None:
+        """판이 새로 시작하면 쓴 돈도 새로 셉니다.
+
+        예산은 한 판 안에서의 재량입니다. 시뮬레이터가 기체를 새로 세우는데 여기만
+        누적으로 남으면, 두 번째 판부터는 한도가 다 차서 아무것도 승인되지 않습니다.
+        """
+        self._spent_by_asset.clear()
+        self._spent_fleet = 0.0
+
     def record_spend(self, proposal: Proposal) -> None:
         """실행이 끝난 뒤에만 부릅니다. 승인 대기 중인 돈은 아직 쓴 돈이 아닙니다."""
         self._spent_by_asset[proposal.asset_id] += proposal.cost_usd

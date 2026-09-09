@@ -13,6 +13,10 @@ class PolicyBook:
     def all(self) -> list[Policy]:
         return list(self._policies)
 
+    def clear(self) -> None:
+        """판이 바뀌면 비웁니다. 공지는 새 판에서 다시 게시되고 그때 다시 걸립니다."""
+        self._policies = []
+
     def active(self, tick: int) -> list[Policy]:
         return [p for p in self._policies if tick >= p.active_from_tick]
 

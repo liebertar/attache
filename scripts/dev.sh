@@ -8,7 +8,7 @@ mkdir -p .run
 cleanup() { pkill -P $$ || true; }
 trap cleanup EXIT INT TERM
 
-PORT=8100 TICK_SECONDS="${TICK_SECONDS:-0.2}" FLEET_LIMIT_USD=450 \
+PORT=8100 TICK_SECONDS="${TICK_SECONDS:-0.2}" FLEET_LIMIT_USD=720 \
   python3 -m sim.service & sleep 1
 PORT=8000 CONFIG=configs/fleet.yaml SIM_URL=http://localhost:8100 \
   LEDGER_PATH=.run/ledger.jsonl python3 -m attache.runtime.service & sleep 1

@@ -145,3 +145,56 @@ class AirspaceTest(unittest.TestCase):
         self.assertIs(decision.verdict, Verdict.DENIED)
         self.assertEqual(decision.policy_hit, "airspace")
         self.assertIn("구간이 규정을 어깁니다", decision.reason)
+
+
+class RouterAgreesWithTheJudgeTest(unittest.TestCase):
+    """계획기와 런타임이 같은 판정을 해야 합니다.
+
+    격자점만 보면 대각선 한 칸이 폴리곤 귀퉁이를 관통해도 양 끝이 바깥이라 통과로 보입니다.
+    판정자는 선분을 보므로 위반이라고 합니다. 그러면 A* 가 내놓는 경로가 전부 마지막
+    검사에서 떨어지고, 아무것도 승인되지 않은 채 전량 decline_job 이 됩니다.
+    """
+
+    def test_a_diagonal_step_that_clips_a_corner_is_not_a_free_step(self):
+        from attache.core.geo import Airspace, Volume, first_breach
+        from attache.core.route import Router
+
+        airspace = Airspace()
+        airspace.add(Volume(
+            id="corner", name="0ft", rule="forbidden",
+            # FAA UASFM 의 실제 KTEB 0ft 칸 경계입니다.
+            polygon=[(40.791673474, -74.000005947), (40.800006809, -74.000005947),
+                     (40.800006809, -73.991672612), (40.791673474, -73.991672612)],
+        ))
+        router = Router(airspace)
+        # 하나는 구역 동쪽 바로 밖, 하나는 남쪽 바로 밖. 잇는 선분은 귀퉁이를 지납니다.
+        outside_east = router._node(40.7934, -73.9908)
+        outside_south = router._node(40.7916, -73.9926)
+        self.assertFalse(router._blocked(outside_east))
+        self.assertFalse(router._blocked(outside_south))
+        self.assertTrue(router._crosses(outside_east, outside_south))
+
+        legs = router._to_legs([outside_east, outside_south])
+        breach = first_breach(airspace, [leg.to_dict() for leg in legs])
+        self.assertIsNotNone(breach, "판정자는 위반이라고 하는데 계획기가 통과시키면 안 됩니다")
+
+    def test_every_route_the_planner_hands_over_survives_the_judge(self):
+        from attache.agent.planner import OperatorPlanner
+        from attache.core.geo import first_breach
+        from sim.world import Simulation as Sim
+
+        planner = OperatorPlanner()
+        planner.load(Sim().worlds["guarded"].snapshot(0)["volumes"])
+
+        bay = (40.7019, -73.9721)
+        starts = [(40.7969, -73.9704), (40.7580, -73.9855), (40.7280, -73.9955),
+                  (40.7750, -73.9600), (40.7100, -74.0100)]
+        drawn = 0
+        for start in starts:
+            legs = planner.draw(start, bay)
+            if legs is None:
+                continue   # 규정상 길이 없는 자리는 있습니다. 없다고 말하는 것도 답입니다
+            drawn += 1
+            self.assertIsNone(first_breach(planner.airspace, legs),
+                              f"{start} 에서 그린 경로를 런타임이 거절합니다")
+        self.assertTrue(drawn, "실제 공역에서 단 하나도 못 그리면 계획기가 고장난 것입니다")

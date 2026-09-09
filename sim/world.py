@@ -34,9 +34,23 @@ ORIGIN_LAT, ORIGIN_LON = 40.6900, -74.0250
 SPAN_LAT, SPAN_LON = 0.1400, 0.1150
 CRUISE_ALT_M = 90.0
 LOITER_ALT_M = 45.0  # 승인 전 대기 고도
-SPEED_PER_TICK = 0.55   # 격자 1칸 ≈ 97 m, 0.25초 틱 → 초속 약 210 m (실제의 약 10배)
-CLIMB_RATE_M = 1.6      # 틱당 상승
-DESCENT_RATE_M = 1.4    # 틱당 하강
+
+# 격자 한 칸은 정사각형이 아닙니다. 위도 40.7도에서 동서로 약 97 m, 남북으로 약 258 m.
+# 격자 단위로 등속 이동하면 남북이 2.7배 빨라집니다 — 브루클린에서 맨해튼으로 가는
+# 배달은 대부분 남북이라, 그게 화면에서 보이던 속도의 정체였습니다. 그래서 미터로 움직입니다.
+METRES_PER_CELL_X = 97.0
+METRES_PER_CELL_Y = 258.0
+
+# 1틱이 나타내는 시간. 화면 재생 속도(TICK_SECONDS)와는 별개입니다.
+# 재생이 0.2초면 시뮬레이션 시간이 실제보다 4배 빠르게 흐릅니다.
+SIM_SECONDS_PER_TICK = 0.8
+CRUISE_MPS = 22.0             # 배달용 멀티로터 순항 속도
+CLIMB_MPS = 2.0
+DESCENT_MPS = 1.75
+
+STEP_METRES = CRUISE_MPS * SIM_SECONDS_PER_TICK      # 틱당 17.6 m
+CLIMB_RATE_M = CLIMB_MPS * SIM_SECONDS_PER_TICK      # 틱당 상승
+DESCENT_RATE_M = DESCENT_MPS * SIM_SECONDS_PER_TICK  # 틱당 하강
 APPROACH_RADIUS = 6.0  # 이 안에 들어오면 내려가기 시작합니다
 
 
@@ -54,7 +68,9 @@ COSTS = {
     "depart": 0.0,
 }
 
-RECALL_TICK = 30
+# 기체가 기지에 닿는 데 468~605틱 걸립니다(22 m/s). 공지와 구역 폐쇄는
+# 그들이 실제로 충전대에 있을 때 도착해야 의미가 있습니다.
+RECALL_TICK = 520
 
 # 상시 공역. 한 동네 안에서도 허용 고도가 갈립니다 — 실제 데이터가 그렇게 생겼습니다.
 # FAA UAS Facility Map 은 격자마다 천장이 다르고, ED-269 구역은 하한·상한을 갖습니다.
@@ -108,12 +124,36 @@ def to_grid(lat: float, lon: float) -> tuple[float, float]:
             (1.0 - (lat - ORIGIN_LAT) / SPAN_LAT) * 60.0)
 
 
+# 배달 서비스 반경. 22 m/s 로 왕복 6분, 항속 24분이면 한 번 충전에 서너 건입니다.
+# 실제 드론 배달도 이렇게 운영합니다 — 기지 하나가 도시 전체를 맡지 않습니다.
+# 이 반경을 늘리면 왕복이 배터리를 넘어서고, 기단이 기지에 못 돌아옵니다.
+SERVICE_RADIUS_M = 4000.0
+
+
+_SERVICE_AREA: list[dict] | None = None
+
+
 def pickable_addresses() -> list[dict]:
-    """금지 구역 밖에 있는 주소만. 거기로는 애초에 배달을 못 받습니다."""
+    """배달을 받을 수 있는 주소. 금지 구역 밖이고, 서비스 반경 안입니다.
+
+    공역(AIRSPACE)이 이 아래에서 만들어지므로 처음 부를 때 한 번만 셈합니다.
+    """
+    global _SERVICE_AREA
+    if _SERVICE_AREA is None:
+        _SERVICE_AREA = _within_service_area()
+    return _SERVICE_AREA
+
+
+def _within_service_area() -> list[dict]:
+    depot_lat, depot_lon = to_latlon(*DEPOT)
     open_ones = []
     for address in ADDRESSES:
         if any(v.rule == "forbidden" and v.covers(address["lat"], address["lon"])
                for v in AIRSPACE.all()):
+            continue
+        north = (address["lat"] - depot_lat) * 110_570.0
+        east = (address["lon"] - depot_lon) * 84_400.0   # 위도 40.7 도 기준
+        if (north * north + east * east) ** 0.5 > SERVICE_RADIUS_M:
             continue
         gx, gy = to_grid(address["lat"], address["lon"])
         if 2 <= gx <= 98 and 2 <= gy <= 58:
@@ -121,10 +161,11 @@ def pickable_addresses() -> list[dict]:
     return open_ones
 
 
+
 # 병원 응급헬기가 뜬다고 갑자기 상공이 닫힙니다. 착륙 패드 P1 이 그 안에 있습니다.
 # 이게 리콜과 같은 얘기의 공간판입니다. 금지가 언제 도착하고 누가 강제하느냐.
-ZONE_TICK = 40
-ZONE_UNTIL = 170   # 응급헬기가 뜨고 내리는 동안만. 구역에는 유효기간이 있습니다
+ZONE_TICK = 560
+ZONE_UNTIL = 900   # 응급헬기가 뜨고 내리는 동안만. 구역에는 유효기간이 있습니다
 ZONE = {
     "id": "nofly-2026-09-hospital",
     "kind": "zone",
@@ -135,9 +176,11 @@ ZONE = {
                 [40.7055, -73.9690], [40.7055, -73.9760]],
     "floor_m": 0, "ceiling_m": None, "reference": "AGL",
     "rule": "forbidden", "source": "예시 데이터",
-    "centre": (25.0, 45.0),
-    "radius": 16.0,
 }
+# 구역은 이 폴리곤 하나입니다. 예전에는 점수판이 따로 원(centre·radius)을 들고 있었는데,
+# 폴리곤을 브루클린으로 옮길 때 원은 안 옮겨져서 이스트강 한복판을 세고 있었습니다.
+# 런타임이 막는 곳, 점수판이 세는 곳, 화면이 그리는 곳이 같아야 합니다.
+ZONE_VOLUME = Volume.from_dict(ZONE)
 RECALL = {
     "id": "recall-2026-09-dv-x500",
     "kind": "recall",
@@ -237,9 +280,12 @@ def fresh_fleet(seed: int) -> list[Vehicle]:
     rng = random.Random(seed)
     return [
         # 같은 기종은 같은 속도로 닳습니다. 그래서 같은 순간에 같은 패드를 원합니다.
-        Vehicle("drone-01", "dv-x500", "delivery", 18.0, 20.0, 31.0, cargo=True),
-        Vehicle("drone-02", "dv-hexa", "drone", 62.0, 14.0, 70.0 + rng.random(), cargo=True),
-        Vehicle("drone-03", "dv-x500", "delivery", 84.0, 26.0, 31.0, cargo=True),
+        # 배달 기단은 창고에 삽니다. 기지(47.8, 54.9) 바로 위에서 하루를 시작합니다.
+        # 예전 좌표는 어퍼 맨해튼이었는데, 그때는 남북 이동이 8배 빨라서 기지까지
+        # 몇십 틱이면 갔습니다. 실제 속도로는 그 자리에서 배터리가 먼저 끝납니다.
+        Vehicle("drone-01", "dv-x500", "delivery", 44.0, 52.0, 62.0, cargo=True),
+        Vehicle("drone-02", "dv-hexa", "drone", 48.0, 50.0, 70.0 + rng.random(), cargo=True),
+        Vehicle("drone-03", "dv-x500", "delivery", 52.0, 52.0, 55.0, cargo=True),
     ]
 
 
@@ -325,11 +371,15 @@ class World:
             vehicle.assigned_pad = None
             vehicle.state = "cruising"
             vehicle.cruise_alt = LOITER_ALT_M
+            vehicle.waypoints = []   # 다 쓴 경로입니다
             vehicle.vibration = 0.0  # 패드에 있는 동안 정비를 받았습니다
         elif action == "divert_ground":
             # 접근을 끊고 대기로 돌아갑니다. 착륙이 아니라 회항입니다.
+            # 경유점을 남겨두면 회수 명령을 받고도 원래 목적지로 계속 날아갑니다 —
+            # 구역이 닫혔는데 그 안으로 들어가던 게 그래서였습니다.
             vehicle.assigned_pad = None
             vehicle.state = "cruising"
+            vehicle.waypoints = []
             vehicle.vibration = 0.0
         elif action == "disengage_autonomy":
             vehicle.autonomy_health = 0.0
@@ -385,7 +435,9 @@ class World:
         vehicle.battery -= 0.055
         if vehicle.kind == "drone" and tick >= 60:
             vehicle.vibration = min(1.0, vehicle.vibration + 0.006)
-        if vehicle.id == "drone-03" and tick >= 200:
+        # 자율주행 이상은 배달이 몇 건 돌아간 뒤에 옵니다. 초반에 세워버리면
+        # 기단의 3분의 1이 판 내내 멈춰 있습니다.
+        if vehicle.id == "drone-03" and tick >= 900:
             vehicle.autonomy_health = max(0.0, vehicle.autonomy_health - 0.01)
 
         if vehicle.battery <= 0.0:
@@ -447,15 +499,17 @@ class World:
         vehicle.job_x, vehicle.job_y = address["gx"], address["gy"]
 
     def _move_toward(self, vehicle: Vehicle, target: tuple[float, float]) -> None:
-        dx, dy = target[0] - vehicle.x, target[1] - vehicle.y
-        distance = (dx * dx + dy * dy) ** 0.5
-        if distance < 0.01:
+        # 격자가 아니라 미터로 잽니다. 그래야 동서와 남북의 속도가 같습니다.
+        dx_m = (target[0] - vehicle.x) * METRES_PER_CELL_X
+        dy_m = (target[1] - vehicle.y) * METRES_PER_CELL_Y
+        distance_m = (dx_m * dx_m + dy_m * dy_m) ** 0.5
+        if distance_m < 1.0:
             return
-        step = min(SPEED_PER_TICK, distance)
-        vehicle.x += dx / distance * step
-        vehicle.y += dy / distance * step
+        step_m = min(STEP_METRES, distance_m)
+        vehicle.x += dx_m / distance_m * step_m / METRES_PER_CELL_X
+        vehicle.y += dy_m / distance_m * step_m / METRES_PER_CELL_Y
         # 화면 북쪽이 y 감소 방향입니다
-        vehicle.heading = (math.degrees(math.atan2(dx, -dy))) % 360.0
+        vehicle.heading = (math.degrees(math.atan2(dx_m, -dy_m))) % 360.0
 
     @staticmethod
     def _hold_altitude(vehicle: Vehicle, target: tuple[float, float]) -> None:
@@ -500,12 +554,10 @@ class World:
         """
         if not (ZONE_TICK <= tick <= ZONE_UNTIL):
             return
-        centre_x, centre_y = ZONE["centre"]
         for vehicle in self.vehicles.values():
             if vehicle.state == "grounded":
                 continue
-            distance = ((vehicle.x - centre_x) ** 2 + (vehicle.y - centre_y) ** 2) ** 0.5
-            inside = distance <= ZONE["radius"]
+            inside = ZONE_VOLUME.covers(*to_latlon(vehicle.x, vehicle.y))
             if inside:
                 self.score.zone_dwell_ticks += 1
             if tick == ZONE_TICK:
@@ -557,13 +609,7 @@ class World:
                            "reference", "rule", "reason", "source")}]
                 if ZONE_TICK <= tick <= ZONE_UNTIL else []
             ),
-            "zone": {
-                **{k: v for k, v in ZONE.items() if k != "centre"},
-                "lat": to_latlon(*ZONE["centre"])[0],
-                "lon": to_latlon(*ZONE["centre"])[1],
-                "radius_m": round(ZONE["radius"] / 100.0 * SPAN_LON * 88_000, 0),
-                "active": tick >= ZONE_TICK,
-            },
+            "zone": {**ZONE, "active": tick >= ZONE_TICK},
             "pads": PADS,
             "pad_coords": {
                 name: {"lat": round(lat, 6), "lon": round(lon, 6)}
@@ -626,7 +672,7 @@ class Simulation:
     def bulletins(self) -> list[dict]:
         out = []
         if ZONE_TICK <= self.tick_count <= ZONE_UNTIL:
-            out.append({**{k: v for k, v in ZONE.items() if k != "centre"},
+            out.append({**ZONE,
                         "published_tick": ZONE_TICK, "until_tick": ZONE_UNTIL})
         if self.tick_count >= RECALL_TICK:
             out.append({**RECALL, "published_tick": RECALL_TICK})
