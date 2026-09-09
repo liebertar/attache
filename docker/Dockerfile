@@ -47,6 +47,8 @@ FROM base AS sim
 COPY attache/__init__.py /app/attache/__init__.py
 COPY attache/core /app/attache/core
 COPY sim /app/sim
+# 세계는 실제 공역·건물·주소 자료를 읽습니다(configs/airspace). 없으면 시작하자마자 죽습니다.
+COPY configs/airspace /app/configs/airspace
 CMD ["python", "-m", "sim.service"]
 
 # ---------------------------------------------------------------------------
@@ -54,5 +56,6 @@ CMD ["python", "-m", "sim.service"]
 # ---------------------------------------------------------------------------
 FROM base AS ui
 COPY ui /app/ui
-WORKDIR /app/ui
-CMD ["python", "-m", "http.server", "3000"]
+COPY scripts/serve_ui.py /app/scripts/serve_ui.py
+# http.server 는 Cache-Control 을 안 보내 브라우저가 옛 화면을 들고 있었습니다. no-store 로 냅니다.
+CMD ["python", "scripts/serve_ui.py", "3000", "ui"]

@@ -25,12 +25,23 @@ x-build-direct: &build-direct
 
 # 모델 설정. 비우면 규칙만으로 돕니다. Mac 의 Ollama 를 컨테이너에서 쓰려면
 # LLM_BASE_URL=http://host.docker.internal:11434/v1 (.env.example 의 Ollama 블록 참고).
+# 런타임만 Super/Ultra 를 부릅니다(공지 읽기·권고·중재). 드론 에이전트는 Nano 하나뿐입니다.
 x-llm: &llm
   LLM_BASE_URL: ${LLM_BASE_URL:-}
   NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
   MODEL_NANO: ${MODEL_NANO:-nvidia/Nemotron-3_5-Lightning}
   MODEL_SUPER: ${MODEL_SUPER:-nvidia/nemotron-3-super-120b-a12b}
   MODEL_ULTRA: ${MODEL_ULTRA:-nvidia/Nemotron-3-Ultra-550b-a55b}
+  LLM_REQUEST_EXTRA: ${LLM_REQUEST_EXTRA:-}
+  LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-}
+  LLM_RECORD_DIR: ${LLM_RECORD_DIR:-}
+
+# 드론 에이전트 공통. 드론마다 다른 서버(로컬 함대: scripts/ollama_fleet.sh, 11435..11438)를 쓰려면
+# LLM_URL_1..4 를 주고, 안 주면 LLM_BASE_URL 하나를 같이 씁니다. 호스트의 Ollama 는
+# http://host.docker.internal:1143x/v1 입니다.
+x-agent-llm: &agent-llm
+  NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
+  MODEL_NANO: ${MODEL_NANO:-nvidia/Nemotron-3_5-Lightning}
   LLM_REQUEST_EXTRA: ${LLM_REQUEST_EXTRA:-}
   LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-}
   LLM_RECORD_DIR: ${LLM_RECORD_DIR:-}
@@ -79,25 +90,29 @@ services:
   # --- 런타임을 거치는 세계 -------------------------------------------------
   guarded-drone-01:
     <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: drone-01, RUNTIME_URL: "http://runtime:8000" }
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_1:-${LLM_BASE_URL:-}}",
+                   ASSET_ID: drone-01, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
   guarded-drone-02:
     <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: drone-02, RUNTIME_URL: "http://runtime:8000" }
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_2:-${LLM_BASE_URL:-}}",
+                   ASSET_ID: drone-02, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
   guarded-drone-03:
     <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: drone-03, RUNTIME_URL: "http://runtime:8000" }
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_3:-${LLM_BASE_URL:-}}",
+                   ASSET_ID: drone-03, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
   guarded-drone-04:
     <<: *build-agent
-    environment: { <<: *llm, ASSET_ID: drone-04, RUNTIME_URL: "http://runtime:8000" }
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_4:-${LLM_BASE_URL:-}}",
+                   ASSET_ID: drone-04, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
@@ -105,25 +120,29 @@ services:
   # --- 조종장치를 직접 만지는 세계 (지금 대부분의 배선) ---------------------
   direct-drone-01:
     <<: *build-direct
-    environment: { <<: *llm, ASSET_ID: drone-01, TRANSPORT: http, SIM_URL: "http://sim:8100" }
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${DIRECT_LLM_URL:-}",
+                   ASSET_ID: drone-01, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 
   direct-drone-02:
     <<: *build-direct
-    environment: { <<: *llm, ASSET_ID: drone-02, TRANSPORT: http, SIM_URL: "http://sim:8100" }
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${DIRECT_LLM_URL:-}",
+                   ASSET_ID: drone-02, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 
   direct-drone-03:
     <<: *build-direct
-    environment: { <<: *llm, ASSET_ID: drone-03, TRANSPORT: http, SIM_URL: "http://sim:8100" }
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${DIRECT_LLM_URL:-}",
+                   ASSET_ID: drone-03, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 
   direct-drone-04:
     <<: *build-direct
-    environment: { <<: *llm, ASSET_ID: drone-04, TRANSPORT: http, SIM_URL: "http://sim:8100" }
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${DIRECT_LLM_URL:-}",
+                   ASSET_ID: drone-04, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 
