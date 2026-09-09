@@ -77,14 +77,17 @@ class Proposer:
         fallback = by_rule(concern, telemetry, pad, banned)
         tier = LlmTier.SUPER if concern.urgency == "high" else LlmTier.NANO
         reply = self.llm.ask(tier, system_for(known),
-                             self._brief(concern, telemetry, pad), max_tokens=160)
+                             self._brief(concern, telemetry, pad), max_tokens=160,
+                             json_object=True)
         if reply is None:
             return fallback
 
         form = parse_json_object(reply.text)
         if not form or form.get("action") not in ALLOWED_ACTIONS:
+            self.llm.discard(tier)
             return fallback  # 양식이 아니면 버립니다
         if form["action"] in banned:
+            self.llm.discard(tier)
             return fallback  # 이미 금지된 걸 골랐으면 버립니다
 
         chosen_pad = form.get("pad") if form.get("action") == "reserve_pad" else None

@@ -5,6 +5,23 @@ cd "$(dirname "$0")/.."
 export PYTHONPATH=.
 mkdir -p .run
 
+# .env 가 있으면 읽습니다(.env.example 참고). 이미 환경에 있는 값이 우선입니다 —
+# 셸에서 LLM_BASE_URL=… ./scripts/dev.sh 로 한 번만 바꿔 띄울 수 있어야 합니다.
+if [ -f .env ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|'#'*) continue ;; esac
+    key="${line%%=*}"
+    [ -n "${!key:-}" ] && continue
+    export "$line"
+  done < .env
+fi
+# 모델 설정은 기체 에이전트와 런타임 양쪽에 그대로 갑니다. 여기서 export 해 두어야
+# 아래 백그라운드 프로세스들이 같은 값을 봅니다(비어 있으면 규칙만으로 돕니다).
+export LLM_BASE_URL="${LLM_BASE_URL:-}" NEBIUS_API_KEY="${NEBIUS_API_KEY:-}"
+export MODEL_NANO="${MODEL_NANO:-}" MODEL_SUPER="${MODEL_SUPER:-}" MODEL_ULTRA="${MODEL_ULTRA:-}"
+export LLM_REQUEST_EXTRA="${LLM_REQUEST_EXTRA:-}" LLM_RECORD_DIR="${LLM_RECORD_DIR:-}"
+[ -n "${LLM_TIMEOUT_S:-}" ] && export LLM_TIMEOUT_S
+
 cleanup() { pkill -P $$ || true; }
 trap cleanup EXIT INT TERM
 
@@ -22,5 +39,10 @@ done
 echo
 echo "  화면: http://localhost:3100"
 echo "  런타임: http://localhost:8000/state   세계: http://localhost:8100/compare"
+if [ -n "${LLM_BASE_URL}" ]; then
+  echo "  모델: ${LLM_BASE_URL} (nano=${MODEL_NANO:-configs/fleet.yaml})"
+else
+  echo "  모델: 없음 — 규칙만으로 돕니다 (.env.example 참고)"
+fi
 echo
 wait

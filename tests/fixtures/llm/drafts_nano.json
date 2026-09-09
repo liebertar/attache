@@ -1,0 +1,242 @@
+[
+ {
+  "kind": "draft",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "origin 40.70178,-73.96968 -> goal 40.79850,-73.95500",
+  "seat": 0,
+  "start": [
+   40.701783,
+   -73.969685
+  ],
+  "goal": [
+   40.7985,
+   -73.955
+  ],
+  "area": "Central Park North 110th",
+  "seed": 7,
+  "text": "{\n  \"legs\": [\n    {\n      \"lat\": 40.70178,\n      \"lon\": -73.96968,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.71276,\n      \"lon\": -73.96706,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.71292,\n      \"lon\": -73.96895,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.72501,\n      \"lon\": -73.96667,\n      \"alt_m\": 90\n    },\n    {\n      \"lat\": 40.73334,\n      \"lon\": -73.95834,\n      \"alt_m\": 90\n    },\n    {\n      \"lat\": 40.74167,\n      \"lon\": -73.95834,\n      \"alt_m\": 90\n    },\n    {\n      \"lat\": 40.75001,\n      \"lon\": -73.95834,\n      \"alt_m\": 90\n    },\n    {\n      \"lat\": 40.75834,\n      \"lon\": -73.95834,\n      \"alt_m\": 90\n    },\n    {\n      \"lat\": 40.76667,\n      \"lon\": -73.95834,\n      \"alt_m\": 90\n    },\n    {\n      \"lat\": 40.77501,\n      \"lon\": -73.95834,\n      \"alt_m\": 90\n    },\n    {\n      \"lat\": 40.78334,\n      \"lon\": -73.95834,\n      \"alt_m\": 90\n    },\n    {\n      \"lat\": 40.79167,\n      \"lon\": -73.95834,\n      \"alt_m\": 90\n    },\n    {\n      \"lat\": 40.79850,\n      \"lon\": -73.95500,\n      \"alt_m\": 50\n    }\n  ]\n}",
+  "via": "content",
+  "latency_ms": 14838,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, rec2/1788954596858-45292-0001-nano.json",
+  "expect": "fail",
+  "straight_refused": true,
+  "note": "13 legs, at most 12"
+ },
+ {
+  "kind": "draft",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "origin 40.70178,-73.96920 -> goal 40.75868,-74.00391",
+  "seat": 1,
+  "start": [
+   40.701783,
+   -73.969202
+  ],
+  "goal": [
+   40.75868,
+   -74.00391
+  ],
+  "area": "Pier 76 Midtown",
+  "seed": 7,
+  "text": "{\n  \"legs\": [\n    {\n      \"lat\": 40.70178,\n      \"lon\": -73.96920,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.72000,\n      \"lon\": -73.98000,\n      \"alt_m\": 100\n    },\n    {\n      \"lat\": 40.73334,\n      \"lon\": -73.98950,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.73422,\n      \"lon\": -73.98703,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.73500,\n      \"lon\": -73.98600,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.74473,\n      \"lon\": -73.99645,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.74535,\n      \"lon\": -73.99473,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.74689,\n      \"lon\": -73.99777,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.75000,\n      \"lon\": -73.99800,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.75600,\n      \"lon\": -73.99900,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.75868,\n      \"lon\": -74.00391,\n      \"alt_m\": 50\n    }\n  ]\n}",
+  "via": "content",
+  "latency_ms": 13631,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, rec2/1788954653470-45292-0005-nano.json",
+  "expect": "fail",
+  "straight_refused": true,
+  "note": "leg 3 hits building 건물 88m (roof 88 m; too tall to cross, go around it), footprint lat 40.73347..40.73387, lon -73.98911..-73.98845 at 40.73355,-73.98892 (judge said: 건물 88m 옥상 위 32m (이격 50m 필요)); leg"
+ },
+ {
+  "kind": "draft",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "origin 40.70178,-73.96872 -> goal 40.80400,-73.95800",
+  "seat": 2,
+  "start": [
+   40.701783,
+   -73.968719
+  ],
+  "goal": [
+   40.804,
+   -73.958
+  ],
+  "area": "Morningside Park",
+  "seed": 7,
+  "text": "{\n  \"legs\": [\n    {\n      \"lat\": 40.70178,\n      \"lon\": -73.96872,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70702,\n      \"lon\": -73.96912,\n      \"alt_m\": 95\n    },\n    {\n      \"lat\": 40.71157,\n      \"lon\": -73.96864,\n      \"alt_m\": 95\n    },\n    {\n      \"lat\": 40.71330,\n      \"lon\": -73.96846,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.71441,\n      \"lon\": -73.96835,\n      \"alt_m\": 116\n    },\n    {\n      \"lat\": 40.74957,\n      \"lon\": -73.95658,\n      \"alt_m\": 90\n    },\n    {\n      \"lat\": 40.80400,\n      \"lon\": -73.95800,\n      \"alt_m\": 50\n    }\n  ]\n}",
+  "via": "content",
+  "latency_ms": 8782,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, rec2/1788954702944-45292-0009-nano.json",
+  "expect": "fail",
+  "straight_refused": true,
+  "note": "leg 2 hits building 건물 69m (roof 69 m; cross it at 120 m or higher), footprint lat 40.70931..40.71002, lon -73.96969..-73.96861 at 40.70943,-73.96887 (judge said: 건물 69m 에 2m 로 접근 (이격 10m 필요)); leg 5 "
+ },
+ {
+  "kind": "draft",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "origin 40.70178,-73.96824 -> goal 40.78837,-73.95353",
+  "seat": 3,
+  "start": [
+   40.701783,
+   -73.968236
+  ],
+  "goal": [
+   40.78837,
+   -73.95353
+  ],
+  "area": "Central Park East Meadow",
+  "seed": 7,
+  "text": "{\n  \"legs\": [\n    {\n      \"lat\": 40.70178,\n      \"lon\": -73.96824,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.71000,\n      \"lon\": -73.96500,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.72000,\n      \"lon\": -73.96000,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.73000,\n      \"lon\": -73.95500,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.74000,\n      \"lon\": -73.95000,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.75000,\n      \"lon\": -73.94500,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.76000,\n      \"lon\": -73.94000,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.77000,\n      \"lon\": -73.93500,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.78837,\n      \"lon\": -73.95353,\n      \"alt_m\": 50\n    }\n  ]\n}",
+  "via": "content",
+  "latency_ms": 10607,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, rec2/1788954742079-45292-0013-nano.json",
+  "expect": "fail",
+  "straight_refused": true,
+  "note": "leg 3 hits building 건물 47m (roof 47 m; cross it at 98 m or higher), footprint lat 40.72251..40.72341, lon -73.95858..-73.95703 at 40.72303,-73.95848 (judge said: 건물 47m 옥상 위 3m (이격 50m 필요)); leg 4 hit"
+ },
+ {
+  "kind": "draft",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "origin 40.70178,-73.96824 -> goal 40.71150,-73.97900",
+  "seat": 3,
+  "start": [
+   40.701783,
+   -73.968236
+  ],
+  "goal": [
+   40.7115,
+   -73.979
+  ],
+  "area": "Corlears Hook Park",
+  "seed": 2,
+  "text": "{\n  \"legs\": [\n    {\n      \"lat\": 40.70178,\n      \"lon\": -73.96824,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70200,\n      \"lon\": -73.96900,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70300,\n      \"lon\": -73.96800,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70400,\n      \"lon\": -73.96700,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70500,\n      \"lon\": -73.96600,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70600,\n      \"lon\": -73.96500,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70700,\n      \"lon\": -73.96400,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70800,\n      \"lon\": -73.96300,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70900,\n      \"lon\": -73.96200,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.71000,\n      \"lon\": -73.96100,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.71080,\n      \"lon\": -73.96250,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.71150,\n      \"lon\": -73.97900,\n      \"alt_m\": 50\n    }\n  ]\n}",
+  "via": "content",
+  "latency_ms": 12961,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, rec3/1788954831208-46090-0001-nano.json",
+  "expect": "pass",
+  "straight_refused": false,
+  "note": ""
+ },
+ {
+  "kind": "draft",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "origin 40.70178,-73.96824 -> goal 40.71150,-73.97900",
+  "seat": 3,
+  "start": [
+   40.701783,
+   -73.968236
+  ],
+  "goal": [
+   40.7115,
+   -73.979
+  ],
+  "area": "Corlears Hook Park",
+  "seed": 2,
+  "text": "{\n  \"legs\": [\n    {\n      \"lat\": 40.70178,\n      \"lon\": -73.96824,\n      \"alt_m\": 50.00000\n    },\n    {\n      \"lat\": 40.70500,\n      \"lon\": -73.96500,\n      \"alt_m\": 50.00000\n    },\n    {\n      \"lat\": 40.71000,\n      \"lon\": -73.97200,\n      \"alt_m\": 80.00000\n    },\n    {\n      \"lat\": 40.71150,\n      \"lon\": -73.97900,\n      \"alt_m\": 50.00000\n    }\n  ]\n}",
+  "via": "content",
+  "latency_ms": 4915,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, rec3/1788954836132-46090-0002-nano.json",
+  "expect": "pass",
+  "straight_refused": false,
+  "note": ""
+ },
+ {
+  "kind": "draft",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "origin 40.70178,-73.96920 -> goal 40.71819,-73.97575",
+  "seat": 1,
+  "start": [
+   40.701783,
+   -73.969202
+  ],
+  "goal": [
+   40.71819,
+   -73.97575
+  ],
+  "area": "East River Park",
+  "seed": 21,
+  "text": "{\n  \"legs\": [\n    {\n      \"lat\": 40.70178,\n      \"lon\": -73.96920,\n      \"alt_m\": 50.0\n    },\n    {\n      \"lat\": 40.70250,\n      \"lon\": -73.96800,\n      \"alt_m\": 50.0\n    },\n    {\n      \"lat\": 40.71000,\n      \"lon\": -73.96000,\n      \"alt_m\": 50.0\n    },\n    {\n      \"lat\": 40.72000,\n      \"lon\": -73.95000,\n      \"alt_m\": 50.0\n    },\n    {\n      \"lat\": 40.72500,\n      \"lon\": -73.96000,\n      \"alt_m\": 50.0\n    },\n    {\n      \"lat\": 40.71819,\n      \"lon\": -73.97575,\n      \"alt_m\": 50.0\n    }\n  ]\n}",
+  "via": "content",
+  "latency_ms": 7760,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, rec3/1788954843904-46090-0003-nano.json",
+  "expect": "fail",
+  "straight_refused": false,
+  "note": "route 5126 m is longer than 2.5x the straight 1896 m"
+ },
+ {
+  "kind": "draft",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "origin 40.70178,-73.96920 -> goal 40.71819,-73.97575",
+  "seat": 1,
+  "start": [
+   40.701783,
+   -73.969202
+  ],
+  "goal": [
+   40.71819,
+   -73.97575
+  ],
+  "area": "East River Park",
+  "seed": 21,
+  "text": "{\n  \"legs\": [\n    {\n      \"lat\": 40.70178,\n      \"lon\": -73.96920,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70250,\n      \"lon\": -73.96500,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70800,\n      \"lon\": -73.96100,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.71200,\n      \"lon\": -73.95700,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.71600,\n      \"lon\": -73.95300,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.71819,\n      \"lon\": -73.97575,\n      \"alt_m\": 50\n    }\n  ]\n}",
+  "via": "content",
+  "latency_ms": 6992,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, rec3/1788954858418-46090-0005-nano.json",
+  "expect": "pass",
+  "straight_refused": false,
+  "note": ""
+ },
+ {
+  "kind": "draft",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "origin 40.70178,-73.96920 -> goal 40.70200,-73.99650",
+  "seat": 1,
+  "start": [
+   40.701783,
+   -73.969202
+  ],
+  "goal": [
+   40.702,
+   -73.9965
+  ],
+  "area": "Brooklyn Bridge Park",
+  "seed": 3,
+  "text": "{\n  \"legs\": [\n    {\n      \"lat\": 40.70178,\n      \"lon\": -73.96920,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70119,\n      \"lon\": -73.98573,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70264,\n      \"lon\": -73.98572,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70121,\n      \"lon\": -73.98815,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70266,\n      \"lon\": -73.98813,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70123,\n      \"lon\": -73.99047,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70268,\n      \"lon\": -73.99045,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70195,\n      \"lon\": -73.99500,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.70200,\n      \"lon\": -73.99650,\n      \"alt_m\": 50\n    }\n  ]\n}",
+  "via": "content",
+  "latency_ms": 10738,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, rec3/1788954869168-46090-0006-nano.json",
+  "expect": "fail",
+  "straight_refused": true,
+  "note": "leg 2 hits building 건물 77m (roof 77 m; too tall to cross, go around it), footprint lat 40.70161..40.70182, lon -73.98656..-73.98584 at 40.70180,-73.98573 (judge said: 건물 77m 에 10m 로 접근 (이격 10m 필요)); l"
+ },
+ {
+  "kind": "draft",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "origin 40.70178,-73.96920 -> goal 40.68950,-74.01680",
+  "seat": 1,
+  "start": [
+   40.701783,
+   -73.969202
+  ],
+  "goal": [
+   40.6895,
+   -74.0168
+  ],
+  "area": "Governors Island",
+  "seed": 14,
+  "text": "{\n  \"legs\": [\n    {\n      \"lat\": 40.70178,\n      \"lon\": -73.96920,\n      \"alt_m\": 50\n    },\n    {\n      \"lat\": 40.69725,\n      \"lon\": -73.98379,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.69593,\n      \"lon\": -73.98892,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.69477,\n      \"lon\": -73.99082,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.69566,\n      \"lon\": -73.99157,\n      \"alt_m\": 120\n    },\n    {\n      \"lat\": 40.68950,\n      \"lon\": -74.01680,\n      \"alt_m\": 50\n    }\n  ]\n}",
+  "via": "content",
+  "latency_ms": 7322,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, rec3/1788954947437-46090-0014-nano.json",
+  "expect": "fail",
+  "straight_refused": true,
+  "note": "leg 2 hits building 건물 74m (roof 74 m; too tall to cross, go around it), footprint lat 40.69686..40.69716, lon -73.98619..-73.98519 at 40.69688,-73.98524 (judge said: 건물 74m 옥상 위 46m (이격 50m 필요)); leg"
+ }
+]

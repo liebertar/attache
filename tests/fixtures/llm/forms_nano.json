@@ -1,0 +1,52 @@
+[
+ {
+  "kind": "form",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "concern=needs_route",
+  "text": "{\n  \"action\": \"fly_route\",\n  \"pad\": null,\n  \"rationale\": \"Route to Union Square is ready and battery level is sufficient.\"\n}",
+  "via": "content",
+  "latency_ms": 540,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, response_format json_object, 1788955029282-46738-0001-nano.json"
+ },
+ {
+  "kind": "form",
+  "tier": "super",
+  "model": "nemotron-3-nano",
+  "needle": "concern=needs_charge",
+  "text": "{\"action\":\"charge\",\"pad\":\"pad:launch\",\"rationale\":\"Battery at 12% requires charging before next task\"}",
+  "via": "content",
+  "latency_ms": 834,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, response_format json_object, 1788955030117-46738-0002-super.json"
+ },
+ {
+  "kind": "form",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "concern=needs_pad",
+  "text": "{\"action\":\"depart\",\"pad\":null,\"rationale\":\"Vehicle is ready and can depart without needing a pad.\"}",
+  "via": "content",
+  "latency_ms": 1383,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, response_format json_object, 1788955031500-46738-0003-nano.json"
+ },
+ {
+  "kind": "form",
+  "tier": "nano",
+  "model": "nemotron-3-nano",
+  "needle": "concern=needs_reload",
+  "text": "{\"action\": \"decline_job\", \"pad\": null, \"rationale\": \"No job request received to decline.\"}",
+  "via": "content",
+  "latency_ms": 1373,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, response_format json_object, 1788955032875-46738-0004-nano.json"
+ },
+ {
+  "kind": "arbiter",
+  "tier": "ultra",
+  "model": "nemotron-3-nano",
+  "needle": "Resource: pad:launch",
+  "text": "{\"choice\":1,\"reason\":\"Drone‑01 has higher remaining battery and no cargo load, making it more suitable for launch.\"}",
+  "via": "content",
+  "latency_ms": 1399,
+  "source": "Ollama nemotron-3-nano q4_K_M, reasoning_effort=none, response_format json_object, 1788955034275-46738-0005-ultra.json"
+ }
+]
