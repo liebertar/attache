@@ -431,10 +431,13 @@ class RejudgeBeforeCommitTest(unittest.TestCase):
                                            params={"legs": self.legs}).to_dict())
         decision = self.runtime.approve(filed.proposal_id, "관제사", allow=True)
         self.assertTrue(decision.committed)
+        # 두 번째 기체는 같은 시각에 옆으로 300m 떨어진 길을 냅니다. 같은 길을 같은 시각에 내면
+        # 그건 공역이 아니라 교차(traffic) 거절이고, 그건 test_intents 가 봅니다.
+        beside = [{**leg, "lon": leg["lon"] + 300 / 84_400.0} for leg in self.legs]
         queued = self.runtime.file(proposal(asset_id="drone-02", action="reserve_pad",
                                             cost_usd=18.0, blast_radius="schedule",
                                             resource="pad:launch",
-                                            params={"legs": self.legs}).to_dict())
+                                            params={"legs": beside}).to_dict())
         self.runtime._settle_contended()
-        self.assertTrue(queued.committed)
+        self.assertTrue(queued.committed, queued.reason)
         self.assertEqual(len(self.adapter.routes), 2)

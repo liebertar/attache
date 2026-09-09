@@ -15,6 +15,7 @@ import unittest
 
 from attache.agent.detect import detect
 from attache.agent.drafter import ModelDrafter, service_bbox
+from attache.agent.loop import ALTITUDE_SHIFT_M, MAX_DELAY_TRIES, ROUTE_REFUSALS
 from attache.agent.planner import OperatorPlanner
 from attache.agent.propose import COSTS, by_rule
 from attache.core.config import load as config_load
@@ -106,8 +107,10 @@ class GuardedSide:
                 self.cooldown[(asset_id, proposal.action)] = snapshot["tick"] + 12
             if decision.verdict is Verdict.DENIED:
                 if decision.policy_hit:
-                    # 자원이 막힌 걸 행동이 막힌 걸로 배우면 영영 신청을 못 합니다
-                    banned.add(decision.forbids or proposal.action)
+                    # 자원이 막힌 걸 행동이 막힌 걸로 배우면 영영 신청을 못 합니다.
+                    # 길·시각이 막힌 것(공역·교차)은 행동이 막힌 게 아닙니다.
+                    if decision.policy_hit not in ROUTE_REFUSALS:
+                        banned.add(decision.forbids or proposal.action)
                 elif proposal.resource:
                     self.pad_index[asset_id] = (index + 1) % len(PADS)
         self.runtime._settle_contended()
@@ -127,12 +130,18 @@ class GuardedSide:
         if here[0] is None or goal is None:
             return self.runtime.file(proposal.to_dict())
 
+        airborne = float(telemetry.get("alt_m") or 0.0) > 1.0
         # 먼저 최단 직선으로 냅니다. 운영사는 원래 제일 싼 길을 냅니다.
         proposal.params = {**proposal.params, "legs": self.planner.straight(here, goal),
                            "drafter": "straight", "draft_attempts": 0}
         decision = self.runtime.file(proposal.to_dict())
-        if decision.policy_hit != "airspace":
+        if decision.policy_hit not in ROUTE_REFUSALS:
             return decision
+        if decision.policy_hit == "traffic":
+            # 다른 기체의 회랑과 겹칩니다. 길은 맞으니 높이나 시각을 바꿔 봅니다.
+            decision = self._resolve_traffic(proposal, proposal.params["legs"], decision, airborne)
+            if decision.policy_hit not in ROUTE_REFUSALS:
+                return decision
         # 다시 그리라고 했습니다. 모델이 먼저, 안 되면 A*.
         legs, drafter, attempts = self._redraw(here, goal, decision)
         if not legs:
@@ -145,12 +154,49 @@ class GuardedSide:
         redrawn = Proposal.from_dict({**proposal.to_dict(),
                                       "params": {**proposal.params, "legs": legs,
                                                  "drafter": drafter, "draft_attempts": attempts}})
-        return self.runtime.file(redrawn.to_dict())
+        decision = self.runtime.file(redrawn.to_dict())
+        if decision.policy_hit == "traffic":
+            decision = self._resolve_traffic(redrawn, legs, decision, airborne)
+        return decision
+
+    def _resolve_traffic(self, proposal, legs, refusal, airborne):
+        """loop.py GuardedAgent._resolve_traffic 와 같은 사다리. 고도 +30m → 출발 지연."""
+        detail = refusal.detail or {}
+        other = detail.get("blocked_asset") or refusal.forbids
+        lifted = self.planner.lift(legs, ALTITUDE_SHIFT_M)
+        decision = refusal
+        if lifted is not None:
+            raised = Proposal.from_dict({**proposal.to_dict(), "params": {
+                **proposal.params, "legs": lifted, "resolution": "altitude",
+                "altitude_shift_m": ALTITUDE_SHIFT_M, "holding_for": None}})
+            decision = self.runtime.file(raised.to_dict())
+            if decision.policy_hit != "traffic":
+                return decision
+            detail = decision.detail or {}
+            other = detail.get("blocked_asset") or other
+        if airborne:
+            return decision
+        until = detail.get("blocked_until_tick")
+        for _ in range(MAX_DELAY_TRIES):
+            if until is None:
+                break
+            delayed = Proposal.from_dict({**proposal.to_dict(), "params": {
+                **proposal.params, "legs": legs, "resolution": "delay",
+                "holding_for": other, "depart_after_tick": int(until)}})
+            decision = self.runtime.file(delayed.to_dict())
+            if decision.policy_hit != "traffic":
+                return decision
+            detail = decision.detail or {}
+            later = detail.get("blocked_until_tick")
+            if later is None or int(later) <= int(until):
+                break
+            until, other = later, detail.get("blocked_asset") or other
+        return decision
 
     def _redraw(self, here, goal, refusal):
-        """loop.py GuardedAgent._redraw 와 같은 순서. 모델 초안 → 안 되면 A*."""
+        """loop.py GuardedAgent._redraw 와 같은 순서. 모델 초안 → 안 되면 A*. 교차 뒤는 A* 만."""
         attempts = 0
-        if self.drafter is not None:
+        if self.drafter is not None and refusal.policy_hit != "traffic":
             legs = self.drafter.draft(here, goal, {"reason": refusal.reason,
                                                    "forbids": refusal.forbids})
             attempts = self.drafter.last_attempts
@@ -162,6 +208,8 @@ class GuardedSide:
         """원격 관제사. 안전 때문에 올라온 건 승인하고, 예산 초과는 거부합니다."""
         for proposal_id in list(self.runtime._awaiting_human):
             decision = self.runtime._decisions[proposal_id]
+            if decision.code == "human_notice":
+                continue   # 모델이 읽은 공지는 여기 관제사가 대신 확인하지 않습니다(사람 몫)
             allow = decision.authority_hit not in BUDGET_ESCALATIONS
             self.runtime.approve(proposal_id, "원격 관제사", allow=allow)
 
@@ -292,11 +340,11 @@ def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_facto
 
         # 제한하는 공지는 런타임이 도착 즉시 겁니다. 푸는 정책만 사람이 풉니다.
         # 실서비스와 같은 코드로 받습니다 — 두 벌로 적으면 갈라집니다.
-        runtime.absorb(simulation.bulletins())
-
+        # 틱을 먼저 맞춥니다. 공지의 시간 창은 세계의 시계로 판단합니다.
         runtime.tick = tick
         guarded_snapshot = guarded_world.snapshot(tick)
         runtime.telemetry = guarded_snapshot["assets"]
+        runtime.absorb(simulation.bulletins())
         guarded.run_tick(guarded_snapshot)
 
         direct.run_tick(simulation.worlds["direct"].snapshot(tick), tick, simulation.bulletins())
@@ -310,6 +358,41 @@ def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_facto
 
 def fleet_bbox():
     return service_bbox([(a["lat"], a["lon"]) for a in LANDING_AREAS])
+
+
+def ledger_stats(path: str) -> dict:
+    """원장에서 교차 거절·해결·물림을 셉니다. 점수판이 아니라 기록으로 보는 런타임의 일."""
+    stats = {"traffic_refusals": 0, "landing_site_refusals": 0, "column_refusals": 0,
+             "resolutions": {"altitude": 0, "delay": 0}, "withdrawn": 0, "recalled": 0,
+             "notices_applied": 0, "duplicates": 0}
+    seen = set()
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            entry = json.loads(line)
+            if entry["outcome"] == "pending" or entry["id"] in seen:
+                continue
+            seen.add(entry["id"])
+            proposal, decision = entry["proposal"], entry["decision"]
+            params = proposal.get("params") or {}
+            if decision["verdict"] == "denied":
+                if decision.get("policy_hit") == "traffic":
+                    if params.get("blocked_kind") == "landing":
+                        stats["landing_site_refusals"] += 1
+                    else:
+                        stats["traffic_refusals"] += 1
+                elif decision.get("code") == "airspace" and params.get("blocked_kind") in (
+                        "takeoff", "column"):
+                    stats["column_refusals"] += 1
+                if decision.get("code") == "duplicate":
+                    stats["duplicates"] += 1
+                continue
+            if entry["outcome"] == "done" and params.get("resolution") in ("altitude", "delay"):
+                stats["resolutions"][params["resolution"]] += 1
+            if decision.get("code") == "withdrawn":
+                stats["withdrawn"] += 1
+            if decision.get("code") == "recalled":
+                stats["recalled"] += 1
+    return stats
 
 
 class ChaosLlm(TieredLlm):
@@ -528,12 +611,45 @@ class TwoWorldsTest(unittest.TestCase):
         import tempfile
 
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
+            cls.ledger_path = handle.name
             cls.guarded, cls.direct, cls.trace = run(handle.name)
+        cls.stats = ledger_stats(cls.ledger_path)
 
     # ---------- 런타임 쪽에서 반드시 참이어야 하는 것 ----------
 
     def test_pads_are_never_shared_under_the_runtime(self):
         self.assertEqual(self.guarded["pad_conflicts"], 0)
+
+    def test_the_runtime_side_never_loses_separation_and_the_direct_side_does(self):
+        """같은 자리, 같은 첫 배달지, 같은 틱에 뜨는 네 대. 갈리는 것은 누가 미리 갈랐느냐입니다.
+
+        직결 세계는 02·04 의 직선이 자리 60m 북쪽에서 같은 순간 교차합니다(OPENING_STOPS).
+        런타임 세계는 두 번째 신청을 교차로 거절하고, 운영사가 고도나 출발 시각을 바꿔 냅니다.
+        """
+        self.assertEqual(self.guarded["separation_losses"], 0)
+        self.assertEqual(self.guarded["site_conflicts"], 0, "서 있는 기체 위로 내린 일")
+        self.assertGreater(self.direct["separation_losses"], 0,
+                           "직결 세계에서 분리 상실이 한 번도 없으면 대조가 아닙니다")
+        self.assertGreater(self.stats["traffic_refusals"], 0, self.stats)
+        resolved = self.stats["resolutions"]
+        self.assertGreater(resolved["altitude"] + resolved["delay"], 0, self.stats)
+
+    def test_every_ledger_entry_carries_its_judging_context(self):
+        with open(self.ledger_path, encoding="utf-8") as handle:
+            entries = [json.loads(line) for line in handle]
+        self.assertTrue(entries)
+        for entry in entries:
+            context = entry.get("context") or {}
+            self.assertIn("tick", context, entry["id"])
+            self.assertIn("airspace_revision", context)
+            self.assertIsInstance(context.get("policies"), list)
+            self.assertIsInstance(context.get("checks_run"), list)
+        routed_done = [e for e in entries if e["outcome"] == "done"
+                       and e["proposal"]["action"] in ("fly_route", "reserve_pad")]
+        self.assertTrue(routed_done)
+        self.assertTrue(all(e["context"].get("intent_id") for e in routed_done),
+                        "실행된 경로에는 의도 id 가 있어야 합니다")
+        self.assertTrue(all("traffic" in e["context"]["checks_run"] for e in routed_done))
 
     def test_guarded_flight_never_enters_forbidden_airspace_or_exceeds_a_ceiling(self):
         self.assertEqual(self.guarded["airspace_violations"], 0)
@@ -607,5 +723,6 @@ if __name__ == "__main__":
     with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
         guarded, direct, trace = run(handle.name)
     print(json.dumps({"guarded": guarded, "direct": direct,
+                      "runtime": ledger_stats(handle.name),
                       "trace": {k: {**v, "states": sorted(v["states"])} for k, v in trace.items()}},
                      indent=2, ensure_ascii=False))

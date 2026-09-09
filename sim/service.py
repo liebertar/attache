@@ -71,8 +71,11 @@ def main() -> None:
             if simulation.bulletins()
             else None,
             # 지금 걸려 있는 공지 전부. 화면이 무슨 규칙이 도착했는지 그대로 씁니다.
-            "bulletins": [{k: b.get(k) for k in ("id", "kind", "name", "reason", "published_tick",
-                                                  "until_tick", "forbid_action", "applies_to")}
+            # 구역 공지는 문장(text)뿐입니다. 화면 배너는 런타임 /state 의 notices 가 그리고,
+            # 여기 것은 "무엇이 도착했나" 의 원문입니다.
+            "bulletins": [{k: b.get(k) for k in ("id", "kind", "name", "reason", "text",
+                                                  "published_tick", "until_tick",
+                                                  "forbid_action", "applies_to")}
                           for b in simulation.bulletins()],
             "worlds": {
                 name: world.snapshot(simulation.tick_count)

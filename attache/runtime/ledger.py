@@ -14,20 +14,25 @@ class Ledger:
         self._recent: list[dict] = []
         self._keep = keep_in_memory
 
-    def open_entry(self, proposal: Proposal, decision: Decision) -> LedgerEntry:
-        entry = LedgerEntry(proposal=proposal.to_dict(), decision=decision.to_dict())
+    def open_entry(self, proposal: Proposal, decision: Decision,
+                   context: dict | None = None) -> LedgerEntry:
+        entry = LedgerEntry(proposal=proposal.to_dict(), decision=decision.to_dict(),
+                            context=dict(context or {}))
         self._append(entry.to_dict())
         return entry
 
     def close_entry(self, entry: LedgerEntry, outcome: str,
-                    decision: Decision | None = None) -> None:
+                    decision: Decision | None = None, context: dict | None = None) -> None:
         """실행이 끝난 뒤의 결정문을 다시 담습니다.
 
         열 때 찍은 사본은 아직 실행 전 상태입니다. 그대로 닫으면 원장이
         "결과는 done 인데 실행은 안 했다"고 적힙니다. 기록이 거짓이면 기록이 아닙니다.
+        실행하면서 알게 된 맥락(만들어진 의도 id)은 닫는 줄에 더합니다.
         """
         if decision is not None:
             entry.decision = decision.to_dict()
+        if context:
+            entry.context = {**entry.context, **context}
         entry.outcome = outcome
         self._append(entry.to_dict())
 

@@ -29,6 +29,15 @@ VERTICAL_CLEARANCE_M = 50.0
 # 있어도 90m 를 수직으로 내려오기에는 탑 사이 골짜기입니다. 착륙 지점은 경로의 끝점이고, 런타임이
 # 경로를 판정할 때 끝점도 같이 봅니다.
 LANDING_SEPARATION_M = 50.0
+# 기체 사이의 분리 최소치. 수평 30m·수직 25m 안에 두 기체가 같은 틱에 있으면 분리 상실입니다.
+# EU U-space(CORUS) 와 NASA UTM TCL 시연이 소형 무인기에 쓴 값을 그대로 둡니다 — 유인기의
+# 3NM/1,000ft 를 기체 크기·속도로 줄인 규모이고, 런타임의 의도(4D) 회랑 폭과 시뮬레이터의
+# 분리 상실 계측이 같은 숫자를 씁니다. 두 곳이 다른 숫자를 쓰면 판정과 계측이 갈립니다.
+TRAFFIC_LATERAL_M = 30.0
+TRAFFIC_VERTICAL_M = 25.0
+# 수직 구간(이륙 기둥·꼭짓점 승강·착륙 기둥)을 판정할 때의 표본 간격. 건물은 옥상 + 이격까지
+# 막으니 5m 마다 보면 어떤 건물 띠도 안 빠집니다(띠는 최소 50m).
+COLUMN_STEP_M = 5.0
 # 색인 격자에서 선분 하나가 걸칠 수 있는 최대 칸 수. 50km 대각선이 13만 칸쯤이라 넉넉합니다.
 # 유한하기만 한 좌표(1e300)로 온 선분은 칸이 1e600 개라 판정이 영영 안 끝났습니다 — 그 사이
 # 런타임 스레드가 GIL 을 잡고 있어 세계·중재 스레드가 굶습니다. 셀 수 없이 긴 선분은 판정을
@@ -66,6 +75,10 @@ class Volume:
     source: str = ""                        # 어느 기관 데이터에서 왔는지
     tags: dict = field(default_factory=dict)
     clearance_m: float = 0.0                # 위로 더 비워야 하는 높이. 건물이면 옥상 위 이격
+    # 유효기간(틱). 공지로 온 구역은 언제부터 언제까지인지가 있습니다. 판정은 '지금' 만 보므로
+    # 런타임이 창이 열릴 때 넣고 닫힐 때 뺍니다 — 여기 적힌 것은 그 근거입니다.
+    from_tick: int | None = None
+    until_tick: int | None = None
 
     @property
     def top_m(self) -> float | None:
@@ -118,6 +131,7 @@ class Volume:
             "reference": self.reference, "rule": self.rule,
             "reason": self.reason, "source": self.source, "tags": dict(self.tags),
             "clearance_m": self.clearance_m,
+            "from_tick": self.from_tick, "until_tick": self.until_tick,
         }
 
     @classmethod
@@ -132,6 +146,8 @@ class Volume:
             reason=raw.get("reason", ""), source=raw.get("source", ""),
             tags=raw.get("tags", {}),
             clearance_m=float(raw.get("clearance_m", 0.0)),
+            from_tick=None if raw.get("from_tick") is None else int(raw["from_tick"]),
+            until_tick=None if raw.get("until_tick") is None else int(raw["until_tick"]),
         )
 
 
@@ -476,3 +492,25 @@ def first_breach(airspace: "Airspace", legs: list[dict], samples: int | None = N
         if first is not None:
             return index + 1, first[1], first[2], first[3]
     return None
+
+
+def vertical_column(lat: float, lon: float, from_m: float, to_m: float,
+                    step_m: float = COLUMN_STEP_M) -> list[dict]:
+    """한 자리에서 오르내리는 구간을 판정 함수에 넣을 모양으로.
+
+    멀티로터는 꼭짓점에서 제자리로 오르내립니다(sim World._at_cruise). 그 수직선도 공역을
+    지나는 선이라 판정을 받아야 합니다 — 출발점 옆 60m 건물은 120m 순항 구간은 안 막지만
+    0m 에서 120m 로 올라가는 기둥은 막습니다. 길이 0 인 구간을 고도만 바꿔 이어 붙이면
+    first_breach 가 구간마다 그 고도로 판정하므로 판정 코드가 늘지 않습니다(G7).
+    """
+    lo, hi = sorted((ground_clamped(from_m), ground_clamped(to_m)))
+    altitudes = [lo]
+    while altitudes[-1] + step_m < hi:
+        altitudes.append(altitudes[-1] + step_m)
+    if hi > lo:
+        altitudes.append(hi)
+    if from_m > to_m:
+        altitudes.reverse()
+    if len(altitudes) == 1:
+        altitudes.append(altitudes[0])
+    return [{"lat": lat, "lon": lon, "alt_m": altitude} for altitude in altitudes]

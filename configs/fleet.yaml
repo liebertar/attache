@@ -29,3 +29,17 @@ models:
   nano: nvidia/Nemotron-3_5-Lightning
   super: nvidia/nemotron-3-super-120b-a12b
   ultra: nvidia/Nemotron-3-Ultra-550b-a55b
+
+# 운영사가 신고한 기체 성능과 이 판의 시계. 런타임은 이것으로 승인한 경로의 4D 의도(어느 구간에
+# 언제 있을지)를 셈하고, 다른 기체의 의도와 겹치는 신청을 거절합니다. 시뮬레이터(sim/world.py)
+# 상수와 같아야 하고 tests/test_intents.py 가 대조합니다. clock_epoch_z 는 틱 0 의 Zulu 시각 —
+# NOTAM 본문의 "0907-0912Z" 같은 시간 창을 틱으로 옮기는 기준입니다.
+performance:
+  cruise_mps: 22.0
+  climb_mps: 2.0
+  descent_mps: 1.75
+  seconds_per_tick: 0.8
+  clearance_ticks: 25
+  clock_epoch_z: "0900"
+  # 항법 오차. 회랑 반폭 = 분리 최소치 30m + 이 값. 시뮬레이터의 경유점 반경 6m 보다 커야 합니다.
+  nav_tolerance_m: 10.0

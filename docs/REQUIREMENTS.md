@@ -223,6 +223,84 @@ Ultra 가 생각하는 동안 틱·위치·공지가 그만큼 낡은 채로 판
 거절 표시 5.6 s 를 기다린 뒤가 아니라 거절 순간에 초안을 시작하는 것과, 드론마다 작은 모델을 따로 띄우는 것(0-8 참조).
 데모의 기준 배선은 Nebius Token Factory 입니다 — 슬롯 제한이 없고 출품 요건이기도 합니다.
 
+## 0-9. 분리·의도·공지 (2026-09-09 — 경로 사이의 판정)
+
+지금까지 판정은 경로 하나와 공역 사이였습니다. 이 절은 경로와 경로 사이, 그리고 문장으로 도착하는
+공역입니다. 원칙은 그대로입니다 — 런타임은 **검증만** 하고(경로도 시각도 대신 정하지 않음), 모델은
+어느 검사에도 손대지 않으며, 직결 세계는 같은 감지기·같은 신청서 작성기를 쓰고 그저 묻지 않을 뿐입니다.
+
+### 규칙과 숫자
+
+| 규칙 | 숫자 | 근거 | 어디에 |
+|---|---|---|---|
+| 수직 구간 판정 | 5m 마다 표본 | 건물 띠(옥상+이격 50m)가 5m 보다 좁을 수 없음 | `geo.vertical_column`, `service.check_route` "columns" |
+| 의도(4D) 회랑 | 옆 **30m + 항법 오차 10m**, 위아래 **±(25m + 한 틱 승강 1.6m)**, 시간 **±30틱**(24초) | 수평 30m·수직 25m 는 EU U-space CORUS 와 NASA UTM TCL 시연이 소형 무인기에 쓴 분리 규모(유인기 3NM/1,000ft 를 기체 크기·속도로 줄인 값). F3548 은 의도 부피에 운영사의 항법·순응 오차가 들어 있기를 기대함 — 최소치만으로 그리면 31m 옆의 두 승인이 경유점 반경(6m) 만큼 모서리를 자르는 것으로 분리를 잃음. ±30틱은 승인 확인(25틱)과 적재 오차를 덮는 여유 = 순항 530m | `runtime/intents.py corridor_widths`, `TRAFFIC_LATERAL_M/TRAFFIC_VERTICAL_M`(geo), `performance.nav_tolerance_m`(fleet.yaml ≥ sim ARRIVAL_RADIUS_M), `TIME_PAD_TICKS` |
+| 떠 있는 기체의 자리 | 의도가 끝난(회수·물림·반려) 떠 있는 기체는 나가는 길 + 끝없는 기둥(contingency)으로, 등록부에 없이 떠 있는 기체는 지금 자리의 기둥(presence)으로 판정에 들어감 | 떠 있는 기체는 언제나 어딘가에 있음. 의도가 없다고 빠지면 그 자리를 지나는 다음 신청이 승인됨 | `intents.hold`, `service._others`, `_end_intent` |
+| 경로의 양 끝 | 첫 점은 기체 자리에서, 끝점은 목적지(배달지·이륙장)에서 30m 안 | 조종장치는 첫 점을 버리고 지금 자리에서 날고, 끝점 다음은 배달지까지 판정 없이 이어 감 — 딴 데 적은 첫 점은 판정한 길과 나는 길을 갈라놓음 | `service._endpoint_problem`, 검사 이름 `endpoints` |
+| 출발 순응 | 승인한 출발 틱 − 30틱보다 일찍 뜨면 의도를 실제 출발로 옮기고(reanchor) 원장에 `nonconforming` | 조종장치가 미룬 출발을 안 지키면 판정이 빈 하늘을 막고 실제 기체는 어느 창에도 없음 | `IntentRegistry.observe`, `service._ledger_nonconformance`; sim 은 땅의 모든 상태에서 `depart_after` 를 지킴(`ready` 를 거침) |
+| 충돌 정의 | 공간 **그리고** 시간이 겹칠 때만, 1cm 보다 떨어지면 무관 | ASTM F3548-21 §3.2.8 (operational intent, conflict) | `intents.first_conflict` |
+| 우선순위 | 먼저 낸 쪽. 예외: 떠 있는 기체의 비상 재신청은 아직 안 뜬 상대를 물림(`withdrawn`). 물림은 검사가 아니라 **실행의 일부** — 재신청이 실제로 나간 뒤(`_on_committed`)에만 상대가 물리고, 사람 보류·한도·조종장치 실패로 안 나간 재신청은 아무도 물리지 않음 | F3548 의 contingent 우선. 땅에 있는 쪽이 다시 내는 것이 하늘에서 기다리는 것보다 쌈 | `service._check_traffic`(고르기만: params.withdraw), `_on_committed` → `_withdraw` |
+| 착륙장 | 살아 있는 다른 의도가 내리는 자리(30m)에는 앞뒤 없이 못 내림(내린 기체는 다음 승인까지 거기 있음), 아직 안 뜬 출발점도 뜰 때까지, 그리고 텔레메트리로 땅에 서 있는 기체의 자리도 — 그 기체의 승인된 출발이 내 도착보다 앞이면 됨 | 한 착륙장에 두 대는 없음. 착륙 기둥 ±30틱만 막으면 그 뒤에 도착하는 신청이 아직 상자를 내리는 기체 위로 내림 | `intents.landing_conflict`, `intents.ground_conflict`, `service._occupants` |
+| 분리 상실 계측 | 두 기체가 같은 틱에 수평 30m·수직 25m 안 → 쌍마다 1회. 떠 있는 기체가 땅에 선 기체의 그 안에 들면 `site_conflicts` | 판정과 같은 숫자여야 계측이 판정을 말함 | `sim/world.py _detect_separation_losses`, 점수판 `separation_losses`·`site_conflicts` |
+| 신고 성능 | 순항 22m/s·상승 2·하강 1.75·틱 0.8초·승인 확인 25틱 | 운영사가 시간 창을 직접 적으면 좁게 적어 충돌을 숨길 수 있음 → 런타임이 경로에서 셈함 | `configs/fleet.yaml performance`, `tests/test_intents.ScheduleTest` 가 sim 상수와 대조 |
+| NOTAM 문법 | `AREA BOUNDED BY DDMMSS[NS]DDDMMSS[EW]…` / `<r>NM RADIUS OF <좌표>` / `SFC-400FT AGL` / `0907-0912Z` 또는 `TICK a-b` | FAA NOTAM 서식. 틱 0 = 0900Z(`clock_epoch_z`) | `core/notam.py parse_notice` |
+| 모델이 읽은 공지 검사 | 꼭짓점 3~32, 서비스 상자 안, 넓이 ≤ 4km², 바닥 0~121.9m, 천장 null 또는 ≤ 1,524m | 모델이 지어낼 수 있는 것의 상한. 이 안이어도 사람이 확인해야 걸림 | `core/notam.validate`, `runtime/notices.py` |
+
+### 흐름
+
+```
+신청(legs) → 양식 → 경로(first_breach) → 수직 구간(이륙 기둥·꼭짓점 승강·착륙 기둥) → 착륙 둘레
+  → 의도 계산(신고 성능으로 구간마다 진입·이탈 틱) → 다른 기체의 살아 있는 의도·떠 있는 자리와 4D 교차
+  → 착륙장 점유(의도 + 서 있는 기체) → 정책·한도 → 실행(여기서 상대 물림) → 의도 등록(accepted)
+  → 텔레메트리로 activated(승인한 창보다 일찍이면 reanchor + nonconforming) → 내리면 ended
+  → 회수·물림·반려로 끝났는데 떠 있으면 contingency(나가는 길 + 끝없는 기둥)가 뒤를 이음
+교차 거절(code airspace, policy_hit traffic, params.blocked_kind traffic|landing, blocked_asset,
+  blocked_at, blocked_leg, blocked_until_tick) → 운영사 사다리: 같은 길 +30m(resolution altitude)
+  → 상대 회랑이 비는 틱까지 출발 지연(resolution delay, holding_for, depart_after_tick; 최대 3번)
+  → A* 재작성 → 이번 차례는 접음(다음 차례에 처음부터). 떠 있으면 지연은 없음(공중 정지가 되므로).
+공지(text) → 문법 → 그 틱에 공역에 넣고 날던 경로 회수 → 창이 닫히면 뺌
+  → 문법이 못 읽으면 Super 가 같은 스키마로 구조화 → 검사 → 승인 화면(action publish_notice) 보류
+  → 사람이 확인하면 source "human" 으로 걸림. 모델이 읽은 것은 사람 없이 절대 안 걸림.
+```
+
+### 화면·기록에 노출되는 값 (ui 는 소유자가 맞춤)
+
+- `/state`: `intents: [{asset, state, id, kind: route|contingency, from_tick, to_tick, …}]` — contingency 의
+  `to_tick` 은 `OPEN_ENDED_TICK`(10^9)+30 이라 화면은 끝없는 것으로 그려야 합니다. `notices: [{id, name, kind, from_tick,
+  until_tick, source: grammar|human|structured, polygon, floor_m, ceiling_m, text}]`, `awaiting_human` 에
+  `publish_notice` 항목(모델이 읽은 공지). 배너는 `notices` 에서 그려야 합니다 — sim `/compare` 의
+  `bulletins` 는 원문(text) 뿐입니다.
+- 텔레메트리: `holding_for`(미룬 출발 동안 누구를 기다리는지), `/telemetry/{asset}` 에 `tick`.
+- 원장 항목 `context`: `{tick, airspace_revision, policies, intent_id, checks_run}`. 중복 거절도 남습니다.
+  런타임이 쓴 결정 코드: `withdrawn`(비상 재신청에 자리를 내줌), `nonconforming`(승인한 창보다 일찍 뜸,
+  action `conformance`, outcome `noted`), `notice_published`/`notice_refused`/`notice_unreadable`.
+  양 끝 거절은 code `airspace` 에 params `blocked_kind origin|destination`, `blocked_gap_m`(blocked_volume 없음).
+  실행된 재신청의 닫는 줄에는 `params.withdrew`·`context.withdrew`(물린 기체 목록).
+- 점수판: `site_conflicts`(떠 있는 기체가 땅에 선 기체의 30m·25m 안). 런타임 세계는 0 이어야 합니다.
+- 직결 에이전트(`direct_agent/loop.py`)는 하네스의 DirectSide 처럼 배달지까지의 직선을 `legs` 로 붙여 보냅니다 —
+  경로 없는 fly_route 는 조종장치가 `ready` 에서 띄우지 않아, 라이브 직결 세계가 한 번도 뜨지 않았습니다.
+
+### 씨앗 7 한 판(4000틱)에서
+
+- `OPENING_STOPS` 에 02(맥캐런)·04(콜리어스 훅)를 더해 자리 60m 북쪽에서 직선이 교차합니다. 직결 세계는
+  같은 틱에 뜬 두 대가 같은 순간 그 점을 지나 분리를 잃고(`separation_losses > 0`), 런타임 세계는 0 —
+  `tests/test_two_worlds.py` 가 못박고 `python3 tests/test_two_worlds.py` 가 `runtime` 항목에
+  교차 거절·해결(altitude/delay)·물림 수를 찍습니다.
+- 구역 공지는 `ZONE_TEXT`(FAA 문장, 0907-0912Z = 525~900틱)로만 나갑니다. 시뮬레이터는 폴리곤을 주지
+  않고, 런타임이 문법으로 읽어 만듭니다(`test_notam`).
+
+### 제가 정한 것 (뒤집을 수 있음)
+
+- 지연 재신청의 `depart_after_tick` 은 상대 **의도 전체**가 아니라 **겹친 부피**가 비는 틱입니다.
+  전체를 기다리면 교차 지점을 60초에 지나가는 상대를 10분 기다립니다. 거절이 그 틱을 `blocked_until_tick`
+  으로 알려 줍니다.
+- 착륙장 점유는 의도와 텔레메트리 둘 다 봅니다. 살아 있는 의도가 내리는 자리는 상대가 다음 승인을
+  받을 때까지 끝없이(앞뒤 없이) 잡고, 이미 내려서 하역 중인 기체(의도 ended)는 땅에 서 있는 자리로
+  잡습니다. 비는 틱은 상대의 다음 승인이 있어야 알 수 있어서, 거절의 `blocked_until_tick` 은 가장 이른
+  가능성(상대 착륙 기둥 끝 또는 지금 + 30틱)일 뿐입니다 — 지연 사다리는 대개 접히고 다음 차례에 다시 냅니다.
+- 떠 있는 기체가 **떠 있는** 상대와 겹치면 거절합니다(물릴 수 없으므로). 그 운영사는 고도만 시도하고
+  다음 차례에 다시 냅니다.
+
 ## 0-7. 남은 것
 
 1. 강 건너(뉴저지) 착륙장 — OSM 건물 보강 후. 지금 뉴저지로는 안 갑니다.

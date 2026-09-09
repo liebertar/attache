@@ -83,6 +83,10 @@ class LedgerEntry:
     id: str = field(default_factory=lambda: f"l_{uuid.uuid4().hex[:12]}")
     at: float = field(default_factory=time.time)
     outcome: str = "pending"
+    # 판정 맥락. 어느 틱에, 어느 공역 판본으로, 어느 정책이 걸린 채, 어떤 검사를 어느 순서로 했나.
+    # {tick, airspace_revision, policies: [id], intent_id, checks_run: [이름]}. "그때 왜 그렇게
+    # 판정했나" 를 원장만 보고 답할 수 있어야 합니다 — 지금 상태로는 그때 상태를 모릅니다.
+    context: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -14,7 +14,15 @@ import time
 from pathlib import Path
 from dataclasses import asdict, dataclass, field
 
-from attache.core.geo import DEFAULT_CEILING_M, VERTICAL_CLEARANCE_M, Airspace, Volume
+from attache.core.geo import (
+    DEFAULT_CEILING_M,
+    TRAFFIC_LATERAL_M,
+    TRAFFIC_VERTICAL_M,
+    VERTICAL_CLEARANCE_M,
+    Airspace,
+    Volume,
+)
+from attache.core.notam import Clock, parse_notice
 
 # 물류 기지는 브루클린 네이비야드. 배달지는 이스트강 건너 맨해튼입니다.
 # 실제 배송 기업이 도심 배달 거점을 두는 자리이고, 강을 건너야 해서 헬리포트 주변
@@ -223,8 +231,13 @@ ADDRESSES = load_addresses()
 # 없고 순항 90m 로 이륙장과 왕복 길이 나는지 tests/test_cycle.py 가 봅니다.
 # 센트럴파크·미드타운 동쪽·칼슈어츠파크는 KLGA 0ft 격자 안이라(FAA 데이터) 착륙장이 될 수 없고,
 # 브라이언트파크·매디슨스퀘어는 둘레에 건물 없는 자리가 없거나 길이 안 났습니다.
-# 판 시작 때 정해 두는 첫 배달지. 이 둘의 직선은 미드타운 KLGA 0ft 격자를 관통합니다.
-OPENING_STOPS = {"drone-01": "Central Park North 110th", "drone-03": "Morningside Park"}
+# 판 시작 때 정해 두는 첫 배달지. 01·03 의 직선은 미드타운 KLGA 0ft 격자를 관통합니다(우회 장면).
+# 02·04 는 자리 순서와 반대 방향으로 갑니다 — 서쪽 자리(02)는 북동쪽 맥캐런으로, 동쪽 자리(04)는
+# 북서쪽 콜리어스 훅으로. 두 직선이 자리에서 60m 쯤 북쪽에서 교차하고, 넷이 같은 틱에 뜨므로
+# 직결 세계에서는 두 대가 같은 순간 그 점을 지나 분리를 잃습니다. 런타임 세계는 같은 신청을
+# 교차로 거절하고 고도나 출발 시각을 바꿔 다시 냅니다 — 그 차이가 점수판의 separation_losses 입니다.
+OPENING_STOPS = {"drone-01": "Central Park North 110th", "drone-02": "McCarren Park",
+                 "drone-03": "Morningside Park", "drone-04": "Corlears Hook Park"}
 
 LANDING_AREAS = [
     # 맨해튼 섬 (17)
@@ -309,20 +322,29 @@ def _within_service_area() -> list[dict]:
 
 
 
-# 병원 응급헬기가 뜬다고 갑자기 상공이 닫힙니다. 착륙 패드 P1 이 그 안에 있습니다.
+# 병원 응급헬기가 뜬다고 갑자기 상공이 닫힙니다. 배달 항로 위에 섭니다 — 유일한 이륙장 위에
+# 두면 기단이 갈 곳이 없어져서, 규칙이 무엇을 막는지가 아니라 기체가 갇힌 것만 보였습니다.
 # 이게 리콜과 같은 얘기의 공간판입니다. 금지가 언제 도착하고 누가 강제하느냐.
-ZONE_TICK = 560
-ZONE_UNTIL = 900   # 응급헬기가 뜨고 내리는 동안만. 구역에는 유효기간이 있습니다
+# 공지는 FAA 문장 그대로 나갑니다. 시뮬레이터는 폴리곤을 주지 않습니다 — 런타임이 문장을 읽어
+# 구역을 만들고, 못 읽으면 못 읽었다고 기록합니다. 실제 NOTAM 이 그렇게 옵니다.
+# 좌표는 DDMMSS 라 초 단위입니다: 404310N = 40°43'10", 0735920W = 73°59'20" (이스트빌리지).
+# 판의 시계: 틱 0 = 0900Z, 틱 하나 0.8초. 0907-0912Z 가 525~900틱입니다.
+CLOCK = Clock(epoch_z="0900", seconds_per_tick=SIM_SECONDS_PER_TICK)
+ZONE_TEXT = ("AREA BOUNDED BY 404310N0735920W 404310N0735855W 404332N0735855W 404332N0735920W "
+             "SFC-400FT AGL 0907-0912Z")
+ZONE_NOTICE = parse_notice(ZONE_TEXT, CLOCK)
+ZONE_TICK = ZONE_NOTICE.from_tick
+ZONE_UNTIL = ZONE_NOTICE.until_tick   # 응급헬기가 뜨고 내리는 동안만. 구역에는 유효기간이 있습니다
 ZONE = {
     "id": "nofly-2026-09-hospital",
-    "kind": "zone",
+    "kind": "notam",
     "reason": "응급헬기 이착륙. 상공 비행금지",
     "name": "이스트빌리지 응급헬기 회랑",
-    # 배달 항로 위에 섭니다. 유일한 이륙장 위에 두면 기단이 갈 곳이 없어져서,
-    # 규칙이 무엇을 막는지가 아니라 기체가 갇힌 것만 보였습니다.
-    "polygon": [[40.71950, -73.98900], [40.71950, -73.98200],
-                [40.72550, -73.98200], [40.72550, -73.98900]],
-    "floor_m": 0, "ceiling_m": None, "reference": "AGL",
+    "text": ZONE_TEXT,
+    # 아래는 시뮬레이터 자신이 점수를 매기고 화면 바닥에 칠할 때 쓰는 값입니다. 공지에는 안 실립니다
+    # (bulletins 가 text 만 고릅니다).
+    "polygon": [[lat, lon] for lat, lon in ZONE_NOTICE.polygon],
+    "floor_m": ZONE_NOTICE.floor_m, "ceiling_m": ZONE_NOTICE.ceiling_m, "reference": "AGL",
     "rule": "forbidden", "source": "예시 데이터",
 }
 # 구역은 이 폴리곤 하나입니다. 예전에는 점수판이 따로 원(centre·radius)을 들고 있었는데,
@@ -375,6 +397,10 @@ class Vehicle:
     pickup: int = 0                 # 이 착륙장에서 받아 갈 상자 수
     delivered: int = 0              # 다녀온 배달지 수
     waypoints: list = field(default_factory=list)   # 승인된 경로. 없으면 못 움직입니다
+    # 출발을 미룬 승인. 운영사가 앞 기체의 회랑이 빌 때까지 기다리기로 하고 낸 경로입니다.
+    # 이 틱 전에는 지상에서 준비된 채 서 있고, 화면에는 누구를 기다리는지 씁니다.
+    depart_after: int = 0
+    holding_for: str | None = None
 
     def public(self) -> dict:
         data = asdict(self)
@@ -419,6 +445,10 @@ class Scoreboard:
     batteries_dead: int = 0
     actions: int = 0
     human_approvals: int = 0
+    # 두 기체가 같은 틱에 수평 30m·수직 25m 안에 든 일. 쌍마다 한 번(틱마다가 아니라).
+    separation_losses: int = 0
+    # 떠 있는(내리는) 기체가 땅에 서 있는 기체의 30m·25m 안에 든 일. 착륙장 하나에 두 대.
+    site_conflicts: int = 0
 
     def public(self) -> dict:
         data = asdict(self)
@@ -480,6 +510,9 @@ class World:
                 vehicle.job_x, vehicle.job_y = to_grid(area["lat"], area["lon"])
         self.score = Scoreboard()
         self.events: list[dict] = []
+        # 지금 분리를 잃은 채인 쌍. 쌍마다 한 번만 세려고 기억합니다.
+        self._too_close: set[frozenset] = set()
+        self._site_close: set[frozenset] = set()
 
     # ---------- 조종장치. 시키는 대로 합니다 ----------
 
@@ -528,8 +561,9 @@ class World:
             self.score.declined += 1
             self._log(tick, "배달 불가", f"{vehicle.job_label} — 규정상 경로 없음")
             vehicle.waypoints = []
+            vehicle.depart_after, vehicle.holding_for = 0, None
             if vehicle.state not in GROUND_WORK:
-                vehicle.state = "cruising"
+                vehicle.state = self._idle_state(vehicle)
             # 들를 곳이 남았으면 다른 착륙장을, 아니면 다시 창고입니다. 예전에는 여기서
             # 새 주문을 받아 빈 채로 배달지로 날아갔습니다.
             if vehicle.stops_left > 0:
@@ -542,20 +576,26 @@ class World:
             vehicle.waypoints = self._to_waypoints(params.get("legs"), vehicle)
             vehicle.assigned_pad = None
             vehicle.hold_ticks = CLEARANCE_TICKS
+            self._delay_departure(vehicle, params)
             if not vehicle.waypoints:
                 vehicle.cruise_alt = float(params.get("alt_m") or CRUISE_ALT_M)
             # 지상에서 싣거나 내리는 중이면 상태는 그대로입니다. 일이 끝나고 승인 확인이
             # 끝나면 ready 가 띄웁니다. 그래서 출발은 언제나 지상에서, 일하던 자리에서 일어납니다.
+            # 땅에 있는 다른 상태(landed·cruising)도 ready 를 거칩니다 — 승인 확인과 미룬 출발
+            # (depart_after)은 ready 만 지키므로, 거기서 바로 delivering 이 되면 미룬 출발이
+            # 무시됩니다.
             if vehicle.state not in GROUND_WORK:
-                vehicle.state = "returning" if vehicle.stops_left <= 0 else "delivering"
+                vehicle.state = self._idle_state(vehicle) if vehicle.alt <= 1.0 else (
+                    "returning" if vehicle.stops_left <= 0 else "delivering")
         elif action == "reserve_pad":
             vehicle.assigned_pad = params["pad"]
             vehicle.hold_ticks = CLEARANCE_TICKS
             vehicle.waypoints = self._to_waypoints(params.get("legs"), vehicle)
+            self._delay_departure(vehicle, params)
             # 승인된 순항 고도. 안 주면 기본값으로 납니다 — 그게 규정 위반일 수 있습니다.
             vehicle.cruise_alt = float(params.get("alt_m") or CRUISE_ALT_M)
             if vehicle.state not in GROUND_WORK:
-                vehicle.state = "approaching"
+                vehicle.state = "ready" if vehicle.alt <= 1.0 else "approaching"
         elif action in ("charge", "fast_charge"):
             vehicle.state = "charging"
             vehicle.charge_mode = "fast" if action == "fast_charge" else "normal"
@@ -571,6 +611,7 @@ class World:
             vehicle.work_ticks = (PARCELS_PER_TRIP - vehicle.load) * BOX_TICKS
             vehicle.cruise_alt = LOITER_ALT_M
             vehicle.waypoints = []   # 다 쓴 경로입니다
+            vehicle.depart_after, vehicle.holding_for = 0, None
             vehicle.vibration = 0.0  # 패드에 있는 동안 정비를 받았습니다
         elif action == "divert_ground":
             # 승인됐던 경로를 회수합니다. 경유점을 남겨두면 회수 명령을 받고도 원래 목적지로
@@ -578,19 +619,29 @@ class World:
             # 닫힌 구역 안에 있었으면 런타임이 준 가장 가까운 바깥 자리까지만 나가서 기다립니다.
             vehicle.assigned_pad = None
             vehicle.waypoints = []
+            vehicle.depart_after, vehicle.holding_for = 0, None
             vehicle.vibration = 0.0
             door = params.get("exit") or {}
             if door.get("lat") is not None and vehicle.alt > 1.0:
                 gx, gy = to_grid(door["lat"], door["lon"])
                 vehicle.waypoints = [(gx, gy, vehicle.alt)]
             if vehicle.state not in GROUND_WORK:
-                vehicle.state = "cruising"
+                vehicle.state = self._idle_state(vehicle)
         elif action == "disengage_autonomy":
             vehicle.autonomy_health = 0.0
             vehicle.state = "stranded"
             vehicle.assigned_pad = None
 
         return {"ok": True, "cost_usd": cost, "state": vehicle.state}
+
+    @staticmethod
+    def _idle_state(vehicle: Vehicle) -> str:
+        """갈 곳을 잃은 기체의 상태. 떠 있으면 제자리 대기(cruising), 땅이면 ready.
+
+        땅에 있는 기체를 cruising 으로 두면 _hold_altitude 가 순항 고도까지 스스로 올려서, 승인
+        없이 뜬 채 떠 있었습니다. 어디로 가는 것도 행동이고 뜨는 것도 행동입니다.
+        """
+        return "cruising" if vehicle.alt > 1.0 else "ready"
 
     @staticmethod
     def _to_waypoints(legs, vehicle: Vehicle) -> list:
@@ -601,6 +652,17 @@ class World:
             gx, gy = to_grid(leg["lat"], leg["lon"])
             points.append((gx, gy, float(leg.get("alt_m") or CRUISE_ALT_M)))
         return points[1:] if len(points) > 1 else points
+
+    @staticmethod
+    def _delay_departure(vehicle: Vehicle, params: dict) -> None:
+        """운영사가 출발을 미뤘으면(depart_after_tick) 그 틱까지 지상에서 준비된 채 기다립니다.
+
+        조종장치는 왜 미루는지 모릅니다. 화면에 쓸 이름(holding_for)만 같이 받아 둡니다.
+        """
+        after = params.get("depart_after_tick")
+        vehicle.depart_after = int(after) if after else 0
+        vehicle.holding_for = (str(params.get("holding_for")) if vehicle.depart_after
+                               and params.get("holding_for") else None)
 
     @staticmethod
     def _refuse(vehicle: Vehicle, action: str, params: dict) -> dict | None:
@@ -625,6 +687,7 @@ class World:
         self._detect_pad_conflicts(tick)
         self._detect_zone_incursions(tick)
         self._detect_ceiling_breaches(tick)
+        self._detect_separation_losses(tick)
 
     def _advance(self, vehicle: Vehicle, tick: int) -> None:
         if vehicle.state in ("dropping", "loading", "picking"):
@@ -655,6 +718,9 @@ class World:
             if vehicle.hold_ticks > 0:
                 vehicle.hold_ticks -= 1
                 return
+            if vehicle.waypoints and tick < vehicle.depart_after:
+                return   # 미룬 출발. 앞 기체의 회랑이 빌 때까지 준비된 채 섭니다
+            vehicle.depart_after, vehicle.holding_for = 0, None
             if vehicle.assigned_pad:
                 vehicle.state = "approaching"
             elif vehicle.waypoints:
@@ -700,7 +766,9 @@ class World:
         # 어디로 가는 것도 행동이고, 행동은 승인을 받아야 합니다.
         target = self._current_target(vehicle)
         if target is None:
-            self._hold_altitude(vehicle, (vehicle.x, vehicle.y))
+            # 땅에 있고 갈 곳이 없으면 땅에 있습니다. 뜨는 것은 승인된 경로가 시킵니다.
+            if vehicle.alt > 1.0:
+                self._hold_altitude(vehicle, (vehicle.x, vehicle.y))
             return
         if vehicle.waypoints:
             vehicle.cruise_alt = vehicle.waypoints[0][2]
@@ -901,6 +969,43 @@ class World:
                               f"{vehicle.id}: {breach.breach(latitude, longitude, vehicle.alt)}")
             vehicle.over_ceiling = True
 
+    def _detect_separation_losses(self, tick: int) -> None:
+        """떠 있는 두 기체가 수평 30m·수직 25m 안에 든 순간. 쌍마다 한 번씩 셉니다.
+
+        런타임 세계에서는 0 이어야 합니다 — 의도(4D)가 같은 자리·같은 시각의 두 신청을 미리
+        갈랐으니까요. 직결 세계는 아무도 가르지 않아서 자리에서 반대 방향으로 뜬 두 대가
+        같은 틱에 같은 점을 지납니다. 문턱은 판정과 같은 숫자(geo.TRAFFIC_*)입니다.
+        """
+        airborne = [v for v in self.vehicles.values()
+                    if v.alt > 1.0 and v.state not in ("grounded", "stranded")]
+        # 땅에 서 있는 기체도 자리입니다. 떠 있는 기체가 그 위로 내려오면 착륙장 하나에 두 대입니다
+        # (site_conflicts). 판정은 텔레메트리로 서 있는 기체를 보고, 계측은 여기서 그것을 봅니다.
+        parked = [v for v in self.vehicles.values() if v.alt <= 1.0]
+        close_now: set[frozenset] = set()
+        site_now: set[frozenset] = set()
+
+        def within(first: Vehicle, second: Vehicle) -> bool:
+            east = (second.x - first.x) * METRES_PER_CELL_X
+            north = (second.y - first.y) * METRES_PER_CELL_Y
+            return (math.hypot(east, north) < TRAFFIC_LATERAL_M
+                    and abs(second.alt - first.alt) < TRAFFIC_VERTICAL_M)
+
+        for index, first in enumerate(airborne):
+            for second in airborne[index + 1:]:
+                if within(first, second):
+                    close_now.add(frozenset((first.id, second.id)))
+            for second in parked:
+                if within(first, second):
+                    site_now.add(frozenset((first.id, second.id)))
+        for pair in close_now - self._too_close:
+            self.score.separation_losses += 1
+            self._log(tick, "분리 상실", f"{' · '.join(sorted(pair))} 가 30m 안에서 교차")
+        for pair in site_now - self._site_close:
+            self.score.site_conflicts += 1
+            self._log(tick, "착륙장 충돌", f"{' · '.join(sorted(pair))} — 서 있는 기체 위로 내려옴")
+        self._too_close = close_now
+        self._site_close = site_now
+
     def _log(self, tick: int, kind: str, text: str) -> None:
         self.events.append({"tick": tick, "kind": kind, "text": text, "at": time.time()})
         del self.events[: max(0, len(self.events) - 40)]
@@ -988,10 +1093,11 @@ class Simulation:
         )
 
     def bulletins(self) -> list[dict]:
+        """지금 걸려 있는 공지. 구역 공지는 문장(text)만 갑니다. 폴리곤은 런타임이 읽어 만듭니다."""
         out = []
         if ZONE_TICK <= self.tick_count <= ZONE_UNTIL:
-            out.append({**ZONE,
-                        "published_tick": ZONE_TICK, "until_tick": ZONE_UNTIL})
+            out.append({key: ZONE[key] for key in ("id", "kind", "name", "reason", "text")}
+                       | {"published_tick": ZONE_TICK, "until_tick": ZONE_UNTIL})
         if RECALL_TICK <= self.tick_count <= RECALL_UNTIL:
             out.append({**RECALL, "published_tick": RECALL_TICK,
                         "until_tick": RECALL_UNTIL})

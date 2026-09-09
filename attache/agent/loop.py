@@ -25,6 +25,12 @@ FALLBACK_PADS = ["pad:launch"]
 # 읽고 나서 다시 그리는 시간이고, 이게 있어야 거절 표시와 승인 표시가 실제 시간에서 겹치지
 # 않아 시뮬레이터가 승인 하나만큼만(CLEARANCE_TICKS) 기다리면 됩니다.
 REDRAW_DELAY_S = 5.6
+# 교차 거절의 해결 사다리. 먼저 같은 길을 이만큼 높여서(상대 회랑은 수직 ±25m 라 30m 면 비켜 감),
+# 안 되면 상대 회랑이 빌 때까지 출발을 미뤄서. 지연은 새 거절이 다른 틱을 말할 때마다 최대
+# 이 횟수만 다시 냅니다 — 틱은 앞으로만 가므로 끝이 있고, 그 뒤는 A* 재작성 → 반려입니다.
+ALTITUDE_SHIFT_M = 30.0
+MAX_DELAY_TRIES = 3
+ROUTE_REFUSALS = ("airspace", "traffic")
 
 
 class GuardedAgent:
@@ -94,11 +100,18 @@ class GuardedAgent:
             proposal.params = {**proposal.params, "legs": self.planner.straight(here, goal),
                                "drafter": "straight", "draft_attempts": 0}
             decision = post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
-            if not decision or decision.get("policy_hit") != "airspace":
+            if not decision or decision.get("policy_hit") not in ROUTE_REFUSALS:
                 return decision
+            if decision.get("policy_hit") == "traffic":
+                # 다른 기체의 회랑과 겹칩니다. 길은 맞으니 높이나 시각을 바꿔 봅니다.
+                decision = self._resolve_traffic(proposal, proposal.params["legs"], decision,
+                                                 airborne=False)
+                if not decision or decision.get("policy_hit") not in ROUTE_REFUSALS:
+                    return decision
             # 다시 그리라고 했습니다. 거절 사유를 읽는 동안(화면이 거절을 보여주는 동안)
             # 기다렸다가 우회로를 그립니다. 기체는 지상에서 일하는 중이라 그대로 있습니다.
-            self.planner.note_refusal(decision.get("forbids"))
+            if decision.get("policy_hit") == "airspace":
+                self.planner.note_refusal(decision.get("forbids"))
             time.sleep(self.redraw_s)
             legs, drafter, attempts = self._redraw(here, goal, decision)
         if not legs:
@@ -117,7 +130,56 @@ class GuardedAgent:
         proposal.params = {**proposal.params, "legs": legs,
                            "drafter": drafter, "draft_attempts": attempts}
         proposal.rationale += f" · 재작성 {len(legs)}구간"
-        return post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
+        decision = post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
+        if decision and decision.get("policy_hit") == "traffic":
+            # 다시 그린 길도 남의 회랑과 겹칩니다. 사다리를 한 번 더 — 그래도 안 되면 이번 차례는
+            # 여기서 접고, 다음 차례에 처음부터 다시 냅니다(그때는 상대가 지나갔을 수 있습니다).
+            decision = self._resolve_traffic(proposal, legs, decision, airborne=airborne)
+        return decision
+
+    def _resolve_traffic(self, proposal, legs: list[dict], refusal: dict, airborne: bool):
+        """교차 거절의 해결 사다리. 고도 +30m → 출발 지연. 마지막 답을 돌려줍니다.
+
+        길은 맞고 시각이 문제입니다. 먼저 같은 길을 30m 높여 냅니다(모든 구간이 천장 아래일 때만).
+        그것도 겹치면 상대 회랑이 비는 틱(거절이 알려 준 blocked_until_tick)까지 출발을 미뤄
+        냅니다. 조종장치가 그 틱까지 지상에서 준비된 채 기다리고, 화면에는 누구를 기다리는지 씁니다.
+        떠 있는 기체는 미룰 수 없습니다(지상 대기가 아니라 공중 정지가 되므로). 고도만 시도합니다.
+        """
+        detail = refusal.get("detail") or {}
+        other = detail.get("blocked_asset") or refusal.get("forbids")
+        lifted = self.planner.lift(legs, ALTITUDE_SHIFT_M)
+        decision = refusal
+        if lifted is not None:
+            decision = post_json(f"{self.runtime_url}/proposals", {
+                **proposal.to_dict(),
+                "params": {**proposal.params, "legs": lifted, "resolution": "altitude",
+                           "altitude_shift_m": ALTITUDE_SHIFT_M, "holding_for": None},
+                "rationale": f"{proposal.rationale} · {other} 회랑 위로 +{ALTITUDE_SHIFT_M:.0f}m",
+            })
+            if not decision or decision.get("policy_hit") != "traffic":
+                return decision
+            detail = decision.get("detail") or {}
+            other = detail.get("blocked_asset") or other
+        if airborne:
+            return decision
+        until = detail.get("blocked_until_tick")
+        for _ in range(MAX_DELAY_TRIES):
+            if until is None:
+                break
+            decision = post_json(f"{self.runtime_url}/proposals", {
+                **proposal.to_dict(),
+                "params": {**proposal.params, "legs": legs, "resolution": "delay",
+                           "holding_for": other, "depart_after_tick": int(until)},
+                "rationale": f"{proposal.rationale} · {other} 지나간 뒤(틱 {int(until)}) 출발",
+            })
+            if not decision or decision.get("policy_hit") != "traffic":
+                return decision
+            detail = decision.get("detail") or {}
+            later = detail.get("blocked_until_tick")
+            if later is None or int(later) <= int(until):
+                break
+            until, other = later, detail.get("blocked_asset") or other
+        return decision
 
     def _redraw(self, here, goal, refusal: dict) -> tuple[list[dict] | None, str, int]:
         """모델이 먼저 그리고, 안 되면 A*. (legs, 누가 그렸나, 모델에게 물은 횟수).
@@ -125,9 +187,11 @@ class GuardedAgent:
         모델은 거절 사유를 읽고 초안을 냅니다. 초안은 양식·상자·고도·길이 검사와 우리 공역
         사본의 판정을 지나야 하고, 두 번 안 되면 A* 가 그립니다. 어느 쪽이든 런타임이
         다시 판정하므로, 모델이 엉뚱한 선을 그려도 실행되는 일은 없습니다.
+        교차 거절 뒤에는 모델에게 묻지 않습니다 — 모델은 다른 기체를 모르고, A* 도 마찬가지지만
+        A* 는 밀리초라 다른 길이라도 곧 내 볼 수 있습니다.
         """
         attempts = 0
-        if self.drafter is not None:
+        if self.drafter is not None and refusal.get("policy_hit") != "traffic":
             legs = self.drafter.draft(here, goal, {"reason": refusal.get("reason"),
                                                    "forbids": refusal.get("forbids")})
             attempts = self.drafter.last_attempts
@@ -164,8 +228,9 @@ class GuardedAgent:
         decision = self._file_with_route(proposal, telemetry)
         if decision and decision.get("verdict") in ("denied", "human", "queued"):
             self.cooldown[proposal.action] = time.time() + self.denial_s
+        route_refusal = bool(decision) and decision.get("policy_hit") in ROUTE_REFUSALS
         if decision and decision.get("verdict") == "denied" and decision.get("policy_hit") \
-                and decision.get("policy_hit") != "airspace":
+                and not route_refusal:
             # 지시(감항성 지시 등)로 막힌 행동입니다. 지시가 풀렸는지는 다시 내봐야 알지만,
             # 매번 내면 화면이 거절 표시로 도배됩니다. 가끔만 다시 냅니다.
             self.cooldown[proposal.action] = time.time() + self.banned_retry_s
@@ -173,7 +238,9 @@ class GuardedAgent:
             if decision.get("policy_hit"):
                 # 강제점이 있으면 무엇이 금지됐는지 그 자리에서 알게 됩니다.
                 # 자원이 막힌 것을 행동이 막힌 것으로 잘못 배우면 영영 신청을 못 합니다.
-                self.banned.add(decision.get("forbids") or proposal.action)
+                # 길·시각이 막힌 것(공역·교차)은 행동이 막힌 게 아니라 여기서 배우지 않습니다.
+                if not route_refusal:
+                    self.banned.add(decision.get("forbids") or proposal.action)
             elif proposal.resource:
                 self.pad_index += 1
         _report(self.asset_id, "guarded", proposal, decision)

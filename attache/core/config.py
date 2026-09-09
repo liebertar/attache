@@ -55,12 +55,35 @@ class Escalation:
 
 
 @dataclass
+class Performance:
+    """운영사가 신고한 기체 성능과 이 판의 시계. 런타임이 의도(4D)의 시간 창을 여기서 셈합니다.
+
+    운영사는 경로만 냅니다. 언제 어디에 있을지는 런타임이 신고 성능으로 계산합니다 — 운영사가
+    시간 창을 직접 적으면 좁게 적어 충돌을 숨길 수 있습니다. 시뮬레이터(sim/world.py)의 상수와
+    같아야 하고, tests/test_intents.py 가 둘을 대조합니다.
+    """
+
+    cruise_mps: float = 22.0
+    climb_mps: float = 2.0
+    descent_mps: float = 1.75
+    seconds_per_tick: float = 0.8
+    clearance_ticks: int = 25        # 지상 승인 확인 시간. 그다음 틱에 뜹니다
+    clock_epoch_z: str = "0900"      # 틱 0 의 Zulu 시각. NOTAM 의 시간 창을 틱으로 옮길 때 씁니다
+    # 항법 오차. 기체가 승인된 선에서 이만큼은 벗어날 수 있다고 운영사가 신고하는 값이고, 의도(4D)
+    # 회랑은 분리 최소치에 이것을 더한 폭입니다(F3548 은 의도 부피에 운영사의 순응 오차가 들어
+    # 있기를 기대합니다). 시뮬레이터의 경유점 반경(ARRIVAL_RADIUS_M, 모서리를 자르는 만큼)보다
+    # 커야 합니다.
+    nav_tolerance_m: float = 10.0
+
+
+@dataclass
 class FleetConfig:
     name: str
     resources: list[str]
     authority: Authority
     escalation: Escalation
     policies: list[Policy] = field(default_factory=list)
+    performance: Performance = field(default_factory=Performance)
 
 
 def load(path: str | Path) -> FleetConfig:
@@ -76,4 +99,5 @@ def load(path: str | Path) -> FleetConfig:
             ultra=os.getenv("MODEL_ULTRA", models.get("ultra", "")),
         ),
         policies=[Policy(**p) for p in raw.get("policies", [])],
+        performance=Performance(**(raw.get("performance") or {})),
     )

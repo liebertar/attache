@@ -27,8 +27,12 @@ class Committer:
         self.locks = locks
         self.ledger = ledger
         self.authority = authority
+        # 실행이 성공한 직후, 원장을 닫기 전에 부릅니다. 런타임이 의도(4D)를 여기서 만들거나 끝내고,
+        # 돌려준 맥락(intent_id)이 닫는 줄에 실립니다. 커밋 경로는 하나여야 해서 훅으로 둡니다.
+        self.on_committed = None
 
-    def commit(self, proposal: Proposal, decision: Decision) -> Decision:
+    def commit(self, proposal: Proposal, decision: Decision,
+               context: dict | None = None) -> Decision:
         if decision.verdict is Verdict.DENIED:
             return decision
 
@@ -41,7 +45,7 @@ class Committer:
             decision.detail = {"resource": proposal.resource}
             return decision
 
-        entry = self.ledger.open_entry(proposal, decision)
+        entry = self.ledger.open_entry(proposal, decision, context)
         decision.ledger_id = entry.id
 
         result = self.adapter.execute(
@@ -54,15 +58,18 @@ class Committer:
         )
         ok = bool(result.get("ok"))
 
+        learned = None
         if ok:
             self.authority.record_spend(proposal)
             decision.committed = True
             if proposal.action in RELEASING_ACTIONS:
                 self.locks.release_all(proposal.asset_id)
+            if self.on_committed is not None:
+                learned = self.on_committed(proposal, decision, entry)
         elif proposal.resource:
             self.locks.release(proposal.resource, proposal.asset_id)
 
         self.ledger.close_entry(
-            entry, "done" if ok else f"failed: {result.get('error')}", decision
+            entry, "done" if ok else f"failed: {result.get('error')}", decision, learned
         )
         return decision

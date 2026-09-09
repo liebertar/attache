@@ -10,7 +10,7 @@ airspace may be stale or read differently; the disagreement is resolved by askin
 assuming.
 """
 
-from attache.core.geo import Airspace, Volume
+from attache.core.geo import Airspace, Volume, first_breach
 from attache.core.route import Router
 
 
@@ -41,6 +41,24 @@ class OperatorPlanner:
         """출발점 자체가 금지 구역 안(또는 이격 거리 안)인가. 그러면 목적지 문제가 아닙니다."""
         altitude = float((telemetry or {}).get("alt_m") or self.router.cruise_alt_m)
         return self.airspace.too_close(start[0], start[1], altitude)
+
+    def lift(self, legs: list[dict], shift_m: float) -> list[dict] | None:
+        """같은 길을 구간마다 shift_m 만큼 높여서. 어느 구간이든 천장을 넘으면 None.
+
+        교차 거절의 첫 해결책입니다. 다른 기체의 회랑은 수직 ±25m 라 30m 위로 올리면 비켜 갑니다.
+        천장(격자·Part 107 기본 상한, 1m 여유)은 우리 사본으로 미리 봅니다 — 넘는 줄 알면서 내면
+        화면에 공역 거절이 한 번 더 뜨고, 그건 뜻 없는 표시입니다.
+        """
+        lifted = [{**leg, "alt_m": round(float(leg.get("alt_m") or 0.0) + shift_m, 1)}
+                  for leg in legs]
+        for here, nxt in zip(lifted, lifted[1:], strict=False):
+            allowed = self.router._ceiling_allowance((here["lat"], here["lon"]),
+                                                     (nxt["lat"], nxt["lon"]))
+            if nxt["alt_m"] > allowed:
+                return None
+        if first_breach(self.airspace, lifted) is not None:
+            return None
+        return lifted
 
     def straight(self, start: tuple[float, float], goal: tuple[float, float],
                  alt_m: float | None = None) -> list[dict]:
