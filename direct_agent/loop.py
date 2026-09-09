@@ -15,8 +15,10 @@ import time
 
 from attache.agent.detect import detect
 from attache.agent.loop import build_llm
+from attache.agent.planner import OperatorPlanner
 from attache.agent.propose import COSTS, Proposer
 from attache.core.http import get_json, post_json
+from attache.core.route import Router
 
 PADS = ["pad:launch"]
 PAD_COORDS = {   # 운영사가 자기 기지 좌표는 압니다
@@ -140,11 +142,33 @@ class DirectAgent:
             return  # 방금 낸 명령을 또 보내지 않습니다
         self.cooldown[proposal.action] = time.time() + self.repeat_s
 
+        self._attach_route(proposal, telemetry)
         result = self._act(proposal)
         if result and result.get("ok"):
             self.spend += result.get("cost_usd", cost)
         verdict = "ok" if (result or {}).get("ok") else "실패"
         print(f"[direct:{self.asset_id}] {proposal.action} ${cost:.0f} -> {verdict}", flush=True)
+
+    @staticmethod
+    def _attach_route(proposal, telemetry: dict) -> None:
+        """갈 곳까지의 직선. 공역은 보지 않습니다 — 그게 이 배선이 내는 그 경로입니다.
+
+        조종장치는 경유점이 있어야 뜹니다(ready 는 경로 없이는 안 뜹니다). 경로 없이 fly_route 만
+        보내면 네 대가 마당에 앉은 채 돈만 나갔고, 비교할 세계가 없었습니다. 하네스의 직결
+        쪽(tests/test_two_worlds.DirectSide)이 붙이는 것과 같은 직선입니다.
+        """
+        if proposal.action not in ("fly_route", "reserve_pad"):
+            return
+        here = (telemetry.get("lat"), telemetry.get("lon"))
+        goal = None
+        if proposal.action == "fly_route" and telemetry.get("job_lat") is not None:
+            goal = (telemetry["job_lat"], telemetry["job_lon"])
+        elif proposal.action == "reserve_pad":
+            goal = PAD_COORDS.get(proposal.resource or proposal.params.get("pad"))
+        if here[0] is None or goal is None:
+            return
+        proposal.params = {**proposal.params, "legs": OperatorPlanner.straight_at(
+            here, goal, Router.cruise_alt_default())}
 
     def _act(self, proposal) -> dict | None:
         if self.commander is not None:
