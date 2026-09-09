@@ -40,6 +40,13 @@
   .t-deny{background:rgba(255,59,48,.18);color:var(--zone)}
   .t-human{background:rgba(232,176,58,.18);color:var(--warn)}
   #legend{bottom:12px;left:12px;font-size:11.5px;color:var(--dim);line-height:1.9}
+  /* 카메라 조작. 헤더 카드에 글로 적어두는 대신 누를 수 있는 버튼으로. */
+  #cam{top:200px;left:12px;padding:6px;display:flex;flex-direction:column;gap:4px;width:auto}
+  #cam button{width:34px;height:30px;background:transparent;border:1px solid var(--line);
+    color:var(--text);border-radius:6px;cursor:pointer;font:600 12px inherit;line-height:1}
+  #cam button:hover{border-color:var(--guard);color:#bcd8ff}
+  #cam .sep{height:1px;background:var(--line);margin:2px 0}
+  #cam button[title]{position:relative}
   .k{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;
      vertical-align:-1px}
   #banner{bottom:12px;right:12px;width:330px;border-color:var(--zone);display:none;
@@ -52,6 +59,8 @@
   #denial{top:12px;left:50%;transform:translateX(-50%);width:min(420px,calc(100% - 650px));
           border-color:var(--zone);border-left-width:4px;overflow-wrap:anywhere}
   #denial[hidden]{display:none}
+  #denial,.ev[data-asset]{cursor:pointer}
+  .ev[data-asset]:hover{background:rgba(255,255,255,.03)}
   #denial .line1{display:flex;align-items:center;gap:6px;font-size:12.5px}
   #denial .line1 b{color:#ff9d95;font-weight:600}
   #denial-what{color:var(--dim)}
@@ -113,7 +122,17 @@
     <span>tick <b id="tick">0</b> · <a href="index.html" data-t="approvals"></a></span>
     <button id="restart" data-t="restart"></button>
   </div>
-  <p class="note" data-t="hint"></p>
+</div>
+
+<div class="card" id="cam" aria-label="camera">
+  <button data-cam="left" title="rotate left (Shift+←)">⟲</button>
+  <button data-cam="right" title="rotate right (Shift+→)">⟳</button>
+  <div class="sep"></div>
+  <button data-cam="up" title="tilt up (Shift+↑)">⤒</button>
+  <button data-cam="down" title="tilt down (Shift+↓)">⤓</button>
+  <div class="sep"></div>
+  <button data-cam="north" title="north up">N</button>
+  <button data-cam="home" title="start view">⌂</button>
 </div>
 
 <div class="card" id="score">
@@ -156,7 +175,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script type="module">
-import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, hex, droneBody, cargoStack, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
+import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, hex, droneBody, cargoStack, groundDisc, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
 const SIM = `http://${location.hostname}:8100`;
 const RT  = `http://${location.hostname}:8000`;
 const POLL_MS = 500;
@@ -293,7 +312,7 @@ const map = new maplibregl.Map({
   container: "map",
   style: "https://tiles.openfreemap.org/styles/positron",
   // 지면 경로 없이도 공중 회랑이 읽히도록 가까이서 시작합니다.
-  center: [-73.973, 40.718], zoom: 14.5, pitch: 45, bearing: -28,
+  center: [-73.973, 40.718], zoom: 14.5, pitch: 45, bearing: -28,   // HOME_VIEW 와 같은 값
   attributionControl: {compact: true},
 });
 
@@ -380,11 +399,13 @@ map.on("load", () => {
     paint:{"text-color":"#fff4d5","text-halo-color":"#18232b","text-halo-width":2}});
 
   // 지정 착륙장. 배달은 여기로만 갑니다. 땅에 붙은 표지라 경로·기체 아래에 있습니다.
+  // 원은 땅에 붙은 다각형(반지름 30m)입니다. 화면을 향한 동그라미는 기울여도 안 눕습니다.
   map.addSource("landing", {type:"geojson", data: empty()});
-  map.addLayer({id:"landing-ring", type:"circle", source:"landing",
-    paint:{"circle-radius":["interpolate",["linear"],["zoom"],12,5,16,22],
-      "circle-color":"#18b3a6","circle-opacity":.18,
-      "circle-stroke-width":1.5,"circle-stroke-color":"#18b3a6"}});
+  map.addSource("landing-disc", {type:"geojson", data: empty()});
+  map.addLayer({id:"landing-fill", type:"fill", source:"landing-disc",
+    paint:{"fill-color":"#18b3a6","fill-opacity":.22}}, firstLabel);
+  map.addLayer({id:"landing-ring", type:"line", source:"landing-disc",
+    paint:{"line-color":"#18b3a6","line-width":1.6,"line-opacity":.9}}, firstLabel);
   map.addLayer({id:"landing-label", type:"symbol", source:"landing",
     layout:{"text-field":["concat",["get","name"],"\n",["get","tag"]],
             "text-size":["interpolate",["linear"],["zoom"],12,9,16,12],
@@ -393,11 +414,11 @@ map.on("load", () => {
     paint:{"text-color":"#18b3a6","text-halo-color":"#0a0e11","text-halo-width":1.3}});
 
   map.addSource("pads", {type:"geojson", data: empty()});
-  map.addLayer({id:"pads-ring", type:"circle", source:"pads",
-    paint:{"circle-radius":20,
-      "circle-color":["case",["has","holder"],"#18b3a6","#e8b03a"],
-      "circle-opacity":.14,"circle-stroke-width":1.5,
-      "circle-stroke-color":["case",["has","holder"],"#18b3a6","#e8b03a"]}});
+  map.addSource("pads-disc", {type:"geojson", data: empty()});
+  map.addLayer({id:"pads-fill", type:"fill", source:"pads-disc",
+    paint:{"fill-color":["case",["has","holder"],"#18b3a6","#e8b03a"],"fill-opacity":.18}}, firstLabel);
+  map.addLayer({id:"pads-ring", type:"line", source:"pads-disc",
+    paint:{"line-color":["case",["has","holder"],"#18b3a6","#e8b03a"],"line-width":1.6}}, firstLabel);
   map.addLayer({id:"pads-label", type:"symbol", source:"pads",
     layout:{"text-field":["coalesce",["get","label"],["get","pad"]],
             "text-size":11,"text-font":["Noto Sans Regular"],"text-offset":[0,2.2]},
@@ -519,6 +540,34 @@ for (const button of (document.querySelectorAll?.("#lang button") || [])){
     applyLanguage();
   });
 }
+// 카메라 버튼. 회전·기울이기는 조금씩, 정북과 처음 화면은 한 번에.
+const HOME_VIEW = {center:[-73.973, 40.718], zoom:14.5, pitch:45, bearing:-28};
+for (const button of (document.querySelectorAll?.("#cam button") || [])){
+  button.addEventListener("click", () => {
+    const what = button.dataset.cam;
+    if (what === "left") map.easeTo({bearing:map.getBearing() - 30, duration:400});
+    else if (what === "right") map.easeTo({bearing:map.getBearing() + 30, duration:400});
+    else if (what === "up") map.easeTo({pitch:Math.min(85, map.getPitch() + 15), duration:400});
+    else if (what === "down") map.easeTo({pitch:Math.max(0, map.getPitch() - 15), duration:400});
+    else if (what === "north") map.easeTo({bearing:0, duration:500});
+    else if (what === "home") map.flyTo({...HOME_VIEW, duration:900});
+  });
+}
+
+// 카드나 기록을 누르면 그 기체로 갑니다. 건물이 읽힐 만큼 가까이, 기체가 화면 가운데.
+function focusAsset(id){
+  const v = latest?.worlds?.guarded?.assets?.[id];
+  if (!v) return;
+  map.flyTo({center:[v.lon, v.lat], zoom:16.4, pitch:58, bearing:map.getBearing(), duration:900});
+}
+document.getElementById("denial")?.addEventListener("click", event => {
+  focusAsset(event.currentTarget.dataset.asset);
+});
+document.getElementById("feed")?.addEventListener("click", event => {
+  const row = event.target.closest?.("[data-asset]");
+  if (row) focusAsset(row.dataset.asset);
+});
+
 // 판을 시나리오 시작점으로 되감습니다. 조종장치로 가는 명령이 아니라 시연 조작입니다.
 document.getElementById("restart")?.addEventListener("click", async () => {
   try { await fetch(`${SIM}/reset`, {method:"POST"}); } catch (error) { console.error(error); }
@@ -688,6 +737,9 @@ function renderSnapshot(data, runtime){
   map.getSource("landing")?.setData({type:"FeatureCollection", features: areas.map(a => ({
     type:"Feature", geometry:{type:"Point", coordinates:[a.lon, a.lat]},
     properties:{name:a.name, tag:t("lg_landing")}}))});
+  map.getSource("landing-disc")?.setData({type:"FeatureCollection", features: areas.map(a => ({
+    type:"Feature", geometry:{type:"Polygon", coordinates:[groundDisc(a.lat, a.lon, 30)]},
+    properties:{name:a.name}}))});
 
   const depot = data.worlds.guarded.depot_coords;
   map.getSource("depot")?.setData({type:"FeatureCollection", features:depot ? [{
@@ -698,14 +750,19 @@ function renderSnapshot(data, runtime){
   for (const [resource, hold] of Object.entries(runtime?.locks || {}))
     holders[resource] = hold.asset_id;
   const pads = data.worlds.guarded.pad_coords || {};
+  const padFeature = ([name, at], geometry) => ({
+    type:"Feature", geometry,
+    properties: holders[name]
+      ? {pad:name.replace("pad:",""), holder:holders[name],
+         label:`${name.replace("pad:","")} · ${holders[name]}`}
+      : {pad:name.replace("pad:",""), label:name.replace("pad:","")},
+  });
   map.getSource("pads")?.setData({type:"FeatureCollection",
-    features: Object.entries(pads).map(([name, at]) => ({
-      type:"Feature", geometry:{type:"Point", coordinates:[at.lon, at.lat]},
-      properties: holders[name]
-        ? {pad:name.replace("pad:",""), holder:holders[name],
-           label:`${name.replace("pad:","")} · ${holders[name]}`}
-        : {pad:name.replace("pad:",""), label:name.replace("pad:","")},
-    }))});
+    features: Object.entries(pads).map(entry => padFeature(entry,
+      {type:"Point", coordinates:[entry[1].lon, entry[1].lat]}))});
+  map.getSource("pads-disc")?.setData({type:"FeatureCollection",
+    features: Object.entries(pads).map(entry => padFeature(entry,
+      {type:"Polygon", coordinates:[groundDisc(entry[1].lat, entry[1].lon, 14)]}))});
 
   const g = data.worlds.guarded.scoreboard, d = data.worlds.direct.scoreboard;
   document.getElementById("rows").innerHTML = ROWS.map(key =>
@@ -748,6 +805,8 @@ function renderDenials(runtime, now){
   document.getElementById("denial").style.borderColor =
     pulled ? "var(--warn)" : "var(--zone)";
   document.getElementById("denial-who").textContent = e.proposal.asset_id;
+  const card = document.getElementById("denial");
+  if (card.dataset) card.dataset.asset = e.proposal.asset_id;
   document.getElementById("denial-what").textContent = t(e.proposal.action);
   // 런타임이 값으로 남긴 것을 조립합니다. 문장을 다시 뜯지 않습니다.
   document.getElementById("denial-why").textContent = pulled
@@ -952,7 +1011,7 @@ function renderFeed(runtime){
     const word = t(key);
     const who = d.approved_by ? ` · ${d.approved_by}` : "";
     const how = d.arbiter ? ` · 중재 ${d.arbiter}` : "";
-    lines.push(`<div class="ev"><span class="tag ${cls}">${word}</span>
+    lines.push(`<div class="ev" data-asset="${safe(p.asset_id)}"><span class="tag ${cls}">${word}</span>
       <b>${p.asset_id}</b> ${t(p.action)}
       <div style="color:var(--dim)">${reasonText(entry)}${who}${how}</div></div>`);
     if (lines.length >= 12) break;

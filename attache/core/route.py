@@ -158,18 +158,18 @@ class Router:
             self._memo_for = self.airspace.revision
         if self.airspace.landing_breach(*goal) is not None:
             return None  # 내려앉을 수 없는 자리입니다. 길이 있어도 소용없습니다
-        start_node = self._free_node_near(start)
-        goal_node = self._free_node_near(goal)
-        if start_node is None or goal_node is None:
+        starts = self._free_nodes_near(start)
+        goals = self._free_nodes_near(goal)
+        if not starts or not goals:
             return None  # 출발점이나 목적지 둘레에 열린 격자점이 없습니다
 
-        direct = self._straight(start_node, goal_node)
+        direct = self._straight(starts[0], goals[0])
         if direct is not None:
-            legs = self._pin(self._to_legs([start_node, goal_node]), start, goal)
+            legs = self._attach(self._to_legs([starts[0], goals[0]]), start, goal)
             if first_breach(self.airspace, [leg.to_dict() for leg in legs]) is None:
                 return Route(legs, detoured=False)
 
-        path = self._search(start_node, goal_node)
+        path = self._search(starts, goals)
         if path is None:
             return None
         # 줄을 당겨 곧게 편 것부터 씁니다. 안 되면 꺾인 점만 남긴 것, 그것도 안 되면
@@ -177,24 +177,27 @@ class Router:
         for nodes in (self._pull(path), self._simplify(path), path):
             if not self._legal_chain(nodes):
                 continue
-            legs = self._pin(self._to_legs(nodes), start, goal)
+            legs = self._attach(self._to_legs(nodes), start, goal)
             if first_breach(self.airspace, [leg.to_dict() for leg in legs]) is None:
                 return Route(legs, detoured=True, reason="금지 구역을 피해 우회")
         return None
 
-    def _free_node_near(self, point: tuple[float, float]) -> tuple[int, int] | None:
-        """이 지점에서 이어 붙일 수 있는 가장 가까운 열린 격자점.
+    def _free_nodes_near(self, point: tuple[float, float]) -> list[tuple[int, int]]:
+        """이 지점에서 이어 붙일 수 있는 열린 격자점들, 가까운 순.
 
         격자점은 실제 지점에서 최대 35m 벗어납니다. 주소는 건물 옆이고, 회수돼 떠 있는 자리는
         구역 경계 바로 밖이라, 딱 떨어지는 격자점이 건물 안이거나 이격 거리 안인 일이 흔합니다.
         그러면 목적지가 멀쩡한데도 '길이 없다'가 나왔습니다. 둘레 두 칸 안에서 지점까지의
-        직선이 통과하는 가장 가까운 점을 씁니다. _pin 이 마지막에 실제 지점으로 잇습니다.
+        직선이 통과하는 점들을 전부 씁니다 — 가장 가까운 점 하나가 건물 사이 막힌 주머니에
+        갇혀 있을 수 있어서(센트럴파크 북쪽에서 돌아오는 길이 그래서 안 났습니다) 탐색은
+        여럿에서 동시에 시작하고 어느 하나에 닿으면 끝납니다. _pin 이 실제 지점으로 잇습니다.
         """
         centre = self._node(*point)
         candidates = sorted(
             ((centre[0] + di, centre[1] + dj) for di in range(-2, 3) for dj in range(-2, 3)),
             key=lambda node: math.dist(self._coords(node), point),
         )
+        open_nodes = []
         for node in candidates:
             if self._blocked(node):
                 continue
@@ -203,23 +206,30 @@ class Router:
             hop = [{"lat": point[0], "lon": point[1], "alt_m": altitude},
                    {"lat": lat, "lon": lon, "alt_m": altitude}]
             if first_breach(self.airspace, hop) is None:
-                return node
-        return None
+                open_nodes.append(node)
+        return open_nodes
 
-    @staticmethod
-    def _pin(legs: list[Leg], start: tuple[float, float],
-             goal: tuple[float, float]) -> list[Leg]:
-        """경로의 양 끝을 실제 지점에 맞춥니다.
+    def _free_node_near(self, point: tuple[float, float]) -> tuple[int, int] | None:
+        nodes = self._free_nodes_near(point)
+        return nodes[0] if nodes else None
 
-        탐색은 격자점 위에서 하므로 마지막 구간이 목적지에서 최대 100m 떨어진 곳에서
-        끝납니다. 기체는 경유점을 다 쓰고 남은 100m 를 승인 없이 날아갑니다 —
-        그 구간이 어디를 지나는지는 아무도 판정한 적이 없습니다.
+    def _attach(self, legs: list[Leg], start: tuple[float, float],
+                goal: tuple[float, float]) -> list[Leg]:
+        """실제 출발점·목적지를 격자 경로의 양 끝에 잇습니다.
+
+        탐색은 격자점 위에서 하므로 경로가 목적지에서 최대 35m 떨어진 곳에서 끝납니다.
+        예전에는 끝 격자점을 실제 지점으로 바꿔치기했는데, 그러면 마지막 구간이 판정한 적 없는
+        새 선분이 되어 건물 모서리를 스치고 통째로 거절되는 일이 있었습니다(유니언스퀘어).
+        격자점은 그대로 두고 실제 지점까지 짧은 구간을 하나 덧붙입니다 — 그 구간은
+        _free_nodes_near 가 이미 통과를 확인한 선분입니다. 고도는 양쪽 중 낮은 쪽.
         """
         if not legs:
             return legs
-        legs[0] = Leg(start[0], start[1], legs[0].alt_m)
-        legs[-1] = Leg(goal[0], goal[1], legs[-1].alt_m)
-        return legs
+        head_alt = min(legs[0].alt_m, self._altitude_at(*start))
+        tail_alt = min(legs[-1].alt_m, self._altitude_at(*goal))
+        legs[0] = Leg(legs[0].lat, legs[0].lon, head_alt)
+        return ([Leg(start[0], start[1], head_alt)] + legs
+                + [Leg(goal[0], goal[1], tail_alt)])
 
     def _pull(self, path: list[tuple[int, int]], window: int = 80) -> list[tuple[int, int]]:
         """줄을 당깁니다. 막는 게 없는 구간은 곧게 펴집니다.
@@ -254,19 +264,25 @@ class Router:
     def _straight(self, a: tuple[int, int], b: tuple[int, int]) -> bool | None:
         return True if self._legal_chain([a, b]) else None
 
-    def _search(self, start, goal, budget: int = 120_000):
+    def _search(self, starts, goals, budget: int = 120_000):
+        """여러 출발 격자점에서 동시에 시작해 목적지 격자점 중 아무 데나 닿으면 끝납니다."""
+        starts = [starts] if isinstance(starts, tuple) else list(starts)
+        goals = {goals} if isinstance(goals, tuple) else set(goals)
+        goal = min(goals, key=lambda node: math.dist(node, starts[0]))
+        origin = starts[0]
         reach = max(40, int(SEARCH_REACH_M / (self.cell * 110_570.0)))
 
         def heuristic(node):
             return math.dist(node, goal)
 
-        open_set = [(heuristic(start), 0.0, start)]
+        open_set = [(heuristic(start), 0.0, start) for start in starts]
+        heapq.heapify(open_set)
         came_from: dict = {}
-        best = {start: 0.0}
+        best = {start: 0.0 for start in starts}
         seen = 0
         while open_set:
             _, cost, node = heapq.heappop(open_set)
-            if node == goal:
+            if node in goals:
                 path = [node]
                 while node in came_from:
                     node = came_from[node]
@@ -280,7 +296,10 @@ class Router:
                 nxt = (node[0] + di, node[1] + dj)
                 # 탐색 범위는 거리로 잡습니다. 노드 수로 잡으면 격자를 촘촘하게 할수록
                 # 볼 수 있는 범위가 같이 좁아져서, 멀리 있는 목적지를 아예 못 찾습니다.
-                if abs(nxt[0] - goal[0]) > reach or abs(nxt[1] - goal[1]) > reach:
+                # 목적지 둘레만 보면 갈 때는 되는데 올 때는 안 되는 길이 생깁니다 — 갈 때
+                # 목적지 둘레 안에서 멀리 돌아간 길이 올 때는 창 밖이라서. 양쪽 둘레를 다 봅니다.
+                if ((abs(nxt[0] - goal[0]) > reach or abs(nxt[1] - goal[1]) > reach)
+                        and (abs(nxt[0] - origin[0]) > reach or abs(nxt[1] - origin[1]) > reach)):
                     continue
                 if self._blocked(nxt) or self._crosses(node, nxt):
                     continue

@@ -246,6 +246,19 @@ export function box(lat, lon, halfM, base, thicknessM) {
           base: Math.max(0, base), height: Math.max(0.5, base + thicknessM)};
 }
 
+/** 땅에 그린 원. 화면을 향한 동그라미(circle 레이어)는 기울인 지도에서 입체감이 없어서,
+ * 착륙장·이륙장은 실제 좌표의 다각형으로 그려 지도와 같이 기울어지게 합니다. */
+export function groundDisc(lat, lon, radiusM, sides = 28) {
+  const r = radiusM / METRES_PER_DEG_LAT;
+  const rLon = r / (Math.cos(lat * Math.PI / 180) || 1);
+  const ring = [];
+  for (let i = 0; i <= sides; i++) {
+    const angle = (i / sides) * 2 * Math.PI;
+    ring.push([lon + rLon * Math.cos(angle), lat + r * Math.sin(angle)]);
+  }
+  return ring;
+}
+
 /** 실은 짐. 기체 위로 개수만큼 쌓입니다. 싣는 중이면 늘고 내리는 중이면 줄어듭니다. */
 export const CARGO_MAX = 6;
 export function cargoStack(lat, lon, altitude, count, halfM = 3.5) {

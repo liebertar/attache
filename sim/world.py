@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from dataclasses import asdict, dataclass, field
 
-from attache.core.geo import VERTICAL_CLEARANCE_M, Airspace, Volume
+from attache.core.geo import DEFAULT_CEILING_M, VERTICAL_CLEARANCE_M, Airspace, Volume
 
 # 물류 기지는 브루클린 네이비야드. 배달지는 이스트강 건너 맨해튼입니다.
 # 실제 배송 기업이 도심 배달 거점을 두는 자리이고, 강을 건너야 해서 헬리포트 주변
@@ -121,11 +121,50 @@ AIRSPACE_FILE = os.getenv(
 
 
 def load_bands() -> list[dict]:
-    """같은 등급끼리 합쳐진 덩어리. 화면에 입체로 세울 때 씁니다."""
+    """같은 등급끼리 합쳐진 덩어리. 화면 바닥에 칠할 때 씁니다. 격자 없는 칸도 채웁니다."""
     try:
-        return json.loads(Path(AIRSPACE_FILE).read_text(encoding="utf-8")).get("bands", [])
+        raw = json.loads(Path(AIRSPACE_FILE).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
+    bands = list(raw.get("bands", []))
+    default = default_band(raw.get("volumes", []))
+    if default:
+        bands.append(default)
+    return bands
+
+
+# FAA UAS 시설 지도 격자는 30초각(0.008333도) 정사각형이고 통제 공역에만 칸이 있습니다.
+# 칸이 없는 곳(허드슨 강 한가운데 같은)은 비어 있는 게 아니라 14 CFR 107.51 의 기본 상한
+# 400ft 가 적용되는 곳입니다. 판정(geo.DEFAULT_CEILING_M)이 이미 그렇게 보고 있으니 화면도 같은
+# 색으로 칠합니다 — 비어 보이면 "여긴 뭐지"가 됩니다.
+GRID_CELL_DEG = 0.008333
+GRID_ORIGIN = (40.68334, -74.02501)      # nyc.json 격자의 남서쪽 모서리
+
+
+def default_band(volumes: list[dict]) -> dict | None:
+    have = set()
+    for volume in volumes:
+        if not volume["id"].startswith("uasfm"):
+            continue
+        lat0 = min(p[0] for p in volume["polygon"])
+        lon0 = min(p[1] for p in volume["polygon"])
+        have.add((round((lat0 - GRID_ORIGIN[0]) / GRID_CELL_DEG),
+                  round((lon0 - GRID_ORIGIN[1]) / GRID_CELL_DEG)))
+    rings = []
+    for row in range(-12, 19):          # 위도 40.58 ~ 40.84
+        for col in range(-10, 22):      # 경도 -74.11 ~ -73.84
+            if (row, col) in have:
+                continue
+            lat0 = GRID_ORIGIN[0] + row * GRID_CELL_DEG
+            lon0 = GRID_ORIGIN[1] + col * GRID_CELL_DEG
+            rings.append([[lat0, lon0], [lat0, lon0 + GRID_CELL_DEG],
+                          [lat0 + GRID_CELL_DEG, lon0 + GRID_CELL_DEG], [lat0 + GRID_CELL_DEG, lon0]])
+    if not rings:
+        return None
+    return {"id": "band-default-121", "name": "Part 107 기본 상한 (격자 밖)", "polygon": rings[0],
+            "rings": rings, "floor_m": 0.0, "ceiling_m": DEFAULT_CEILING_M, "reference": "AGL",
+            "rule": "ceiling", "reason": "시설 지도 격자가 없는 곳. 14 CFR 107.51 기본 상한 400ft",
+            "source": "14 CFR 107.51"}
 
 
 def load_volumes() -> list[dict]:
@@ -185,22 +224,39 @@ ADDRESSES = load_addresses()
 # 센트럴파크·미드타운 동쪽·칼슈어츠파크는 KLGA 0ft 격자 안이라(FAA 데이터) 착륙장이 될 수 없고,
 # 브라이언트파크·매디슨스퀘어는 둘레에 건물 없는 자리가 없거나 길이 안 났습니다.
 LANDING_AREAS = [
+    # 맨해튼 섬 (17)
     {"id": "la-battery", "name": "Battery Park", "lat": 40.70335, "lon": -74.01565},
+    {"id": "la-minuit", "name": "Peter Minuit Plaza", "lat": 40.70119, "lon": -74.01226},
     {"id": "la-seaport", "name": "Seaport Pier 17", "lat": 40.70620, "lon": -74.00110},
+    {"id": "la-pier25", "name": "Pier 25 Tribeca", "lat": 40.72050, "lon": -74.01350},
+    {"id": "la-corlears", "name": "Corlears Hook Park", "lat": 40.71150, "lon": -73.97900},
     {"id": "la-eastriver", "name": "East River Park", "lat": 40.71819, "lon": -73.97575},
-    {"id": "la-stuyvesant", "name": "Stuyvesant Cove", "lat": 40.73300, "lon": -73.97400},
-    {"id": "la-stuytown", "name": "Stuy Town Oval", "lat": 40.73180, "lon": -73.97777},
+    {"id": "la-sara", "name": "Sara D. Roosevelt Park", "lat": 40.71900, "lon": -73.99250},
     {"id": "la-tompkins", "name": "Tompkins Square", "lat": 40.72650, "lon": -73.98170},
     {"id": "la-washington", "name": "Washington Square", "lat": 40.73080, "lon": -73.99730},
+    {"id": "la-pier45", "name": "Pier 45 West Village", "lat": 40.73300, "lon": -74.01100},
     {"id": "la-union", "name": "Union Square", "lat": 40.73590, "lon": -73.99063},
-    {"id": "la-chelsea", "name": "Hudson River Park Chelsea", "lat": 40.74687, "lon": -74.00880},
+    {"id": "la-stuytown", "name": "Stuy Town Oval", "lat": 40.73180, "lon": -73.97777},
+    {"id": "la-stuyvesant", "name": "Stuyvesant Cove", "lat": 40.73300, "lon": -73.97400},
+    {"id": "la-pier62", "name": "Pier 62 Chelsea", "lat": 40.74700, "lon": -74.01050},
     {"id": "la-abzug", "name": "Bella Abzug Park", "lat": 40.75603, "lon": -74.00160},
+    {"id": "la-pier76", "name": "Pier 76 Midtown", "lat": 40.75868, "lon": -74.00391},
     {"id": "la-pier84", "name": "Pier 84 Hudson", "lat": 40.76284, "lon": -74.00069},
-    {"id": "la-hunters", "name": "Hunters Point South", "lat": 40.74250, "lon": -73.96050},
-    {"id": "la-gantry", "name": "Gantry Plaza", "lat": 40.74584, "lon": -73.95862},
+    # 센트럴파크 북쪽·할렘 (7). 공원 남쪽 절반은 KLGA 0ft 격자라 못 둡니다.
+    {"id": "la-eastmeadow", "name": "Central Park East Meadow", "lat": 40.78837, "lon": -73.95353},
+    {"id": "la-northmeadow", "name": "Central Park North Meadow", "lat": 40.79350, "lon": -73.95900},
+    {"id": "la-harlemmeer", "name": "Harlem Meer", "lat": 40.79670, "lon": -73.95200},
+    {"id": "la-cpnorth", "name": "Central Park North 110th", "lat": 40.79850, "lon": -73.95500},
+    {"id": "la-morningside", "name": "Morningside Park", "lat": 40.80400, "lon": -73.95800},
+    {"id": "la-stnicholas", "name": "St. Nicholas Park", "lat": 40.81550, "lon": -73.94900},
+    {"id": "la-jefferson", "name": "Thomas Jefferson Park", "lat": 40.79350, "lon": -73.93700},
+    # 브루클린·퀸스·거버너스 (6)
     {"id": "la-bbp", "name": "Brooklyn Bridge Park", "lat": 40.70200, "lon": -73.99650},
+    {"id": "la-governors", "name": "Governors Island", "lat": 40.68950, "lon": -74.01680},
     {"id": "la-mccarren", "name": "McCarren Park", "lat": 40.72060, "lon": -73.95200},
     {"id": "la-bushwick", "name": "Bushwick Inlet Park", "lat": 40.72150, "lon": -73.96050},
+    {"id": "la-hunters", "name": "Hunters Point South", "lat": 40.74250, "lon": -73.96050},
+    {"id": "la-gantry", "name": "Gantry Plaza", "lat": 40.74584, "lon": -73.95862},
 ]
 
 
