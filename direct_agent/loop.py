@@ -111,7 +111,7 @@ class DirectAgent:
 
         proposal = self.proposer.write(
             concern, telemetry, self._free_looking_pad(neighbours),
-            frozenset(self.banned_actions),
+            frozenset(self.banned_actions), tuple(PADS),
         )
         if proposal.action in self.banned_actions or (
             proposal.resource and proposal.resource in self.banned_actions

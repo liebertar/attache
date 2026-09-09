@@ -93,7 +93,8 @@ class GuardedAgent:
         if concern is None:
             return
         proposal = self.proposer.write(
-            concern, telemetry, self._open_pad(), frozenset(self.banned)
+            concern, telemetry, self._open_pad(), frozenset(self.banned),
+            tuple(sorted(self.pads) or FALLBACK_PADS),
         )
         if time.time() < self.cooldown.get(proposal.action, 0.0):
             return  # 방금 거절당한 걸 계속 들이밀지 않습니다

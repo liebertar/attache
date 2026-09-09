@@ -18,12 +18,16 @@ BLAST = {"decline_job": "none", "fly_route": "schedule", "reserve_pad": "schedul
          "fast_charge": "none", "divert_ground": "cargo",
          "disengage_autonomy": "public", "depart": "none"}
 
-SYSTEM = (
-    "You watch one uncrewed vehicle. You cannot act. You may only fill in a request form "
-    "that a runtime will judge. Reply with one JSON object and nothing else: "
-    '{"action": one of ' + str(sorted(ALLOWED_ACTIONS)) + ', "pad": "pad:P1"|"pad:P2"|null, '
-    '"rationale": "one short sentence"}. Never invent an action outside the list.'
-)
+def system_for(pads: tuple[str, ...]) -> str:
+    """양식 설명. 패드 이름은 런타임이 알려준 것을 그대로 씁니다 —
+    여기에 적어두면 이름이 바뀌는 순간 조용히 어긋납니다(실제로 어긋나 있었습니다)."""
+    choices = "|".join(f'"{pad}"' for pad in pads) or "null"
+    return (
+        "You watch one uncrewed vehicle. You cannot act. You may only fill in a request form "
+        "that a runtime will judge. Reply with one JSON object and nothing else: "
+        '{"action": one of ' + str(sorted(ALLOWED_ACTIONS)) + f', "pad": {choices}|null, '
+        '"rationale": "one short sentence"}. Never invent an action outside the list.'
+    )
 
 
 def by_rule(
@@ -67,11 +71,13 @@ class Proposer:
 
     def write(
         self, concern: Concern, telemetry: dict, pad: str,
-        banned: frozenset[str] = frozenset()
+        banned: frozenset[str] = frozenset(), pads: tuple[str, ...] = ()
     ) -> Proposal:
+        known = tuple(pads) or (pad,)
         fallback = by_rule(concern, telemetry, pad, banned)
         tier = LlmTier.SUPER if concern.urgency == "high" else LlmTier.NANO
-        reply = self.llm.ask(tier, SYSTEM, self._brief(concern, telemetry, pad), max_tokens=160)
+        reply = self.llm.ask(tier, system_for(known),
+                             self._brief(concern, telemetry, pad), max_tokens=160)
         if reply is None:
             return fallback
 
@@ -82,8 +88,8 @@ class Proposer:
             return fallback  # 이미 금지된 걸 골랐으면 버립니다
 
         chosen_pad = form.get("pad") if form.get("action") == "reserve_pad" else None
-        if chosen_pad not in (None, "pad:P1", "pad:P2"):
-            chosen_pad = pad
+        if chosen_pad is not None and chosen_pad not in known:
+            chosen_pad = pad  # 없는 패드를 골랐습니다. 양식은 맞으니 가까운 것으로 되돌립니다
         rationale = str(form.get("rationale") or concern.detail)[:180]
         return _build(telemetry.get("id", "?"), form["action"], chosen_pad, rationale, reply.model)
 
