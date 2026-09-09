@@ -13,14 +13,17 @@ import heapq
 import math
 from dataclasses import dataclass
 
-from attache.core.geo import VERTICAL_CLEARANCE_M, Airspace, first_breach, highest_roof_along
+from attache.core.geo import Airspace, first_breach, required_top_along
 
 # 구간 고도는 "그 구간에서 가장 낮은 안전 고도"입니다: 아래 가장 높은 옥상 + 이격 50m, 최소
 # FLOOR. 그게 그 자리의 천장(FAA 격자, 최대 CRUISE)을 넘으면 그 구간은 못 지나고 옆으로
 # 돕니다. 그래서 강 위에서는 40m, 저층 위에서는 70m, 탑 옆에서는 돌아가는 식으로 고도가
 # 구간마다 달라집니다 — 한 높이로만 다니면 고도를 판정한다는 게 화면에 안 보입니다.
 CRUISE_ALT_M = 120.0      # 올라갈 수 있는 최대. FAA 기본 상한 400ft(121.9m) 바로 아래
-FLOOR_ALT_M = 40.0        # 아무것도 없는 곳(강·공원)의 순항 최소
+# 판정 자료에 없는 건물(20 m 미만) 위로도 50 m 가 남아야 합니다. 40 m 로 두었더니 33~37 m 건물을
+# 40 m 로 지나는 경로가 승인됐고, 화면에서 회랑이 그 건물을 뚫고 갔습니다. 천장이 70 m 미만인
+# FAA 격자 칸(15/30/61 m)은 이 값으로 지나갈 수 없게 됩니다 — 그 칸을 도는 것이 맞습니다.
+FLOOR_ALT_M = 70.0        # 아무것도 없는 곳(강·공원)의 순항 최소 = 자료 문턱 20 m + 이격 50 m
 
 # 목적지에서 이만큼 벗어난 곳까지는 우회로로 봅니다. 도시 한 구역을 크게
 # 돌아가는 경로가 나올 수 있어야 합니다.
@@ -77,6 +80,7 @@ class Router:
         self.floor_alt_m = min(FLOOR_ALT_M, self.cruise_alt_m)
         self._blocked_memo: dict[tuple[int, int], bool] = {}
         self._edge_memo: dict[tuple, float | None] = {}
+        self._route_memo: dict[tuple, Route | None] = {}
         self._memo_for = -1
 
     @staticmethod
@@ -125,10 +129,11 @@ class Router:
         nxt = {"lat": goal[0], "lon": goal[1]}
         allowed = min(self._altitude_at(*start), self._altitude_at(*goal),
                       self._ceiling_allowance(start, goal))
-        roof = highest_roof_along(self.airspace, here, nxt)
+        top = required_top_along(self.airspace, here, nxt)
+        # 최저 순항(70 m)은 천장이 허락하는 곳에서만입니다. 천장이 낮은 칸(61 m)에서는 천장 - 1.
         # 건물 Volume 은 옥상 + 이격까지를 막습니다(닫힌 구간). 딱 그 높이는 아직 안이라 0.5m 더.
-        needed = max(self.floor_alt_m, self.min_alt_m,
-                     roof + VERTICAL_CLEARANCE_M + 0.5 if roof > 0 else 0.0)
+        floor_here = min(self.floor_alt_m, allowed)
+        needed = max(floor_here, self.min_alt_m, top + 0.5 if top > 0 else 0.0)
         if needed > allowed:
             return None
         legs = [{**here, "alt_m": needed}, {**nxt, "alt_m": needed}]
@@ -181,7 +186,18 @@ class Router:
         if self._memo_for != self.airspace.revision:
             self._blocked_memo.clear()          # 공역이 바뀌면 기억한 답도 버립니다
             self._edge_memo.clear()
+            self._route_memo.clear()
             self._memo_for = self.airspace.revision
+        # 같은 자리에서 같은 착륙장으로는 판마다 다시 갑니다. 건물 3만 4천 동에 천장 낮은 칸을 도는
+        # 탐색은 한 번에 1~3분이라, 같은 공역 판본 안에서는 답을 기억합니다(20 m 안은 같은 자리).
+        key = (round(start[0], 4), round(start[1], 4), round(goal[0], 4), round(goal[1], 4))
+        if key in self._route_memo:
+            return self._route_memo[key]
+        route = self._plan(start, goal)
+        self._route_memo[key] = route
+        return route
+
+    def _plan(self, start: tuple[float, float], goal: tuple[float, float]) -> Route | None:
         if self.airspace.landing_breach(*goal) is not None:
             return None  # 내려앉을 수 없는 자리입니다. 길이 있어도 소용없습니다
         starts = self._free_nodes_near(start)
@@ -282,7 +298,7 @@ class Router:
         return all(
             not self._blocked(a) and not self._blocked(b)
             and not self._crosses(a, b)
-            for a, b in zip(nodes, nodes[1:])
+            for a, b in zip(nodes, nodes[1:], strict=False)
         )
 
     def _straight(self, a: tuple[int, int], b: tuple[int, int]) -> bool | None:
@@ -341,7 +357,7 @@ class Router:
         if len(path) < 3:
             return path
         kept = [path[0]]
-        for previous, node, following in zip(path, path[1:], path[2:]):
+        for previous, node, following in zip(path, path[1:], path[2:], strict=False):
             before = (node[0] - previous[0], node[1] - previous[1])
             after = (following[0] - node[0], following[1] - node[1])
             if before != after:

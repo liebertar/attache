@@ -8,8 +8,18 @@ order it did not have.
 import unittest
 
 from sim.world import (
-    AIRSPACE, BOX_TICKS, DROP_TICKS, LANDING_AREAS, LOAD_TICKS, PARCELS_PER_STOP, PARCELS_PER_TRIP,
-    PICKUP_PER_STOP, Simulation, seat_of, to_grid, to_latlon,
+    AIRSPACE,
+    BOX_TICKS,
+    DROP_TICKS,
+    LANDING_AREAS,
+    LOAD_TICKS,
+    PARCELS_PER_STOP,
+    PARCELS_PER_TRIP,
+    PICKUP_PER_STOP,
+    Simulation,
+    seat_of,
+    to_grid,
+    to_latlon,
 )
 
 

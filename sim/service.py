@@ -17,7 +17,7 @@ def main() -> None:
         # 화면을 켜두면 계속 돌아야 합니다. 한 판이 끝나면 알아서 다시 시작합니다.
         # 서비스 반경 11km 라 편도가 570틱까지 갑니다. 배달지 두 곳을 돌고 창고까지 오려면
         # 한 바퀴가 2천 틱 안팎이고, 한 판에 두 바퀴는 돌아야 순환이 보입니다.
-        max_ticks=int(os.getenv("ROUND_TICKS", "4000")),
+        max_ticks=int(os.getenv("ROUND_TICKS", "5000")),   # 할렘 왕복 4,040틱 + 여유
     )
 
     def clock() -> None:

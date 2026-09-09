@@ -11,8 +11,8 @@ import math
 import os
 import random
 import time
-from pathlib import Path
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 from attache.core.geo import (
     DEFAULT_CEILING_M,
@@ -21,6 +21,7 @@ from attache.core.geo import (
     VERTICAL_CLEARANCE_M,
     Airspace,
     Volume,
+    building_clearance_m,
 )
 from attache.core.notam import Clock, parse_notice
 
@@ -30,18 +31,30 @@ from attache.core.notam import Clock, parse_notice
 DEPOT = (47.8, 54.9)                       # 브루클린 네이비야드 40.702,-73.970
 # 이륙장 하나. 창고 바로 옆입니다. 두 자리를 350m 떨어뜨려 놨더니 한 거점으로
 # 안 읽혔고, 자리가 남으면 두 기체가 다툴 일도 없어 잠금표와 중재가 놀았습니다.
-PADS = {"pad:launch": (47.4, 54.9)}
+# 비상 착륙대(모터 고장 때만). 창고 옥상 자리와 떨어진 마당 동쪽에 둡니다 — 옥상 자리와 겹치면
+# 고장 기체가 옆 자리 기체 위로 내리려다 거절만 받습니다.
+PADS = {"pad:launch": (48.55, 54.95)}
 # 창고 마당의 자리. 기체마다 제 자리가 있고, 한 줄로 24m 씩 떨어져 있습니다.
 # 여기서 하루를 시작하고(싣는 중), 배달을 마치면 여기로 돌아와 땅에서 다음 차례를 기다립니다.
 # 이륙장(충전대)은 하나뿐이라 자원이고, 마당 자리는 자원이 아니라 잠금이 없습니다.
 # 이륙장을 돌아오는 비행 내내 잡고 있으면 나머지 기체가 배달지에서 몇 분씩 서 있었고,
 # 한 점에 겹쳐 내리면 네 대가 한 대로 보였습니다.
-SEAT_FIRST = (48.1, 54.95)                 # 첫 자리. 창고 표지 동쪽 29m
-SEAT_SPACING = 0.42                        # 동서 약 41m. 24m 로는 이름표가 서로 덮였습니다
+# 자리는 창고 옥상 위 한 줄입니다(긴 축 97 m 를 따라 31 m 간격, 바깥 둘은 옥상 가장자리에 걸침).
+# 마당에 두었더니 창고 옆 아무 데나 앉는 것처럼 보였습니다. 31 m 는 서 있는 기체와의 이격(30 m)
+# 바로 밖이라 옆 자리에 내릴 수 있고, 이륙 기둥(회랑 폭 40 m)은 겹쳐서 동시에 뜨면 런타임이 한 대를
+# 기다리게 합니다 — 그게 맞는 그림입니다. 옥상 높이는 화면이 올려 그리는 데만 씁니다(시뮬 고도는
+# 지면 기준).
+SEATS = [
+    (47.4462, 54.9415),   # 40.701803, -73.970437,
+    (47.6652, 55.0284),   # 40.7016, -73.970185,
+    (47.8842, 55.1153),   # 40.701398, -73.969933,
+    (48.1032, 55.2021),   # 40.701195, -73.969681,
+]
+SEAT_ROOF_M = 9.0
 
 
 def seat_of(index: int) -> tuple[float, float]:
-    return (SEAT_FIRST[0] + SEAT_SPACING * index, SEAT_FIRST[1])
+    return SEATS[index % len(SEATS)]
 
 # 맨해튼. 배터리파크에서 센트럴파크 북단까지, 이스트강 건너 롱아일랜드시티까지.
 # 여기를 고른 이유는 FAA 가 격자마다 허용 고도를 공개하기 때문입니다.
@@ -242,12 +255,12 @@ OPENING_STOPS = {"drone-01": "Central Park North 110th", "drone-02": "McCarren P
 LANDING_AREAS = [
     # 맨해튼 섬 (17)
     {"id": "la-battery", "name": "Battery Park", "lat": 40.70335, "lon": -74.01565},
-    {"id": "la-minuit", "name": "Peter Minuit Plaza", "lat": 40.70119, "lon": -74.01226},
+    {"id": "la-minuit", "name": "Peter Minuit Plaza", "lat": 40.70106, "lon": -74.01243},
     {"id": "la-seaport", "name": "Seaport Pier 17", "lat": 40.70620, "lon": -74.00110},
     {"id": "la-pier25", "name": "Pier 25 Tribeca", "lat": 40.72050, "lon": -74.01350},
     {"id": "la-corlears", "name": "Corlears Hook Park", "lat": 40.71150, "lon": -73.97900},
-    {"id": "la-eastriver", "name": "East River Park", "lat": 40.71819, "lon": -73.97575},
-    {"id": "la-sara", "name": "Sara D. Roosevelt Park", "lat": 40.71900, "lon": -73.99250},
+    {"id": "la-eastriver", "name": "East River Park", "lat": 40.71864, "lon": -73.97575},
+    {"id": "la-sara", "name": "Sara D. Roosevelt Park", "lat": 40.719, "lon": -73.99262},
     {"id": "la-tompkins", "name": "Tompkins Square", "lat": 40.72650, "lon": -73.98170},
     {"id": "la-washington", "name": "Washington Square", "lat": 40.73080, "lon": -73.99730},
     {"id": "la-pier45", "name": "Pier 45 West Village", "lat": 40.73300, "lon": -74.01100},
@@ -259,11 +272,11 @@ LANDING_AREAS = [
     {"id": "la-pier76", "name": "Pier 76 Midtown", "lat": 40.75868, "lon": -74.00391},
     {"id": "la-pier84", "name": "Pier 84 Hudson", "lat": 40.76284, "lon": -74.00069},
     # 센트럴파크 북쪽·할렘 (7). 공원 남쪽 절반은 KLGA 0ft 격자라 못 둡니다.
-    {"id": "la-eastmeadow", "name": "Central Park East Meadow", "lat": 40.78837, "lon": -73.95353},
+    {"id": "la-eastmeadow", "name": "Central Park East Meadow", "lat": 40.7887, "lon": -73.96},
     {"id": "la-northmeadow", "name": "Central Park North Meadow", "lat": 40.79350, "lon": -73.95900},
     {"id": "la-harlemmeer", "name": "Harlem Meer", "lat": 40.79670, "lon": -73.95200},
     {"id": "la-cpnorth", "name": "Central Park North 110th", "lat": 40.79850, "lon": -73.95500},
-    {"id": "la-morningside", "name": "Morningside Park", "lat": 40.80400, "lon": -73.95800},
+    {"id": "la-morningside", "name": "Morningside Park", "lat": 40.804, "lon": -73.95824},
     {"id": "la-stnicholas", "name": "St. Nicholas Park", "lat": 40.81550, "lon": -73.94900},
     {"id": "la-jefferson", "name": "Thomas Jefferson Park", "lat": 40.79350, "lon": -73.93700},
     # 브루클린·퀸스·거버너스 (6)
@@ -351,6 +364,23 @@ ZONE = {
 # 폴리곤을 브루클린으로 옮길 때 원은 안 옮겨져서 이스트강 한복판을 세고 있었습니다.
 # 런타임이 막는 곳, 점수판이 세는 곳, 화면이 그리는 곳이 같아야 합니다.
 ZONE_VOLUME = Volume.from_dict(ZONE)
+# 두 번째 공지는 문법이 못 읽는 문장입니다. 실제 NOTAM 도 서식 밖의 자유 문장으로 올 때가 있고,
+# 그때 런타임이 무엇을 하는지(모델이 구조화 → 사람 확인 전에는 아무것도 안 막음, 모델이 없으면
+# '못 읽음' 으로 기록)가 첫 공지와 다른 얘기입니다. 첫 구역이 걷힌 뒤(0912Z 이후)에 옵니다.
+# 반지름은 0.5NM — 모델이 지어낸 구역의 넓이 상한(core/notam.MAX_AREA_M2 4km²) 안이어야 사람 앞에
+# 갑니다. 좌표는 할렘 병원(레녹스 애비뉴·W 136th) 40°48'52"N 73°56'23"W.
+MEDEVAC_TEXT = ("MEDEVAC INBOUND HARLEM HOSPITAL HELIPAD. KEEP CLEAR WITHIN 0.5 NM OF "
+                "404852N0735623W BELOW 400 FT AGL FROM 0918Z TO 0928Z")
+assert parse_notice(MEDEVAC_TEXT, CLOCK) is None, "두 번째 공지는 문법이 못 읽는 문장이어야 합니다"
+MEDEVAC_TICK = CLOCK.tick_of("0918")
+MEDEVAC_UNTIL = CLOCK.tick_of("0928")
+MEDEVAC = {
+    "id": "nofly-2026-09-medevac",
+    "kind": "notam",
+    "reason": "응급헬기 진입. 병원 헬리패드 주변 비행금지",
+    "name": "할렘 병원 응급헬기",
+    "text": MEDEVAC_TEXT,
+}
 # 규제기관이 특정 기종의 운항을 세우는 지시. 배터리 관리 같은 운영사의 몫이 아니라,
 # 밖에서 도착해서 즉시 강제되어야 하는 규칙입니다 — 그게 런타임이 있는 이유입니다.
 RECALL = {
@@ -459,10 +489,24 @@ class Scoreboard:
 
 for _raw in STANDING_VOLUMES:
     AIRSPACE.add(Volume.from_dict(_raw))
-# 건물은 옥상 위 이격까지 막습니다(VERTICAL_CLEARANCE_M). 데이터 파일에는 옥상 높이만 있고,
-# 규격은 여기서 붙입니다 — 런타임은 이 목록을 그대로 받아 같은 기준으로 판정합니다.
-for _raw in BUILDINGS:
-    AIRSPACE.add(Volume.from_dict({**_raw, "clearance_m": VERTICAL_CLEARANCE_M}))
+# 건물은 옥상 위 이격까지 막습니다. 데이터 파일에는 옥상 높이만 있고, 규격은 여기서 붙입니다 —
+# 런타임은 이 목록을 그대로 받아 같은 기준으로 판정합니다. 이격은 기본 50 m 이고, 그 건물이 선
+# FAA 칸의 천장이 50 m 를 허락하지 않으면(61 m 칸의 30 m 건물) 40 m 미만 건물만 20 m 입니다
+# (geo.building_clearance_m). 칸은 위에서 먼저 넣었으므로 여기서 물을 수 있습니다.
+def _building_clearance(raw: dict) -> float:
+    polygon = raw.get("polygon") or []
+    if not polygon:
+        return VERTICAL_CLEARANCE_M
+    lat = sum(p[0] for p in polygon) / len(polygon)
+    lon = sum(p[1] for p in polygon) / len(polygon)
+    return building_clearance_m(raw.get("ceiling_m"), AIRSPACE.ceiling_at(lat, lon))
+
+
+# 이격은 건물을 넣기 전에 한꺼번에 계산합니다. 넣으면서 물으면 동마다 색인이 다시 만들어져
+# (3만 4천 동 × 색인 재구성) 불러오기가 몇 시간이 됩니다.
+_CLEARANCES = [_building_clearance(_raw) for _raw in BUILDINGS]
+for _raw, _clearance in zip(BUILDINGS, _CLEARANCES, strict=True):
+    AIRSPACE.add(Volume.from_dict({**_raw, "clearance_m": _clearance}))
 
 
 def fresh_fleet(seed: int) -> list[Vehicle]:
@@ -550,7 +594,8 @@ class World:
         cost = COSTS[action]
         vehicle.spend += cost
         self.score.spend_usd += cost
-        if self.score.spend_usd > self.fleet_limit:
+        # 기단 한도는 운영사 설정입니다. 없으면(None) 넘을 것도 없습니다.
+        if self.fleet_limit is not None and self.score.spend_usd > self.fleet_limit:
             self.score.over_fleet_limit_usd = self.score.spend_usd - self.fleet_limit
 
         if action == "decline_job":
@@ -843,7 +888,15 @@ class World:
         먼 두 곳을 연달아 찍으면(할렘 → 배터리파크) 한 바퀴가 한 판을 넘깁니다. 실제 배차도
         한 번 나가서는 같은 동네를 돕니다.
         """
-        pool = [area for area in LANDING_AREAS if area["name"] != vehicle.job_label]
+        # 다른 기체가 지금 가고 있는 착륙장은 피합니다. 착륙장은 한 번에 한 대라(런타임 규칙),
+        # 같은 곳을 두 대가 잡으면 뒤의 기체가 앞 기체가 떠날 때까지 첫 정차에서 1300틱을 앉아
+        # 있었습니다. 실제 배차도 같은 곳에 두 대를 동시에 보내지 않습니다.
+        taken = {other.job_label for other in self.vehicles.values()
+                 if other is not vehicle and other.job_label}
+        pool = [area for area in LANDING_AREAS
+                if area["name"] != vehicle.job_label and area["name"] not in taken]
+        if not pool:
+            pool = [area for area in LANDING_AREAS if area["name"] != vehicle.job_label]
         if not pool:
             vehicle.job_x = vehicle.job_y = None
             vehicle.job_label = ""
@@ -1046,8 +1099,10 @@ class World:
             },
             # 기체 자리. 화면이 그 밑의 건물을 창고로 칠합니다 — 창고는 점이 아니라 건물입니다.
             "seat_coords": [
-                {"lat": round(to_latlon(*seat_of(i))[0], 6), "lon": round(to_latlon(*seat_of(i))[1], 6)}
-                for i in range(len(self.vehicles))
+                {"asset": vid, "ground_m": SEAT_ROOF_M,
+                 "lat": round(to_latlon(*seat_of(i))[0], 6),
+                 "lon": round(to_latlon(*seat_of(i))[1], 6)}
+                for i, vid in enumerate(sorted(self.vehicles))
             ],
             "landing_areas": LANDING_AREAS,
             "assets": {vid: v.public() for vid, v in self.vehicles.items()},
@@ -1103,6 +1158,8 @@ class Simulation:
         if ZONE_TICK <= self.tick_count <= ZONE_UNTIL:
             out.append({key: ZONE[key] for key in ("id", "kind", "name", "reason", "text")}
                        | {"published_tick": ZONE_TICK, "until_tick": ZONE_UNTIL})
+        if MEDEVAC_TICK <= self.tick_count <= MEDEVAC_UNTIL:
+            out.append({**MEDEVAC, "published_tick": MEDEVAC_TICK, "until_tick": MEDEVAC_UNTIL})
         if RECALL_TICK <= self.tick_count <= RECALL_UNTIL:
             out.append({**RECALL, "published_tick": RECALL_TICK,
                         "until_tick": RECALL_UNTIL})

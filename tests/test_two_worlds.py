@@ -24,13 +24,15 @@ from attache.core.models import Proposal, Verdict
 from attache.core.route import Router
 from attache.llm.client import LlmReply, TieredLlm
 from attache.runtime.service import Runtime
-from sim.world import LANDING_AREAS, RECALL, RECALL_TICK, ZONE, ZONE_TICK, Simulation
+from sim.world import LANDING_AREAS, Simulation
 
 # 22 m/s 로 날면 브루클린-맨해튼 한 번 왕복이 1100틱 안팎입니다.
 # 구역 폐쇄(560~900틱) 이후까지 봐야 두 세계가 갈리는 지점이 나옵니다.
 # 서비스 반경 11km. 한 바퀴(적재 → 배달 두 곳 → 창고)가 2천 틱 안팎이라 한 바퀴는 보려면
 # 이만큼 돌려야 합니다. 구역 폐쇄(560~900틱)와 감항성 지시(1050~1350틱)는 그 안에 듭니다.
-TICKS = 4000
+# 한 판. 할렘(모닝사이드) 왕복은 천장 낮은 칸을 돌아 4,040틱이 걸립니다 — 4,000 으로는 창고 복귀가
+# 딱 못 미쳤습니다. 시뮬레이터의 ROUND_TICKS 기본값과 같은 수입니다.
+TICKS = 5000
 PADS = ["pad:launch"]
 
 
@@ -573,7 +575,10 @@ class RecordedNanoDraftsFlyTest(unittest.TestCase):
         def drafter(runtime, planner):
             llm = FixtureLlm(records=[r for r in records if r.get("seed") in (None, cls.seed)])
             cls.llms.append(llm)
-            return ModelDrafter(llm, planner, bbox=fleet_bbox())
+            # 녹음에 없는 질문에 fixture 가 None 을 주면 초안기는 '서버가 안 답했다' 고 30초(벽시계)
+            # 물러섭니다. 이 판은 몇 초에서 1분 사이에 돌아, 그 창에 맥캐런 질문이 들면 시험이
+            # 기계 속도에 따라 갈렸습니다. 여기서 보는 것은 녹음이 나는가이지 물러섬이 아닙니다.
+            return ModelDrafter(llm, planner, bbox=fleet_bbox(), backoff_s=0.0)
 
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             cls.ledger_path = handle.name

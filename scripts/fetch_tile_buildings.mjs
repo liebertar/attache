@@ -11,7 +11,7 @@ const {chromium} = require('playwright');
 
 // 기본 40m: 순항 90m 에 옥상 이격 50m 라 그 아래 건물은 순항 구간을 막지 않습니다. 20m 로 뽑으면
 // 34,581동(17MB)이 나오고 계획기가 몇 배 느려집니다.
-const MIN_HEIGHT = Number(process.argv[2] || 40);
+const MIN_HEIGHT = Number(process.argv[2] || 20);   // 순항 최저 70 m − 이격 50 m. 이보다 낮은 건물은 어느 고도로도 50 m 가 남습니다
 // 서비스 영역: 창고(40.702, -73.970) 둘레 11km 가 드는 상자
 const BBOX = {south: 40.655, north: 40.805, west: -74.035, east: -73.895};
 const STEP = {lat: 0.018, lon: 0.030};   // 줌 14, 1400×900 화면 한 장이 덮는 것보다 조금 작게

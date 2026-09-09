@@ -6,6 +6,7 @@ where the numbers are compared; this file is where each rule is pinned down.
 """
 
 import json
+import math
 import tempfile
 import unittest
 
@@ -225,10 +226,14 @@ class ScheduleTest(unittest.TestCase):
         self.assertEqual(self.performance.clock_epoch_z, sim_world.CLOCK.epoch_z)
         # 항법 오차는 시뮬레이터가 모서리를 자르는 만큼(경유점 반경)보다 커야 합니다.
         self.assertGreaterEqual(self.performance.nav_tolerance_m, sim_world.ARRIVAL_RADIUS_M)
-        # 마당의 옆자리는 회랑 밖이어야 합니다 — 아니면 네 대가 같은 틱에 내는 이륙 기둥이
-        # 서로를 막습니다.
-        lateral, _ = corridor_widths(self.performance)
-        self.assertGreater(sim_world.SEAT_SPACING * sim_world.METRES_PER_CELL_X, lateral)
+        # 자리는 창고 옥상 위 22 m 간격입니다. 옆자리는 회랑(40 m) 안이라 같은 틱에 뜨면 이륙 기둥이
+        # 겹치고, 그때는 런타임이 한 대를 기다리게 합니다(위 TakeoffColumn·delay 시험). 자리끼리는
+        # 최소한 항법 오차 두 배는 떨어져 있어야 앉은 기체끼리 겹쳐 보이지 않습니다.
+        seat0 = sim_world.to_latlon(*sim_world.seat_of(0))
+        seat1 = sim_world.to_latlon(*sim_world.seat_of(1))
+        spacing = math.hypot((seat1[1] - seat0[1]) * math.cos(math.radians(seat0[0])),
+                             seat1[0] - seat0[0]) * 111_320
+        self.assertGreaterEqual(spacing, 2 * self.performance.nav_tolerance_m)
 
     def test_windows_follow_climb_cruise_and_descent_in_order(self):
         # 0 → 40m 상승(1.6m/틱 → 25틱), 870m 순항(17.6m/틱 → 50틱), 40 → 100m 상승(38틱),
@@ -516,9 +521,9 @@ class ResolutionLadderTest(unittest.TestCase):
         self.runtime.telemetry = {"drone-01": ground(0, 0), "drone-02": ground(0, 82)}
         self.runtime.pad_coords = {}
         self.side = GuardedSide(self.runtime)
-        # 운영사의 직선은 빈 하늘에서 40m(FLOOR_ALT_M)입니다. 01 도 40m 로 두면 02 의 직선이
-        # 겹치고, 30m 올린 70m 는 01 의 띠(15~65m) 밖입니다.
-        self.first = [leg(0, 0, 40.0), leg(1500, 1500, 40.0)]
+        # 운영사의 직선은 빈 하늘에서 70m(FLOOR_ALT_M)입니다. 01 도 70m 로 두면 02 의 직선이
+        # 겹치고, 30m 올린 100m 는 01 의 띠(45~95m) 밖입니다.
+        self.first = [leg(0, 0, 70.0), leg(1500, 1500, 70.0)]
         self.assertTrue(self.runtime.file(route("drone-01", self.first)).committed)
 
     def _telemetry(self, asset, goal):
@@ -535,13 +540,13 @@ class ResolutionLadderTest(unittest.TestCase):
         params = done[-1]["proposal"]["params"]
         self.assertEqual(params["resolution"], "altitude")
         self.assertEqual(params["altitude_shift_m"], 30.0)
-        self.assertTrue(all(point["alt_m"] >= 40.0 + 30.0 - 1e-6 for point in params["legs"]))
+        self.assertTrue(all(point["alt_m"] >= 70.0 + 30.0 - 1e-6 for point in params["legs"]))
         refused = [e for e in ledger_lines(self.runtime) if e["decision"]["verdict"] == "denied"]
         self.assertEqual([e["decision"]["policy_hit"] for e in refused], ["traffic"])
 
     def test_delay_when_the_ceiling_leaves_no_room_above(self):
-        # 이 하늘의 천장은 70m: 60 + 30 은 넘습니다 → 출발 지연으로.
-        self.runtime.airspace.default_ceiling_m = 70.0
+        # 이 하늘의 천장은 100m: 70 + 30 은 넘습니다 → 출발 지연으로.
+        self.runtime.airspace.default_ceiling_m = 100.0
         self.side.planner = type(self.side.planner)(self.runtime.airspace)
         proposal = Proposal.from_dict(route("drone-02", []))
         goal = leg(1500, -1500, 0.0)

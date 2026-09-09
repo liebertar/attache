@@ -25,10 +25,32 @@ ZONE_SEPARATION_M = 40.0
 # 1,000ft/500ft 를 요구하고 드론은 Part 107 에 최소 이격이 없어서, 운영 규격으로 50m 를 둡니다.
 # 건물 Volume 의 clearance_m 로 실립니다 — 판정에서는 옥상 + 이격까지가 그 건물입니다.
 VERTICAL_CLEARANCE_M = 50.0
+# 천장이 낮은 FAA 칸(200 ft = 61 m 가 맨해튼을 가로질러 26칸)에서는 30 m 건물 위 50 m 가
+# 불가능합니다.
+# 그 칸에서 옥상 40 m 미만 건물은 20 m 이격으로 넘고, 40 m 이상은 그대로 50 m(= 옆으로 돌아야 함).
+# 40 m 로 못 박았을 때 센트럴파크 북쪽·할렘 착륙장이 전부 못 가는 곳이 됐습니다.
+REDUCED_CLEARANCE_M = 20.0
+LOW_ROOF_M = 40.0
+
+
+def building_clearance_m(roof_m: float | None, cell_ceiling_m: float | None) -> float:
+    """이 건물 위로 얼마나 비워야 하나. 기본 50 m, 천장이 50 m 를 허락하지 않는 낮은 건물만 20 m."""
+    if roof_m is None or cell_ceiling_m is None:
+        return VERTICAL_CLEARANCE_M
+    if roof_m + VERTICAL_CLEARANCE_M + 0.5 <= cell_ceiling_m - 1.0:
+        return VERTICAL_CLEARANCE_M
+    return REDUCED_CLEARANCE_M if roof_m < LOW_ROOF_M else VERTICAL_CLEARANCE_M
 # 내려앉는 자리 둘레에 이만큼은 건물이 없어야 합니다. 옆으로 10m 만 띄운 자리는 순항으로 지나갈 수는
 # 있어도 90m 를 수직으로 내려오기에는 탑 사이 골짜기입니다. 착륙 지점은 경로의 끝점이고, 런타임이
 # 경로를 판정할 때 끝점도 같이 봅니다.
 LANDING_SEPARATION_M = 50.0
+# 낮은 건물(옥상 40 m 미만)은 착륙 둘레를 좁게 봅니다. 자료를 20 m 이상으로 넓히자 착륙장 30곳 중
+# 12곳
+# 둘레 50 m 안에 20~26 m 건물이 걸려 내려앉을 곳이 없어졌습니다. 하강 기둥이 실제로 차지하는 폭은
+# 항법 오차(10 m)+도착 반경(6 m)이라 낮은 건물은 15 m 밖이면 기둥 밖입니다. 높은 건물·구역은 50 m
+# 그대로.
+LANDING_TALL_M = 40.0
+LANDING_LOW_SEPARATION_M = 15.0
 # 기체 사이의 분리 최소치. 수평 30m·수직 25m 안에 두 기체가 같은 틱에 있으면 분리 상실입니다.
 # EU U-space(CORUS) 와 NASA UTM TCL 시연이 소형 무인기에 쓴 값을 그대로 둡니다 — 유인기의
 # 3NM/1,000ft 를 기체 크기·속도로 줄인 규모이고, 런타임의 의도(4D) 회랑 폭과 시뮬레이터의
@@ -228,7 +250,10 @@ class Airspace:
             if volume.rule != "forbidden" or not volume.polygon or volume.floor_m > 0.0:
                 continue
             gap = 0.0 if volume.covers(lat, lon) else _clearance_m(point, point, volume.polygon)[0]
-            needed = max(LANDING_SEPARATION_M, separation_for(volume))
+            low_building = (volume.id.startswith("bldg-") and volume.ceiling_m is not None
+                            and volume.ceiling_m < LANDING_TALL_M)
+            needed = (max(LANDING_LOW_SEPARATION_M, separation_for(volume)) if low_building
+                      else max(LANDING_SEPARATION_M, separation_for(volume)))
             if gap < needed and (worst is None or gap < worst[1]):
                 worst = (volume, gap)
         return worst
@@ -447,6 +472,25 @@ def highest_roof_along(airspace: "Airspace", here: dict, nxt: dict,
     return top
 
 
+def required_top_along(airspace: "Airspace", here: dict, nxt: dict,
+                       margin_m: float = SEPARATION_M) -> float:
+    """이 선분 아래(옆 이격 안까지)에서 가장 높은 '옥상 + 그 건물의 이격'. 건물이 없으면 0.
+
+    운영사가 구간 고도를 정할 때 씁니다. 이격은 건물마다 다를 수 있어(낮은 칸의 낮은 건물은 20 m)
+    옥상이 아니라 막힌 윗면(top_m)을 봅니다. 판정(first_breach)은 이 값을 믿지 않고 따로 봅니다.
+    """
+    top = 0.0
+    for volume in _leg_volumes(airspace, here, nxt):
+        if not volume.id.startswith("bldg-") or volume.top_m is None or not volume.polygon:
+            continue
+        if volume.top_m <= top:
+            continue
+        crosses = len(_crossing_fractions(here, nxt, volume.polygon)) > 2
+        if crosses or _clearance_m(here, nxt, volume.polygon)[0] < margin_m:
+            top = volume.top_m
+    return top
+
+
 def first_breach(airspace: "Airspace", legs: list[dict], samples: int | None = None):
     """선분이 규정을 어기는 첫 구간. 런타임과 계획기가 같은 함수를 씁니다.
 
@@ -492,6 +536,47 @@ def first_breach(airspace: "Airspace", legs: list[dict], samples: int | None = N
         if first is not None:
             return index + 1, first[1], first[2], first[3]
     return None
+
+
+def leg_breaches(airspace: "Airspace", here: dict, nxt: dict) -> list:
+    """한 구간이 어기는 것 전부, 진행 순서대로 [(fraction, volume, why, (lat, lon))].
+
+    first_breach 는 첫 번째만 답합니다(판정은 그거면 됩니다). 운영사가 모델에게 다시 그리라고
+    할 때는
+    그 구간이 부딪히는 모든 것을 알려줘야 합니다 — 첫 번째만 알려주면 낮은 건물 하나 뒤에 숨은
+    '돌아야 하는' 건물을 모델이 영영 못 봅니다. 판정 기준은 first_breach 와 같습니다.
+    """
+    altitude = ground_clamped(float(nxt.get("alt_m", here.get("alt_m", 0.0))))
+    found = []
+    for volume in _leg_volumes(airspace, here, nxt):
+        cuts = _crossing_fractions(here, nxt, volume.polygon)
+        probes = sorted(set(cuts + [(a + b) / 2 for a, b in zip(cuts, cuts[1:], strict=False)]))
+        hit = None
+        for fraction in probes:
+            lat = here["lat"] + (nxt["lat"] - here["lat"]) * fraction
+            lon = here["lon"] + (nxt["lon"] - here["lon"]) * fraction
+            reason = volume.breach(lat, lon, altitude)
+            if reason:
+                hit = (fraction, volume, reason, (lat, lon))
+                break
+        if (hit is None and volume.polygon and volume.rule == "forbidden"
+                and volume.floor_m <= altitude
+                and (volume.top_m is None or altitude <= volume.top_m)):
+            gap, fraction = _clearance_m(here, nxt, volume.polygon)
+            needed = separation_for(volume)
+            if gap < needed:
+                lat = here["lat"] + (nxt["lat"] - here["lat"]) * fraction
+                lon = here["lon"] + (nxt["lon"] - here["lon"]) * fraction
+                why = f"{volume.name} 에 {gap:.0f}m 로 접근 (이격 {needed:.0f}m 필요)"
+                hit = (fraction, volume, why, (lat, lon))
+        if hit is not None:
+            found.append(hit)
+    start_breach = airspace.breach(here["lat"], here["lon"], altitude)
+    if start_breach is not None:
+        found.append((0.0, start_breach, start_breach.breach(here["lat"], here["lon"], altitude),
+                      (here["lat"], here["lon"])))
+    found.sort(key=lambda item: item[0])
+    return found
 
 
 def vertical_column(lat: float, lon: float, from_m: float, to_m: float,

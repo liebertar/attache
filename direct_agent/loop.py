@@ -22,7 +22,7 @@ from attache.core.route import Router
 
 PADS = ["pad:launch"]
 PAD_COORDS = {   # 운영사가 자기 기지 좌표는 압니다
-    "pad:launch": (40.7019, -73.97072),
+    "pad:launch": (40.701783, -73.969168),   # 마당 동쪽 비상 착륙대 (sim.world.PADS)
 }
 
 

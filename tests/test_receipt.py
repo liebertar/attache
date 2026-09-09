@@ -54,13 +54,13 @@ class LedgerTruthTest(unittest.TestCase):
     def test_the_closing_entry_reports_what_actually_happened(self):
         import tempfile
 
+        from attache.core.config import Authority
         from attache.core.models import Decision, Proposal, Verdict
         from attache.runtime.authority import AuthorityCheck
         from attache.runtime.commit import Committer
         from attache.runtime.ledger import Ledger
         from attache.runtime.locks import LockTable
         from attache.runtime.policy import PolicyBook
-        from attache.core.config import Authority
 
         simulation = Simulation()
         world = simulation.worlds["guarded"]
@@ -295,21 +295,26 @@ class WeavingBetweenBuildingsTest(unittest.TestCase):
         고도를 안 보고 발자국만 피하면 20m 건물도 영영 벽이 되고, 고도를 한 값으로만 두면
         옥상 이격이 판정된다는 것이 화면에 안 보입니다.
         """
-        from attache.core.geo import VERTICAL_CLEARANCE_M, highest_roof_along
+        from attache.core.geo import required_top_along
         from attache.core.route import CRUISE_ALT_M, FLOOR_ALT_M
 
         router = self._router()
-        # 강 위: 아무것도 없으니 바닥 고도
-        over_water = router.leg_altitude((40.7150, -73.9720), (40.7180, -73.9700))
-        self.assertEqual(over_water, FLOOR_ALT_M)
-        # 시내: 옥상이 있는 구간은 옥상 + 50, 없는 구간은 바닥. 어떤 구간도 그보다 낮지 않다.
+        # 강 위: 아무것도 없으니 바닥 고도 — 단, 천장이 낮은 칸이면 천장 - 1 (최저 70 m 는 천장이
+        # 허락할 때만)
+        water = ((40.7150, -73.9720), (40.7180, -73.9700))
+        over_water = router.leg_altitude(*water)
+        self.assertEqual(over_water, min(FLOOR_ALT_M, router._ceiling_allowance(*water)))
+        # 시내: 건물이 있는 구간은 옥상 + 그 건물의 이격(기본 50, 낮은 칸의 낮은 건물 20), 없는
+        # 구간은 바닥.
         route = router.plan(self.START, self.GOAL)
         self.assertIsNotNone(route)
         for a, b in zip(route.legs, route.legs[1:], strict=False):
-            roof = highest_roof_along(router.airspace, {"lat": a.lat, "lon": a.lon},
-                                      {"lat": b.lat, "lon": b.lon})
-            floor = max(FLOOR_ALT_M, roof + VERTICAL_CLEARANCE_M if roof else 0)
-            self.assertGreaterEqual(b.alt_m + 0.01, floor, "옥상 위 50m 를 못 지키는 구간이 있습니다")
+            here, nxt = {"lat": a.lat, "lon": a.lon}, {"lat": b.lat, "lon": b.lon}
+            top = required_top_along(router.airspace, here, nxt)
+            allowed = router._ceiling_allowance((a.lat, a.lon), (b.lat, b.lon))
+            floor = max(min(FLOOR_ALT_M, allowed), top if top else 0)
+            self.assertGreaterEqual(b.alt_m + 0.01, floor,
+                                    "옥상 위 이격을 못 지키는 구간이 있습니다")
             self.assertLessEqual(b.alt_m, CRUISE_ALT_M + 0.01)
         # 최대 순항보다 높이 떠야 지나는 건물(옥상 > 70m) 바로 위는 못 지납니다
         tall = max((v for v in router.airspace.all() if v.id.startswith("bldg-")),
