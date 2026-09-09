@@ -8,13 +8,19 @@ The other wiring — an agent holding the actuator address — lives in the `dir
 package, which is built into a different image.
 """
 
+import math
 import os
+import threading
 import time
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as DraftTimeout
+from dataclasses import dataclass
 
 from attache.agent.detect import detect
 from attache.agent.drafter import ModelDrafter, service_bbox
 from attache.agent.planner import OperatorPlanner
 from attache.agent.propose import Proposer
+from attache.core.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, TRAFFIC_LATERAL_M
 from attache.core.http import get_json, post_json
 from attache.core.route import Router
 from attache.llm.client import TieredLlm
@@ -31,6 +37,19 @@ REDRAW_DELAY_S = 5.6
 ALTITUDE_SHIFT_M = 30.0
 MAX_DELAY_TRIES = 3
 ROUTE_REFUSALS = ("airspace", "traffic")
+
+
+@dataclass
+class PendingDraft:
+    """거절 순간에 작업 스레드로 보낸 초안 하나. 마감(monotonic)까지만 기다립니다."""
+
+    future: Future
+    drafter: ModelDrafter
+    deadline: float
+
+    @property
+    def in_flight(self) -> bool:
+        return not self.future.done()
 
 
 class GuardedAgent:
@@ -55,6 +74,13 @@ class GuardedAgent:
         # 판정은 런타임이 합니다 — 초안은 신청서에 legs 로 실릴 뿐입니다.
         self.service_bbox = None
         self.drafter = self._build_drafter()
+        # 초안은 거절이 오는 순간 작업 스레드에서 시작합니다. 화면이 거절을 보여주는 5.6초를
+        # 모델이 그리는 시간과 겹치려고요 — 예전에는 5.6초를 다 기다린 뒤에 물어서 그만큼 더
+        # 섰습니다. 초안은 한 기체에 한 번에 하나만 걸립니다. 지난 초안이 아직 서버에 걸려
+        # 있으면 이번 거절은 A* 로 갑니다(뒤에 줄을 세우지 않습니다). 스레드는 데몬입니다 —
+        # ThreadPoolExecutor 의 작업 스레드는 인터프리터가 끝날 때 무조건 기다려서, Ctrl-C 가
+        # 서버에 걸린 초안(최대 60초)이 돌아올 때까지 안 끝났습니다.
+        self._draft: PendingDraft | None = None
         self.airspace_revision = None
         # 우리 기체가 다니고 싶은 높이. 허용 천장이 더 낮으면 런타임이 거절하고,
         # 그때 계획기가 구간마다 낮춰서 다시 그립니다.
@@ -63,6 +89,10 @@ class GuardedAgent:
     def _build_drafter(self) -> ModelDrafter | None:
         drafter = ModelDrafter(self.llm, self.planner, bbox=self.service_bbox)
         return drafter if drafter.enabled else None
+
+    @property
+    def draft_in_flight(self) -> bool:
+        return self._draft is not None and self._draft.in_flight
 
     def _open_pad(self) -> str:
         names = sorted(self.pads) or FALLBACK_PADS
@@ -108,12 +138,21 @@ class GuardedAgent:
                                                  airborne=False)
                 if not decision or decision.get("policy_hit") not in ROUTE_REFUSALS:
                     return decision
-            # 다시 그리라고 했습니다. 거절 사유를 읽는 동안(화면이 거절을 보여주는 동안)
-            # 기다렸다가 우회로를 그립니다. 기체는 지상에서 일하는 중이라 그대로 있습니다.
+            # 다시 그리라고 했습니다. 모델은 거절이 온 지금 바로 그리기 시작하고, 화면이 거절을
+            # 보여주는 동안(redraw_s) 우리는 기다립니다. 기체는 지상에서 일하는 중이라 그대로
+            # 있습니다. 기다린 뒤 초안이 있으면 그걸, 아직이면 예산(초안 timeout_s, 거절 시각
+            # 기준) 안에서만 더 기다리고, 그래도 없으면 A* 가 그립니다.
+            refused_at = time.monotonic()
             if decision.get("policy_hit") == "airspace":
                 self.planner.note_refusal(decision.get("forbids"))
+            pending = self._start_draft(here, goal, decision, refused_at)
             time.sleep(self.redraw_s)
-            legs, drafter, attempts = self._redraw(here, goal, decision)
+            legs, drafter, attempts = self._collect_draft(pending, here, goal)
+            airborne_now, moved_to = self._position_now()
+            if airborne_now:
+                return decision   # 그새 떴습니다. 지상에서 그린 길은 뜻이 없어 이번 차례는 접습니다
+            if legs and moved_to is not None:
+                legs = self._anchored(legs, here, moved_to, goal)
         if not legs:
             if proposal.action != "fly_route" or self.planner.start_blocked(here, telemetry):
                 # 이륙장에 갈 길이 없는 것과 주문을 못 받는 것은 다른 일입니다.
@@ -136,6 +175,27 @@ class GuardedAgent:
             # 여기서 접고, 다음 차례에 처음부터 다시 냅니다(그때는 상대가 지나갔을 수 있습니다).
             decision = self._resolve_traffic(proposal, legs, decision, airborne=airborne)
         return decision
+
+    def _position_now(self) -> tuple[bool, tuple[float, float] | None]:
+        """초안을 기다린 뒤의 기체 자리. (떠 있나, 지금 자리 또는 모르면 None)."""
+        now = self.telemetry()
+        if now.get("lat") is None or now.get("lon") is None:
+            return False, None
+        return float(now.get("alt_m") or 0.0) > 1.0, (float(now["lat"]), float(now["lon"]))
+
+    def _anchored(self, legs: list[dict], here, moved_to, goal) -> list[dict] | None:
+        """초안을 기다리는 20~60초 사이에 기체가 움직였으면 첫 점을 지금 자리로 옮깁니다.
+
+        런타임은 첫 점이 기체 자리에서 TRAFFIC_LATERAL_M 보다 멀면 거절합니다(실주행: 이전 승인
+        경로로 뜨는 동안 초안이 돌아와 자리 70m 옆의 옛 출발점으로 냈다가 거절). 그보다 멀리
+        옮겨졌으면 옛 자리에서 그린 선은 다른 길이라 A* 로 다시 그립니다.
+        """
+        gap = _distance_m(here, moved_to)
+        if gap < 1.0:
+            return legs
+        if gap > TRAFFIC_LATERAL_M:
+            return self.planner.draw(moved_to, goal)
+        return [{**legs[0], "lat": round(moved_to[0], 6), "lon": round(moved_to[1], 6)}] + legs[1:]
 
     def _resolve_traffic(self, proposal, legs: list[dict], refusal: dict, airborne: bool):
         """교차 거절의 해결 사다리. 고도 +30m → 출발 지연. 마지막 답을 돌려줍니다.
@@ -181,22 +241,61 @@ class GuardedAgent:
             until, other = later, detail.get("blocked_asset") or other
         return decision
 
-    def _redraw(self, here, goal, refusal: dict) -> tuple[list[dict] | None, str, int]:
-        """모델이 먼저 그리고, 안 되면 A*. (legs, 누가 그렸나, 모델에게 물은 횟수).
+    def _start_draft(self, here, goal, refusal: dict, refused_at: float) -> PendingDraft | None:
+        """거절이 온 순간 모델에게 초안을 시킵니다(작업 스레드). 시키지 않으면 None.
 
         모델은 거절 사유를 읽고 초안을 냅니다. 초안은 양식·상자·고도·길이 검사와 우리 공역
-        사본의 판정을 지나야 하고, 두 번 안 되면 A* 가 그립니다. 어느 쪽이든 런타임이
-        다시 판정하므로, 모델이 엉뚱한 선을 그려도 실행되는 일은 없습니다.
+        사본의 판정을 지나야 하고(전부 드래프터 안, 같은 스레드), 두 번 안 되면 None 입니다.
+        어느 쪽이든 런타임이 다시 판정하므로, 모델이 엉뚱한 선을 그려도 실행되는 일은 없습니다.
         교차 거절 뒤에는 모델에게 묻지 않습니다 — 모델은 다른 기체를 모르고, A* 도 마찬가지지만
         A* 는 밀리초라 다른 길이라도 곧 내 볼 수 있습니다.
+        마감은 거절 시각 + 초안 예산 하나. 드래프터는 두 질문을 합쳐 그 안에서만 묻습니다.
+        """
+        drafter = self.drafter
+        if drafter is None or refusal.get("policy_hit") == "traffic":
+            return None
+        if self.draft_in_flight:
+            # 지난 거절의 초안이 아직 서버에 걸려 있습니다. 그 뒤에 또 세우면 둘 다 늦습니다.
+            return None
+        context = {"reason": refusal.get("reason"), "forbids": refusal.get("forbids")}
+        deadline = refused_at + drafter.timeout_s
+        future = self._in_background(drafter.draft, here, goal, context, deadline)
+        self._draft = PendingDraft(future=future, drafter=drafter, deadline=deadline)
+        return self._draft
+
+    def _in_background(self, work, *args) -> Future:
+        """데몬 스레드 하나에서 work(*args) 를 돌리고 Future 로 돌려줍니다."""
+        future: Future = Future()
+
+        def run() -> None:
+            try:
+                future.set_result(work(*args))
+            except BaseException as error:  # noqa: BLE001 - 결과로 넘겨 본 스레드가 처리합니다
+                future.set_exception(error)
+
+        threading.Thread(target=run, daemon=True, name=f"draft-{self.asset_id}").start()
+        return future
+
+    def _collect_draft(self, pending: PendingDraft | None, here, goal
+                       ) -> tuple[list[dict] | None, str, int]:
+        """초안을 거둡니다. 없으면 A*. (legs, 누가 그렸나, 모델에게 물은 횟수).
+
+        마감까지만 기다립니다. 그 뒤에 오는 답은 버립니다 — 기체는 이미 A* 길을 냈습니다.
+        스레드는 자기 HTTP 타임아웃(같은 마감)으로 곧 끝나고, 끝나기 전에는 새 초안을
+        받지 않습니다(_start_draft).
         """
         attempts = 0
-        if self.drafter is not None and refusal.get("policy_hit") != "traffic":
-            legs = self.drafter.draft(here, goal, {"reason": refusal.get("reason"),
-                                                   "forbids": refusal.get("forbids")})
-            attempts = self.drafter.last_attempts
+        if pending is not None:
+            legs = None
+            try:
+                legs = pending.future.result(timeout=max(0.0, pending.deadline - time.monotonic()))
+            except DraftTimeout:
+                pass          # 예산 끝. 초안은 버리고 A* 로 갑니다.
+            except Exception as error:  # noqa: BLE001 - 초안이 죽어도 기체는 A* 로 냅니다
+                print(f"[{self.asset_id}] draft failed: {error!r}", flush=True)
+            attempts = pending.drafter.last_attempts
             if legs:
-                return legs, self.drafter.name, attempts
+                return legs, pending.drafter.name, attempts
         return self.planner.draw(here, goal), "astar", attempts
 
     def step(self) -> None:
@@ -244,6 +343,11 @@ class GuardedAgent:
             elif proposal.resource:
                 self.pad_index += 1
         _report(self.asset_id, "guarded", proposal, decision)
+
+
+def _distance_m(a, b) -> float:
+    return math.hypot((float(b[0]) - float(a[0])) * METRES_PER_DEG_LAT,
+                      (float(b[1]) - float(a[1])) * METRES_PER_DEG_LON)
 
 
 def _report(asset_id: str, mode: str, proposal, outcome) -> None:

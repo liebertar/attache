@@ -74,6 +74,8 @@ class ReplyParsingTest(unittest.TestCase):
 
     def test_host_is_read_off_the_url(self):
         self.assertEqual(host_of("http://localhost:11434/v1"), "ollama")
+        self.assertEqual(host_of("http://127.0.0.1:11437/v1"), "ollama")     # 함대 서버
+        self.assertEqual(host_of("http://host:114340/v1"), "other")
         self.assertEqual(host_of("https://api.tokenfactory.nebius.com/v1"), "nebius")
         self.assertEqual(host_of("http://llm-edge:8080/v1"), "other")
         self.assertEqual(host_of(""), "none")
@@ -193,6 +195,33 @@ class RequestShapeTest(unittest.TestCase):
             self.assertIsInstance(first["latency_ms"], int)
             second = json.loads(files[1].read_text())
             self.assertEqual((second["tier"], second["text"], second["via"]), ("ultra", None, None))
+
+    def test_two_threads_can_share_one_client_without_losing_the_books(self):
+        """기체 에이전트는 초안을 작업 스레드에서, 신청서를 본 스레드에서 같은 클라이언트로
+        묻습니다. 장부(ok 횟수)와 기록 파일 번호가 서로를 덮으면 안 됩니다."""
+        import threading
+        import time
+
+        with tempfile.TemporaryDirectory() as folder:
+            llm = make(record_dir=folder)
+
+            def fake(url, payload, timeout=20.0, headers=None):
+                time.sleep(0.0005)          # GIL 을 놓아 진짜로 섞이게 합니다
+                return 200, completion('{"a": 1}')
+
+            def work():
+                for _ in range(40):
+                    llm.ask(LlmTier.NANO, "s", "u", json_object=True)
+
+            with mock.patch.object(client_module, "post_json_status", fake):
+                threads = [threading.Thread(target=work) for _ in range(3)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+            self.assertEqual(llm.stats["nano"].ok, 120)
+            self.assertEqual(llm.stats["nano"].fallback, 0)
+            self.assertEqual(len(list(pathlib.Path(folder).glob("*.json"))), 120)
 
     def test_env_drives_timeout_extra_and_record_dir(self):
         env = {"LLM_BASE_URL": "http://localhost:11434/v1", "NEBIUS_API_KEY": "ollama",

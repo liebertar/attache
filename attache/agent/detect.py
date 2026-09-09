@@ -35,11 +35,6 @@ def detect(telemetry: dict) -> Concern | None:
             "motor_fault", "high", f"모터 진동 {telemetry.get('vibration'):.2f}"
         )
 
-    if state == "charging":
-        if telemetry.get("battery", 0.0) >= BATTERY_FULL:
-            return Concern("charged", "low", "충전이 끝났습니다")
-        return None
-
     battery = telemetry.get("battery", 100.0)
     idle = not telemetry.get("assigned_pad") and not telemetry.get("route")
 
@@ -61,9 +56,8 @@ def detect(telemetry: dict) -> Concern | None:
     if not telemetry.get("job") and state == "ready" and idle:
         return Concern("needs_reload", "normal", f"배터리 {battery:.0f}%, 다음 짐을 싣습니다")
 
-    if state == "landed":
-        return Concern("needs_charge", "high" if battery < FAST_CHARGE_BELOW else "normal",
-                       f"패드 위, 배터리 {battery:.0f}%")
+    # 착륙장에 내린 기체(landed)는 짐을 내리고 다음 경로를 신청합니다(위 needs_route). 충전 신청은
+    # 없습니다.
     # 배달 도중 배터리 때문에 되돌아오는 규칙은 없습니다. 운영사는 한 바퀴를 항속 안에서
     # 짜고, 마당에 돌아왔을 때(위) 채웁니다. 가다가 돌아서는 기체는 이 데모가 보여줄 것이 아닙니다.
     return None

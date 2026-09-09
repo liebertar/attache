@@ -9,6 +9,7 @@ side of the system non-authoritative.
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -66,7 +67,8 @@ def host_of(base_url: str) -> str:
     url = (base_url or "").lower()
     if not url:
         return "none"
-    if "11434" in url or "ollama" in url:
+    # 11434 는 기본 서버, 11435.. 는 기체마다 하나씩 띄운 함대(scripts/ollama_fleet.sh)입니다.
+    if re.search(r":1143\d(?!\d)", url) or "ollama" in url:
         return "ollama"
     if "nebius" in url:
         return "nebius"
@@ -108,6 +110,11 @@ class TieredLlm:
         # 마지막으로 서버에 닿지 못한(타임아웃·연결 실패) 시각(monotonic). 답을 받으면 지웁니다.
         # 부르는 쪽이 "방금 못 받은 서버에 또 긴 질문을 걸 것인가" 를 정하는 근거입니다.
         self.unreachable_at: float | None = None
+        # 장부(stats·기록 번호)만 잠급니다. HTTP 호출은 잠그지 않습니다 — 기체 에이전트는 경로
+        # 초안을 작업 스레드에서 묻는 동안 본 스레드가 신청서를 물을 수 있고, 둘이 같은
+        # 클라이언트를 씁니다. 잠그지 않으면 `ok += 1` 이 서로를 덮고, 기록 파일 번호가 겹쳐
+        # 한 호출이 다른 호출을 지웁니다.
+        self._books = threading.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -165,24 +172,28 @@ class TieredLlm:
 
     def discard(self, tier: LlmTier) -> None:
         """받긴 했는데 양식이 아니라 버렸습니다. 규칙이 대신한 것으로 셉니다."""
-        stats = self.stats[tier.value]
-        stats.ok = max(0, stats.ok - 1)
-        stats.fallback += 1
+        with self._books:
+            stats = self.stats[tier.value]
+            stats.ok = max(0, stats.ok - 1)
+            stats.fallback += 1
 
     def account(self, tier: LlmTier, reply: LlmReply | None, latency_ms: int) -> None:
-        stats = self.stats[tier.value]
-        stats.last_ms = latency_ms
-        if reply is None:
-            stats.fallback += 1
-        else:
-            stats.ok += 1
+        with self._books:
+            stats = self.stats[tier.value]
+            stats.last_ms = latency_ms
+            if reply is None:
+                stats.fallback += 1
+            else:
+                stats.ok += 1
 
     def record(self, tier: LlmTier, model: str, system: str, user: str,
                reply: LlmReply | None, latency_ms: int) -> None:
         """LLM_RECORD_DIR 이 있으면 호출을 하나씩 파일로 남깁니다. 시험 fixture 의 원료입니다."""
         if not self.record_dir:
             return
-        self._recorded += 1
+        with self._books:
+            self._recorded += 1
+            serial = self._recorded
         payload = {
             "tier": tier.value, "model": model, "system": system, "user": user,
             "text": reply.text if reply else None, "via": reply.via if reply else None,
@@ -191,7 +202,7 @@ class TieredLlm:
         try:
             folder = Path(self.record_dir)
             folder.mkdir(parents=True, exist_ok=True)
-            name = f"{int(time.time() * 1000)}-{os.getpid()}-{self._recorded:04d}-{tier.value}.json"
+            name = f"{int(time.time() * 1000)}-{os.getpid()}-{serial:04d}-{tier.value}.json"
             (folder / name).write_text(json.dumps(payload, ensure_ascii=False, indent=1),
                                        encoding="utf-8")
         except OSError as error:

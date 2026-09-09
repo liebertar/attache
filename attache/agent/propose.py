@@ -8,8 +8,23 @@ from attache.agent.detect import Concern
 from attache.core.models import Proposal
 from attache.llm.client import LlmTier, TieredLlm, parse_json_object
 
-ALLOWED_ACTIONS = {"decline_job", "fly_route", "reserve_pad", "charge", "fast_charge", "divert_ground",
-                   "disengage_autonomy", "depart"}
+# 충전은 없습니다. 배터리 관리는 운영사 몫이고, 이 순환(적재 → 배달 → 수거 → 복귀)에 충전대가
+# 없습니다.
+# 목록에 두었더니 모델이 마당에 선 기체에 "charge" 를 써서 조종장치가 "패드 위가 아님" 으로 61번
+# 거절했습니다.
+ALLOWED_ACTIONS = {"decline_job", "fly_route", "reserve_pad", "disengage_autonomy", "depart"}
+# 모델이 고를 수 있는 것은 걱정거리에 맞는 것뿐입니다. 배달 순환에서는 배달·이륙·포기 셋이고,
+# 비상 착륙(reserve_pad)과 자율주행 해제는 고장 걱정이 있을 때만입니다. 4B 가 마당에 선 기체에
+# '착륙대 예약' 을 일곱 번 적어 옆 자리 기체 위로 내리려다 전부 거절됐습니다. 경로
+# 회수(divert_ground)
+# 는 런타임이 쓰는 것이라 목록에 없습니다.
+ROUTINE_ACTIONS = {"fly_route", "depart", "decline_job"}
+FAULT_ACTIONS = {"motor_fault": {"reserve_pad"}, "needs_pad": {"reserve_pad"},
+                 "autonomy_fault": {"disengage_autonomy"}}
+
+
+def allowed_for(concern: Concern) -> set[str]:
+    return ROUTINE_ACTIONS | FAULT_ACTIONS.get(concern.kind, set())
 
 COSTS = {"decline_job": 0.0, "fly_route": 12.0, "reserve_pad": 28.0, "charge": 22.0, "fast_charge": 60.0,
          "divert_ground": 35.0, "disengage_autonomy": 0.0, "depart": 0.0}
@@ -42,14 +57,21 @@ def by_rule(
         action, chosen_pad = "disengage_autonomy", None
     elif concern.kind in ("motor_fault", "needs_pad"):
         action, chosen_pad = "reserve_pad", pad
-    elif concern.kind == "needs_charge":
-        wants_fast = concern.urgency == "high" and "fast_charge" not in banned
-        action = "fast_charge" if wants_fast else "charge"
-        chosen_pad = None
     else:
         action, chosen_pad = "reserve_pad", pad
 
     return _build(asset_id, action, chosen_pad, concern.detail, "rules")
+
+
+def possible_now(action: str, telemetry: dict) -> bool:
+    """이 행동을 기체가 지금 물리적으로 할 수 있나 — 시뮬레이터가 거절하는 것과 같은 기준입니다."""
+    state = str(telemetry.get("state") or "")
+    airborne = float(telemetry.get("alt_m") or 0.0) > 1.0
+    if action in ("charge", "fast_charge"):
+        return state in ("landed", "charging")
+    if action == "depart":
+        return not airborne
+    return True
 
 
 def _build(asset_id: str, action: str, pad: str | None, rationale: str, author: str) -> Proposal:
@@ -83,12 +105,19 @@ class Proposer:
             return fallback
 
         form = parse_json_object(reply.text)
-        if not form or form.get("action") not in ALLOWED_ACTIONS:
+        if not form or form.get("action") not in allowed_for(concern):
             self.llm.discard(tier)
-            return fallback  # 양식이 아니면 버립니다
+            return fallback  # 양식이 아니거나 이 걱정거리에 맞지 않는 행동이면 버립니다
         if form["action"] in banned:
             self.llm.discard(tier)
             return fallback  # 이미 금지된 걸 골랐으면 버립니다
+        if not possible_now(form["action"], telemetry):
+            # 지금 기체가 할 수 없는 일(패드 위가 아닌데 충전, 떠 있는데 이륙). 양식은 맞지만
+            # 조종장치가 거절할 신청입니다 — 실주행에서 4B 가 마당의 기체에 '충전' 을 61번 적어
+            # 전부 "not on a pad" 로 실패했고, 그동안 그 기체는 짐을 싣지 못했습니다.
+            # 판정이 아니라 운영사의 상식입니다.
+            self.llm.discard(tier)
+            return fallback
 
         chosen_pad = form.get("pad") if form.get("action") == "reserve_pad" else None
         if chosen_pad is not None and chosen_pad not in known:

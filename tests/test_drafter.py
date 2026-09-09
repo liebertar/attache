@@ -66,10 +66,10 @@ def _hand_drawn():
     마당을 나와 서쪽으로 비니거힐·덤보의 저층(최고 63m) 위를 114m 로 건너 공원에 내립니다.
     강 위로만 돌면 덤보 강변의 83m 건물이 마지막 구간에 걸립니다."""
     return {"legs": [
-        {"lat": START[0], "lon": START[1], "alt_m": 60},
-        {"lat": 40.70115, "lon": -73.97055, "alt_m": 40},
+        {"lat": START[0], "lon": START[1], "alt_m": 70},
+        {"lat": 40.70115, "lon": -73.97055, "alt_m": 90},
         {"lat": 40.70160, "lon": -73.99575, "alt_m": 114},
-        {"lat": GOAL[0], "lon": GOAL[1], "alt_m": 40},
+        {"lat": GOAL[0], "lon": GOAL[1], "alt_m": 90},
     ]}
 
 
@@ -91,6 +91,20 @@ class ValidationTest(unittest.TestCase):
                 legs, why = self.check(form)
                 self.assertIsNone(legs)
                 self.assertTrue(why)
+
+    def test_misspelt_altitude_keys_are_read_as_alt_m(self):
+        """실주행의 4B 는 열 답 중 넷을 alt_ma 로 적었습니다. 키 이름은 양식이지 규칙이 아닙니다."""
+        for key in ("alt_ma", "altitude_m", "altitude", "alt"):
+            with self.subTest(key=key):
+                legs, why = self.check({"legs": [{"lat": START[0], "lon": START[1], key: 60},
+                                                 {"lat": GOAL[0], "lon": GOAL[1], key: 200}]})
+                self.assertIsNone(legs)
+                self.assertIn("outside", why, "값은 같은 범위 검사를 받습니다")
+                legs, why = self.check({"legs": [{"lat": START[0], "lon": START[1], key: 60},
+                                                 {"lat": GOAL[0], "lon": GOAL[1], key: 90}]})
+                self.assertIsNone(why)
+                self.assertEqual([leg["alt_m"] for leg in legs], [60.0, 90.0])
+                self.assertNotIn(key if key != "alt_m" else "x", legs[0])
 
     def test_too_many_legs(self):
         legs = [{"lat": 40.70 + i * 0.0005, "lon": -73.98, "alt_m": 60}
@@ -196,7 +210,8 @@ class DraftFlowTest(unittest.TestCase):
         import time
 
         drafter = self.drafter(json.dumps(_hand_drawn()), json.dumps(_hand_drawn()))
-        # 초안 호출이 잘린 직후(skip_until). 신청서 호출이 잘린 것(llm.unreachable_at)은 초안과 무관합니다.
+        # 초안 호출이 잘린 직후(skip_until). 신청서 호출이 잘린 것(llm.unreachable_at)은 초안과
+        # 무관합니다.
         drafter.skip_until = time.monotonic() + drafter.backoff_s
         self.assertIsNone(drafter.draft(START, GOAL))
         self.assertEqual(drafter.last_attempts, 0)
@@ -242,11 +257,181 @@ class DraftFlowTest(unittest.TestCase):
         tall = Volume(id="bldg-1", name="건물 157m", polygon=[(40.71, -73.97), (40.71, -73.969),
                       (40.711, -73.969), (40.711, -73.97)], ceiling_m=157.0, clearance_m=50.0)
         self.assertIn("go around", describe(tall))
+        self.assertIn("would need 208 m", describe(tall))       # 157 + 50 + 0.5, 올림
         low = Volume(id="bldg-2", name="건물 44m", polygon=tall.polygon, ceiling_m=44.0,
                      clearance_m=50.0)
         self.assertIn("95 m or higher", describe(low))
+        self.assertIn("go around", describe(low, allowed_m=60.0))   # 천장 칸 아래서는 못 넘습니다
         cell = Volume(id="klga-0", name="KLGA 격자 0ft", polygon=tall.polygon, rule="forbidden")
         self.assertIn("every altitude", describe(cell))
+
+    def test_a_deadline_clamps_each_ask_to_what_is_left(self):
+        """마감이 있으면 두 질문을 합쳐 그때까지만. 남은 게 2초 미만이면 묻지도 않습니다."""
+        import time
+
+        drafter = self.drafter(json.dumps(_hand_drawn()))
+        drafter.draft(START, GOAL, deadline=time.monotonic() + 10.0)
+        self.assertLessEqual(drafter.llm.budgets[0], 10.0)
+        self.assertGreater(drafter.llm.budgets[0], 9.0)
+        spent = self.drafter(json.dumps(_hand_drawn()))
+        self.assertIsNone(spent.draft(START, GOAL, deadline=time.monotonic() + 0.5))
+        self.assertEqual(spent.last_attempts, 0)
+        self.assertEqual(spent.llm.budgets, [])
+        self.assertIn("budget exhausted", spent.last_failures[0])
+
+    def test_a_retry_is_skipped_when_the_first_ask_took_longer_than_what_is_left(self):
+        """실주행에서 잘린 재시도는 11건, 통과는 0건. 같은 크기의 질문을 남은 시간보다 길게 걸면
+        마감 뒤에 오는 답을 기다릴 뿐입니다."""
+        import time
+
+        class Slow(ScriptedLlm):
+            def ask(self, *args, **kwargs):
+                reply = super().ask(*args, **kwargs)
+                return None if reply is None else LlmReply(text=reply.text, model=reply.model,
+                                                           latency_ms=7_000)
+
+        drafter = ModelDrafter(Slow(json.dumps({"legs": "garbage"}),
+                                    json.dumps(_hand_drawn())), self.planner, bbox=self.bbox)
+        # 마감까지 5초, 첫 답(양식 아님)이 7초 걸렸다고 보고합니다 → 같은 질문을 또 걸어봐야
+        # 마감 뒤에 옵니다. 다시 묻지 않습니다
+        drafter.draft(START, GOAL, deadline=time.monotonic() + 5.0)
+        self.assertEqual(drafter.last_attempts, 1)
+        self.assertEqual(len(drafter.llm.prompts), 1)
+        self.assertIn("retry skipped", drafter.last_failures[-1])
+        # 마감 없이(질문마다 예산 하나) 물으면 그대로 두 번 묻습니다
+        again = ModelDrafter(Slow(json.dumps({"legs": "garbage"}), json.dumps(_hand_drawn())),
+                             self.planner, bbox=self.bbox)
+        self.assertIsNotNone(again.draft(START, GOAL))
+        self.assertEqual(again.last_attempts, 2)
+
+
+class GoAroundUnderACeilingCellTest(unittest.TestCase):
+    """천장 칸 안의 건물. 120m 스캔은 칸 자체에 걸려 칸을 통째로 건너뛰므로 따로 봐야 합니다.
+
+    실주행(맥캐런 공원, 90m 칸 uasfm-171132 안의 101m 건물 bldg-t03281): GO AROUND 목록이 비어
+    좌우 두 점을 다 받은 4B 가 건물 사이를 지그재그로 관통했습니다.
+    """
+
+    START, GOAL = (40.72060, -73.95200), (40.71819, -73.97575)
+
+    def setUp(self):
+        from attache.core.geo import box
+
+        self.planner = OperatorPlanner()
+        along = (40.71922, -73.96392)         # 직선 위, 출발점에서 약 1.0 km
+        self.planner.airspace.add(Volume(
+            id="cell-90", name="KLGA 300ft", rule="ceiling", ceiling_m=91.4,
+            polygon=box(40.7150, -73.9700, 40.7260, -73.9520)))
+        self.planner.airspace.add(Volume(
+            id="bldg-101", name="건물 101m", rule="forbidden", ceiling_m=101.0, clearance_m=50.0,
+            polygon=box(along[0] - 0.00017, along[1] - 0.00022,
+                        along[0] + 0.00017, along[1] + 0.00022)))
+        self.planner.airspace.add(Volume(
+            id="bldg-60", name="건물 60m", rule="forbidden", ceiling_m=60.0, clearance_m=50.0,
+            polygon=box(40.71880, -73.95700, 40.71910, -73.95660)))
+        self.drafter = ModelDrafter(FixtureLlm(records=[]), self.planner, bbox=_bbox())
+
+    def test_the_building_inside_the_cell_is_a_go_around_and_gets_one_side(self):
+        around = self.drafter.go_arounds(self.START, self.GOAL)
+        self.assertEqual([v.id for v, _ in around], ["bldg-101"],
+                         "60m 건물은 111m 로 넘을 수 있어 돌아갈 것이 아닙니다")
+        self.assertTrue(self.drafter.must_go_around(*around[0]))
+        # 120m 만으로 재면 칸만 보이고 건물은 빠집니다 — 그래서 따로 재는 것입니다
+        # 120 m 직선 스캔에도 건물이 나옵니다 — 예전에는 칸 진입에서 멈춰 그 안의 건물이 빠졌는데,
+        # leg_breaches 가 구간이 어기는 것을 전부 모으므로 칸과 건물이 둘 다 목록에 있습니다.
+        self.assertIn("bldg-101", {v.id for _, v, _, _ in
+                                   self.drafter.obstacles(self.START, self.GOAL, ALT_MAX_M)})
+        brief = self.drafter._brief(self.START, self.GOAL, _bbox(), {})
+        head, _, _ = brief.partition("The straight line at")
+        self.assertIn("GO AROUND", head)
+        self.assertIn("bldg-101", head)
+        self.assertIn("would need 152 m, limit there 90 m", head)
+        self.assertEqual(len([line for line in head.splitlines() if " of it (" in line]), 1,
+                         "돌 쪽은 하나만 말합니다")
+        self.assertRegex(head, r"pass (NORTH|SOUTH)(-[A-Z]+)? of it \((left|right)\), e\.g\. via")
+
+
+class FeedbackTest(unittest.TestCase):
+    """두 번째 질문은 무엇에 걸렸고 어느 쪽으로 얼마나 비켜야 하는지를 숫자로 듭니다.
+
+    녹음(drafts_nano.json, 브루클린브리지파크): 진짜 nano 가 덤보 강변의 77m 건물(bldg-t02419)을
+    10m 로 스쳤습니다. 77 + 50 + 0.5 = 128 m 가 필요하고 한계는 120 m 라 돌아가야 합니다.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.planner = _fleet_planner()
+        cls.bbox = _bbox()
+        records = [r for r in load_fixtures() if r.get("kind") == "draft"
+                   and r.get("area") == "Brooklyn Bridge Park" and r.get("expect") == "fail"]
+        if not records:
+            raise unittest.SkipTest("브루클린브리지파크 거절 녹음이 없습니다")
+        cls.record = records[0]
+        cls.start = tuple(cls.record["start"])
+        cls.goal = tuple(cls.record["goal"])
+        # 두 번째 답으로 쓸, 강 위로 도는 손 경로(seat 1 에서도 판정을 넘는지 시험이 먼저 봅니다)
+        cls.clearing = {"tier": "nano", "model": "nemotron-3-nano",
+                        "needle": "Your previous draft was refused",
+                        "text": json.dumps(_hand_drawn()), "source": "hand-drawn"}
+        legs, why = ModelDrafter.validate(_hand_drawn(), cls.start, cls.goal, cls.bbox)
+        assert why is None, why
+        assert first_breach(cls.planner.airspace, legs) is None
+
+    def test_the_brief_lists_go_arounds_up_front_with_one_side_to_pass(self):
+        drafter = ModelDrafter(FixtureLlm(records=[]), self.planner, bbox=self.bbox)
+        brief = drafter._brief(self.start, self.goal, self.bbox, {})
+        head, _, rest = brief.partition("The straight line at")
+        self.assertIn("GO AROUND", head)
+        self.assertIn("bldg-t02419", head)
+        self.assertIn("would need 128 m", head)
+        self.assertIn("pass SOUTH of it (left), e.g. via", head)
+        self.assertIn("never alternate between left and right", head)
+        self.assertIn("bldg-t02419", rest)             # 순서대로 읽는 목록에도 있습니다
+        around = drafter.go_arounds(self.start, self.goal)
+        self.assertTrue(all(drafter.must_go_around(v, at) for v, at in around))
+        self.assertIn("bldg-t02419", {v.id for v, _ in around})
+
+    def test_the_second_ask_names_the_building_its_roof_and_the_side_to_pass(self):
+        llm = FixtureLlm(records=[self.record])          # 첫 질문에만 답합니다
+        drafter = ModelDrafter(llm, self.planner, bbox=self.bbox)
+        self.assertIsNone(drafter.draft(self.start, self.goal, {}))
+        self.assertEqual(drafter.last_attempts, 2)
+        self.assertEqual(len(llm.asked), 2)
+        retry = llm.asked[1][1]
+        feedback = retry.split("previous draft was refused")[1]
+        self.assertIn("bldg-t02419", feedback)
+        self.assertIn("roof 77 m", feedback)
+        self.assertIn("would need 128 m", feedback)
+        self.assertIn("above the 120 m limit", feedback)
+        self.assertIn("MUST fly around it", feedback)
+        self.assertRegex(feedback, r"pass (NORTH|SOUTH|EAST|WEST)(-[A-Z]+)? of it")
+        self.assertIn("climbing cannot fix it", feedback)
+
+    def test_a_draft_that_clears_after_feedback_is_returned_with_two_attempts(self):
+        # 재시도 녹음을 앞에 둡니다: 첫 질문에는 그 바늘이 없어 첫 녹음이 답하고, 두 번째에는
+        # 두 프롬프트가 다 맞는데 앞의 것이 이깁니다.
+        llm = FixtureLlm(records=[self.clearing, self.record])
+        drafter = ModelDrafter(llm, self.planner, bbox=self.bbox)
+        legs = drafter.draft(self.start, self.goal, {})
+        self.assertIsNotNone(legs, drafter.last_failures)
+        self.assertEqual(drafter.last_attempts, 2)
+        self.assertEqual(llm.served, [self.record["_file"], "Your previous draft was refused"])
+        self.assertIsNone(first_breach(self.planner.airspace, legs))
+        self.assertEqual((legs[0]["lat"], legs[0]["lon"]), self.start)
+        self.assertEqual((legs[-1]["lat"], legs[-1]["lon"]), self.goal)
+
+    def test_pick_side_sticks_to_the_previous_side_when_it_is_open(self):
+        near_left = {"left": {"compass": "south", "metres": 80, "point": (0, 0)},
+                     "right": {"compass": "north", "metres": 80, "point": (0, 0)}}
+        self.assertEqual(ModelDrafter.pick_side(near_left, None), "left")
+        self.assertEqual(ModelDrafter.pick_side(near_left, "right"), "right")
+        far_right = {"left": {"compass": "south", "metres": 80, "point": (0, 0)},
+                     "right": {"compass": "north", "metres": 400, "point": (0, 0)}}
+        # 두 배 넘게 멀면 바꿉니다
+        self.assertEqual(ModelDrafter.pick_side(far_right, "right"), "left")
+        blocked = {"left": {"compass": "south", "metres": None, "point": None},
+                   "right": {"compass": "north", "metres": None, "point": None}}
+        self.assertIsNone(ModelDrafter.pick_side(blocked, "left"))
 
 
 class RecordedRepliesTest(unittest.TestCase):
