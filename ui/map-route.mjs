@@ -174,17 +174,25 @@ export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_T
   return out;
 }
 
-/** 기체 바로 아래에 세우는 기둥. 얼마나 높이 떠 있는지가 이걸로 읽힙니다. */
-export function column(lat, lon, height, sideM = 3) {
-  const half = sideM / METRES_PER_DEG_LAT;
-  const halfLon = half / (Math.cos(lat * Math.PI / 180) || 1);
-  return {
-    polygon: [
-      [lon - halfLon, lat - half], [lon + halfLon, lat - half],
-      [lon + halfLon, lat + half], [lon - halfLon, lat + half],
-      [lon - halfLon, lat - half],
-    ],
-    base: 0,
-    height: Math.max(0.5, Number(height) || 0),
-  };
+/**
+ * 고도에 뜬 정육각 덩어리. MapLibre 는 심볼을 띄우지 못하므로 기체도 짐도 이걸로 그립니다.
+ * 지면에 붙은 아이콘으로는 '떠서 난다'가 안 읽힙니다.
+ */
+export function hex(lat, lon, radiusM, base, thicknessM) {
+  const r = radiusM / METRES_PER_DEG_LAT;
+  const rLon = r / (Math.cos(lat * Math.PI / 180) || 1);
+  const polygon = [];
+  for (let i = 0; i <= 6; i++) {
+    const angle = (i / 6) * 2 * Math.PI + Math.PI / 6;
+    polygon.push([lon + rLon * Math.cos(angle), lat + r * Math.sin(angle)]);
+  }
+  return {polygon, base: Math.max(0, base), height: Math.max(0.5, base + thicknessM)};
+}
+
+/** 실은 짐. 기체 위로 개수만큼 쌓입니다. */
+export function cargoStack(lat, lon, altitude, count, radiusM = 4) {
+  const boxes = [];
+  for (let i = 0; i < count; i++)
+    boxes.push(hex(lat, lon, radiusM, altitude + 4 + i * 4.5, 3.5));
+  return boxes;
 }
