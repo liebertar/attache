@@ -722,7 +722,9 @@ function renderDenials(runtime, now){
     e.at >= roundStartedAt && Date.now() - e.at * 1000 < DENIAL_MS);
   // Keep the current ledger window plus staged routes, without unbounded history.
   seenDenials = new Set([...closed.map(e => e.id), ...stages.map(s => s.id)]);
-  for (const e of recent) stageRoute(e, now);
+  // 원장은 최신이 앞입니다. 그대로 큐에 넣으면 승인이 거절보다 먼저 재생되어
+  // 순서가 뒤집힙니다 — 일어난 순서대로 다시 세웁니다.
+  for (const e of [...recent].sort((a, b) => a.at - b.at)) stageRoute(e, now);
   // 거절만이 아니라 회수도 사람이 봐야 할 일입니다. 이미 승인해서 날고 있는 기체를
   // 규칙이 도착해서 되돌리는 것 — 화면에서 기체가 실제로 방향을 트는 그 순간입니다.
   const recalled = e => e.proposal.author === "runtime" && e.decision.policy_hit;

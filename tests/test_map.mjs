@@ -217,6 +217,23 @@ test('an approved route redraws from the drone before the steady line takes over
   assert.deepEqual(settled.at(-1),[route.at(-1).lon,route.at(-1).lat]);
 });
 
+test('the ledger is newest first, so stages are re-sorted into the order they happened', () => {
+  const ui = scene();
+  const at = Date.now() / 1000;
+  const legs = [start, ...route];
+  const rejected = {id:'r', at: at - 0.2, outcome:'denied',
+    proposal:{asset_id:'drone-01', action:'fly_route', params:{legs}},
+    decision:{verdict:'denied', reason:'x'}};
+  const approved = {id:'a', at, outcome:'executed',
+    proposal:{asset_id:'drone-01', action:'fly_route', params:{legs}},
+    decision:{verdict:'auto', reason:'ok'}};
+  ui.run('renderDenials', {ledger:[approved, rejected]}, 0);   // 최신이 앞
+  ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
+  // 먼저 일어난 것은 거절입니다. 승인이 먼저 재생되면 순서가 뒤집힌 것입니다.
+  assert.equal(ui.source('rejected').features.length, 1);
+  assert.equal(ui.source('approved').features.length, 0);
+});
+
 test('a queued decision has not travelled anywhere yet, so nothing is drawn', () => {
   const ui = scene();
   ui.run('renderDenials',{ledger:[approval('q',{decision:{verdict:'queued',reason:'대기'}})]},0);
