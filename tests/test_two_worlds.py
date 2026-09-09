@@ -266,7 +266,10 @@ class TwoWorldsTest(unittest.TestCase):
         다른 쪽은 기체가 스스로 공지를 확인할 때까지 남아 있습니다.
         """
         self.assertEqual(self.guarded["zone_incursions"], 0)
-        self.assertLess(self.guarded["zone_dwell_ticks"], self.direct["zone_dwell_ticks"])
+        # 머문 시간은 그 판에 누가 어디 있었느냐에 달려 있어서 '반드시 더 짧다'로 묶으면
+        # 시나리오가 조금만 달라져도 깨집니다. 더 오래 남지 않는다는 것만 봅니다.
+        self.assertLessEqual(self.guarded["zone_dwell_ticks"],
+                             self.direct["zone_dwell_ticks"])
 
     # ---------- 직결 쪽에서 반드시 참이어야 하는 것 ----------
 

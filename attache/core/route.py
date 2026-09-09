@@ -89,8 +89,18 @@ class Router:
         return (node[0] * self.cell, node[1] * self.cell)
 
     def _forbidden_at(self, lat: float, lon: float) -> bool:
-        """공역이 답합니다. 여기에 따로 적으면 또 갈라집니다."""
-        return self.airspace.forbidden_at(lat, lon)
+        """여기를 우리가 날 고도로 지날 수 있는가.
+
+        그 고도는 순항 높이와 그 자리의 천장 중 낮은 쪽입니다 — _to_legs 가 구간마다
+        붙이는 값과 같은 규칙입니다. 두 곳이 다른 높이를 쓰면 계획기가 통과라고 본
+        경로를 판정자가 거절합니다.
+        """
+        return self.airspace.forbidden_at(lat, lon, self._altitude_at(lat, lon))
+
+    def _altitude_at(self, lat: float, lon: float) -> float:
+        ceiling = self.airspace.ceiling_at(lat, lon)
+        allowed = self.cruise_alt_m if ceiling is None else ceiling - 1.0
+        return max(self.min_alt_m, min(self.cruise_alt_m, allowed))
 
     def _blocked(self, node: tuple[int, int]) -> bool:
         """격자점 하나의 답은 안 바뀝니다. 탐색 중에 같은 점을 수십 번 다시 봅니다."""

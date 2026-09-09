@@ -155,20 +155,24 @@ class Airspace:
             return list(self._everywhere)
         return [box[0] for box in boxes] + self._everywhere
 
-    def forbidden_at(self, lat: float, lon: float) -> bool:
-        """여기가 금지 구역 안인가. 계획기와 런타임이 같이 씁니다.
+    def forbidden_at(self, lat: float, lon: float, alt_m: float) -> bool:
+        """이 좌표를 이 고도로 지날 수 있는가. 계획기와 런타임이 같이 씁니다.
 
-        폴리곤 판정 전에 상자로 거릅니다. 탐색 한 번에 수십만 번 불리는 자리라
-        여기서 아끼는 것이 곧 경로를 찾는 시간입니다.
+        고도를 봐야 합니다. 건물은 옥상까지만 막고 그 위는 열려 있는데, 고도를 안 보면
+        20m 짜리 건물도 영영 돌아가야 할 벽이 됩니다.
+        폴리곤 판정 전에 상자로 거릅니다 — 탐색 한 번에 수십만 번 불리는 자리입니다.
         """
         if self._index_for != self.revision:
             self._rebuild_index()
         cell = (int(math.floor(lat / INDEX_CELL_DEG)), int(math.floor(lon / INDEX_CELL_DEG)))
         for volume, south, north, west, east in self._grid.get(cell, EMPTY):
             if (volume.rule == "forbidden" and south <= lat <= north
-                    and west <= lon <= east and volume.covers(lat, lon)):
+                    and west <= lon <= east
+                    and (volume.ceiling_m is None or volume.floor_m <= alt_m <= volume.ceiling_m)
+                    and volume.covers(lat, lon)):
                 return True
-        return any(v.rule == "forbidden" and v.covers(lat, lon) for v in self._everywhere)
+        return any(v.rule == "forbidden" and v.breach(lat, lon, alt_m)
+                   for v in self._everywhere)
 
     def _rebuild_index(self) -> None:
         grid: dict[tuple[int, int], list[Volume]] = {}

@@ -55,10 +55,10 @@
   #denial-why{margin-top:5px;font-size:12.5px;line-height:1.5}
   .note{margin-top:4px;font-size:10.5px;color:var(--dim);line-height:1.5}
   #head .topline{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  #lang{display:flex;gap:3px}
-  #lang button{background:transparent;border:1px solid var(--line);color:var(--dim);
+  #lang,#show{display:flex;gap:3px}
+  #lang button,#show button{background:transparent;border:1px solid var(--line);color:var(--dim);
     border-radius:6px;padding:2px 7px;font:600 10.5px inherit;cursor:pointer;letter-spacing:.4px}
-  #lang button.on{background:rgba(61,139,255,.18);border-color:var(--guard);color:#bcd8ff}
+  #lang button.on,#show button.on{background:rgba(61,139,255,.18);border-color:var(--guard);color:#bcd8ff}
   #legend div{white-space:nowrap}
   #legend .note{white-space:normal;max-width:330px}
   .maplibregl-popup-content{background:var(--panel);color:var(--text);border:1px solid var(--line);
@@ -90,6 +90,13 @@
   <div class="topline">
     <h1 data-t="title"></h1>
     <div id="lang"><button data-lang="en">EN</button><button data-lang="ko">KR</button></div>
+  </div>
+  <div class="topline" style="margin-top:6px">
+    <span class="note" style="margin:0" data-t="show"></span>
+    <div id="show"><button data-show="guarded">RUNTIME</button>
+      <button data-show="direct">DIRECT</button>
+      <button data-show="both">BOTH</button>
+      <button id="restart" data-t="restart"></button></div>
   </div>
   <p data-t="lede"></p>
   <p style="margin-top:5px">tick <b id="tick">0</b> ·
@@ -138,7 +145,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script type="module">
-import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, column, GROW_MS, CHECK_MS, APPROVED_HOLD_MS} from './map-route.mjs';
+import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, GROW_MS, CHECK_MS, APPROVED_HOLD_MS} from './map-route.mjs';
 const SIM = `http://${location.hostname}:8100`;
 const RT  = `http://${location.hostname}:8000`;
 const POLL_MS = 500;
@@ -152,7 +159,7 @@ const TEXT = {
     lede:'Same seed, same detector, same request writer. <span class="g">Blue</span> files to '
       + 'the runtime; <span class="d">orange</span> drives the autopilot directly.',
     hint:"Right-drag to orbit · Shift+←→ rotate · Shift+↑↓ tilt · +/− zoom · click a drone",
-    approvals:"approval screen →",
+    approvals:"approval screen →", show:"Show", restart:"RESTART",
     ledger:"What the runtime did", empty:"Nothing yet",
     guarded:"RUNTIME", direct:"DIRECT",
     pad_conflicts:"Pad collisions", zone_incursions:"No-fly incursions",
@@ -162,7 +169,7 @@ const TEXT = {
     spend:"Fleet spend (cap $%s)",
     lg_guard:"Flies on runtime approval", lg_direct:"Drives the autopilot itself",
     lg_pending:"PLANNING", lg_ok:"APPROVED", lg_no:"REJECTED",
-    lg_corridor:"Corridor at approved altitude · the plate on the pole is the aircraft",
+    lg_corridor:"Corridor at the approved altitude",
     lg_block:"What blocked it", lg_pad:"Charging bay", lg_depot:"Warehouse",
     lg_ceil:"Ceiling", lg_note:"FAA UAS Facility Map · NYC Building Footprints — real data.",
     ph_drawing:"PLANNING…", ph_checking:"AWAITING VERDICT…",
@@ -190,7 +197,8 @@ const TEXT = {
     disengage_autonomy:"disengage autonomy", decline_job:"decline order", depart:"depart",
     cruising:"holding", delivering:"delivering", approaching:"on approach",
     landed:"landed", charging:"charging", stranded:"autonomy stopped",
-    dropping:"dropping off", picking:"picking up", holding:"cleared — spinning up",
+    dropping:"unloading", loading:"loading", landing:"landing",
+    holding:"cleared — spinning up",
     grounded:"battery dead", diverted:"turned back",
   },
   ko: {
@@ -198,7 +206,7 @@ const TEXT = {
     lede:'같은 씨앗 · 같은 감지 코드 · 같은 신청서 작성기. <span class="g">파랑</span>은 '
       + '런타임에 신청하고 <span class="d">주황</span>은 조종장치를 직접 만집니다.',
     hint:"우클릭 드래그 회전 · Shift+←→ 회전 · Shift+↑↓ 기울이기 · +/− 확대 · 기체 클릭",
-    approvals:"승인 화면 →",
+    approvals:"승인 화면 →", show:"표시", restart:"처음부터",
     ledger:"런타임이 한 일", empty:"아직 없음",
     guarded:"런타임", direct:"직접",
     pad_conflicts:"착륙대 충돌", zone_incursions:"비행금지 구역 침범",
@@ -208,7 +216,7 @@ const TEXT = {
     spend:"기단 지출 (한도 $%s)",
     lg_guard:"런타임 승인을 거쳐 나는 기체", lg_direct:"조종장치를 직접 만지는 기체",
     lg_pending:"경로 산출중", lg_ok:"승인", lg_no:"거절",
-    lg_corridor:"승인 고도에 뜬 회랑 · 기둥 꼭대기 판이 기체 위치",
+    lg_corridor:"승인 고도에 뜬 회랑",
     lg_block:"막은 구역·건물", lg_pad:"충전대", lg_depot:"물류 창고",
     lg_ceil:"천장", lg_note:"FAA UAS Facility Map · NYC Building Footprints — 둘 다 실제 데이터.",
     ph_drawing:"경로 산출중…", ph_checking:"판정 대기중…",
@@ -236,13 +244,21 @@ const TEXT = {
     disengage_autonomy:"자율주행 해제", decline_job:"주문 반려", depart:"이륙",
     cruising:"대기 비행", delivering:"배달 중", approaching:"착륙 접근",
     landed:"착륙", charging:"충전 중", stranded:"자율주행 정지",
-    dropping:"내려놓는 중", picking:"싣는 중", holding:"승인 확인 · 출발 준비",
+    dropping:"하역 중", loading:"적재 중", landing:"착륙 중",
+    holding:"승인 확인 · 출발 준비",
     grounded:"배터리 소진", diverted:"회항",
   },
 };
 
 let lang = "en";
-try { lang = localStorage.getItem("attache-lang") || "en"; } catch (error) { void error; }
+// 두 세계는 같은 씨앗·같은 주문이라 겹쳐 보입니다. 지도는 런타임 쪽만 그리고,
+// 대조는 점수판이 합니다 — 비교가 필요하면 BOTH 로 켭니다.
+let showing = "guarded";
+try {
+  lang = localStorage.getItem("attache-lang") || "en";
+  showing = localStorage.getItem("attache-show") || "guarded";
+} catch (error) { void error; }
+const visible = world => showing === "both" || showing === world;
 const t = (key, ...args) => {
   const raw = TEXT[lang]?.[key] ?? TEXT.en[key] ?? key;
   return args.reduce((text, value) => text.replace("%s", value), raw);
@@ -369,22 +385,12 @@ map.on("load", () => {
 
   // 승인된 고도에 떠 있는 경로 판. 선은 땅에 붙으니 높이를 못 보여줍니다.
   map.addSource("flightpath", {type:"geojson", data:empty()});
-  // 같은 도형을 두 번 씁니다. 아래는 땅에서 승인 고도까지 올라오는 커튼 — 경로가
-  // 건물 어디쯤을 지나는지가 이걸로 읽힙니다. 위는 실제로 나는 높이의 판입니다.
-  map.addLayer({id:"flightpath-curtain", type:"fill-extrusion", source:"flightpath",
-    paint:{"fill-extrusion-color":"#29c76f",
-      "fill-extrusion-base":0, "fill-extrusion-height":["get","base"],
-      "fill-extrusion-opacity":.12}});
+  // 커튼(땅에서 고도까지)은 뺐습니다. 기체 자리에서는 대가리 위로 솟은 굵은 막대로
+  // 보여서, 무엇을 뜻하는지 아무도 못 읽었습니다.
   map.addLayer({id:"flightpath", type:"fill-extrusion", source:"flightpath",
     paint:{"fill-extrusion-color":"#29c76f",
       "fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"],
       "fill-extrusion-opacity":.75}});
-  // 기체 아래 기둥. 얼마나 높이 떠 있는지가 이걸로 읽힙니다.
-  map.addSource("altitude", {type:"geojson", data:empty()});
-  map.addLayer({id:"altitude-pole", type:"fill-extrusion", source:"altitude",
-    paint:{"fill-extrusion-color":["case",["==",["get","world"],"direct"],"#ff7a3d","#3d8bff"],
-      "fill-extrusion-base":0, "fill-extrusion-height":["get","height"],
-      "fill-extrusion-opacity":.55}});
 
   // 무엇이 막았는지. 그 구역·건물만 따로 붉게 세웁니다.
   map.addSource("blocker", {type:"geojson", data:empty()});
@@ -410,13 +416,6 @@ map.on("load", () => {
         ["==",["get","kind"],"approved"],"#7ff0ae",
         ["==",["get","kind"],"pending"],"#ffd98a", "#ffc9c4"],
       "text-halo-color":"#0a0e11", "text-halo-width":2.2}});
-
-  map.addSource("aircraft", {type:"geojson", data:empty()});
-  map.addLayer({id:"aircraft-mark", type:"fill-extrusion", source:"aircraft",
-    paint:{"fill-extrusion-color":["case",["==",["get","world"],"direct"],
-        "#ff7a3d","#3d8bff"],
-      "fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"],
-      "fill-extrusion-opacity":.95}});
 
   map.addSource("depot", {type:"geojson", data:empty()});
   map.addLayer({id:"depot-marker", type:"circle", source:"depot",
@@ -452,7 +451,8 @@ map.on("load", () => {
                            12,.35, 15,.7, 17,1.6, 19,3.2],
               "icon-rotate":["get","heading"],"icon-rotation-alignment":"map",
               "icon-allow-overlap":true,
-              "text-field":["get","id"],
+              "text-field":["case",["==",["get","work"],""],["get","id"],
+                             ["concat",["get","id"],"  ·  ",["get","work"]]],
               "text-size":["interpolate",["linear"],["zoom"],12,9.5,17,13,19,16],
               "text-offset":[0,1.6],"text-anchor":"top",
               "text-font":["Noto Sans Regular"],"text-allow-overlap":true},
@@ -505,6 +505,8 @@ function applyLanguage(){
     element.innerHTML = t(element.dataset.t);
   for (const button of (document.querySelectorAll?.("#lang button") || []))
     button.className = button.dataset.lang === lang ? "on" : "";
+  for (const button of (document.querySelectorAll?.("#show button") || []))
+    if (button.dataset.show) button.className = button.dataset.show === showing ? "on" : "";
   if (latest) renderSnapshot(latest, lastRuntime);
 }
 
@@ -512,6 +514,19 @@ for (const button of (document.querySelectorAll?.("#lang button") || [])){
   button.addEventListener("click", () => {
     lang = button.dataset.lang;
     try { localStorage.setItem("attache-lang", lang); } catch (error) { void error; }
+    applyLanguage();
+  });
+}
+// 판을 시나리오 시작점으로 되감습니다. 조종장치로 가는 명령이 아니라 시연 조작입니다.
+document.getElementById("restart")?.addEventListener("click", async () => {
+  try { await fetch(`${SIM}/reset`, {method:"POST"}); } catch (error) { console.error(error); }
+});
+
+for (const button of (document.querySelectorAll?.("#show button") || [])){
+  if (!button.dataset.show) continue;
+  button.addEventListener("click", () => {
+    showing = button.dataset.show;
+    try { localStorage.setItem("attache-show", showing); } catch (error) { void error; }
     applyLanguage();
   });
 }
@@ -528,7 +543,7 @@ function draw(){
     return;
   }
   const approved = [...staged.approved];
-  const ribbons = [], poles = [], marks = [];
+  const ribbons = [];
   for (const world of ["guarded","direct"]){
     const features = [];
     for (const v of Object.values(latest.worlds[world].assets)){
@@ -542,34 +557,34 @@ function draw(){
           ahead[1] - point[1]) * 180 / Math.PI;
       if (world === "guarded" && !staged.growing.has(v.id) &&
           m.curve?.coordinates.length > 1 &&
-          (v.route?.length || now < m.at + POLL_MS))
-        approved.push(lineFeature(m.curve.coordinates, v.id));
+          (v.route?.length || now < m.at + POLL_MS)){
+        // 지나온 구간은 지웁니다. 남은 경로만 승인된 것이고, 다 그려두면 기체가
+        // 어디까지 왔는지가 선에서 안 읽힙니다.
+        const span = Math.max(0, Math.min(1, (now - m.at) / POLL_MS));
+        const flown = m.from + (m.to - m.from) * span;
+        const total = m.curve.progress.at(-1);
+        if (total - flown > 1e-9)
+          approved.push(lineFeature(sliceCurve(m.curve, flown, total), v.id));
+      }
       features.push({
         type:"Feature",
         geometry:{type:"Point", coordinates:point},
-        properties:{id:v.id, battery:Math.round(v.battery), heading},
+        properties:{id:v.id, heading,
+          // 멈춰서 무언가 하는 중이면 그게 무엇인지 옆에 씁니다.
+          work: WORKING.has(v.state) ? t(v.state) : ""},
       });
       const altitude = Number(v.alt_m ?? 0);
-      if (altitude > 1){
-        poles.push(extrusion(column(point[1], point[0], altitude, 2.5), {world}));
-        // MapLibre 는 심볼을 고도에 못 띄웁니다. 아이콘은 지면에 남으므로, 기둥
-        // 꼭대기에 판을 하나 얹어 '기체는 여기 있다'가 읽히게 합니다.
-        const top = column(point[1], point[0], altitude + 2, 9);
-        top.base = Math.max(0, altitude - 2);
-        marks.push(extrusion(top, {world}));
-      }
       // 초록은 승인된 다음에만. 산출 중인 기체의 회랑도 같이 감춥니다.
       if (world === "guarded" && v.route?.length && !staged.growing.has(v.id)){
         const ahead = [{lat:point[1], lon:point[0], alt_m:altitude}, ...v.route];
         for (const piece of ribbon(ahead)) ribbons.push(extrusion(piece, {}));
       }
     }
-    map.getSource(world)?.setData({type:"FeatureCollection", features});
+    map.getSource(world)?.setData(
+      {type:"FeatureCollection", features: visible(world) ? features : []});
   }
   map.getSource("approved")?.setData({type:"FeatureCollection", features:approved});
   map.getSource("flightpath")?.setData({type:"FeatureCollection", features:ribbons});
-  map.getSource("altitude")?.setData({type:"FeatureCollection", features:poles});
-  map.getSource("aircraft")?.setData({type:"FeatureCollection", features:marks});
 }
 
 function extrusion(piece, properties){
@@ -645,7 +660,7 @@ function renderSnapshot(data, runtime){
                             properties:{}});
     }
     map.getSource(`${world}-trail`)?.setData(
-      {type:"FeatureCollection", features:trailFeatures});
+      {type:"FeatureCollection", features: visible(world) ? trailFeatures : []});
   }
 
   // 실제 FAA 격자. 천장이 낮을수록 붉고, 금지 칸은 빗금 없이 진하게.
@@ -755,11 +770,12 @@ function stageRoute(entry, now){
   if (!kind) return;   // 대기 중인 것은 아직 오간 경로가 아닙니다
   const params = entry.proposal.params || {};
   const by = decision.approved_by || decision.arbiter || t("guarded");
-  // 거절과 그 뒤의 재신청이 같은 폴링에 도착합니다. 그대로 두면 둘이 겹쳐서
-  // 한 장면이 되고, 신청 → 거절 → 재작성 → 승인이라는 순서가 사라집니다.
+  // 거절은 줄을 세우고, 승인은 곧바로 시작합니다.
+  // 승인까지 뒤로 밀면 기체는 이미 날고 있는데 화면은 아직 '산출중'이라, 승인 전에
+  // 날아가는 것처럼 보입니다. 시뮬레이터도 승인 재생이 끝날 때까지 기체를 잡아둡니다.
   const asset = entry.proposal.asset_id;
-  const at = Math.max(now, queued.get(asset) || 0);
-  queued.set(asset, at + stageLife(kind));
+  const at = kind === "approved" ? now : Math.max(now, queued.get(asset) || 0);
+  if (kind !== "approved") queued.set(asset, at + stageLife(kind));
   stages.push({
     id:entry.id, asset, kind, at, by, params,
     curve:makeCurve(legs[0], legs.slice(1)),
@@ -777,6 +793,9 @@ function stageRoute(entry, now){
  * 겹쳐 그리지 않습니다 — 그러면 애니메이션이 안 보입니다.
  */
 const PHRASE = {drawing:"ph_drawing", checking:"ph_checking", refused:"ph_refused"};
+// 멈춰 있는 이유를 화면에 씁니다. 나는 중에는 아무것도 안 붙입니다.
+const WORKING = new Set(["dropping", "loading", "landing", "charging", "landed",
+                         "stranded", "grounded"]);
 
 /** 판정 사유를 화면 말로. 런타임은 코드와 값만 주고 문구는 여기서 만듭니다. */
 function reasonText(entry){

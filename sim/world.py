@@ -50,7 +50,10 @@ CRUISE_MPS = 22.0             # 배달용 멀티로터 순항 속도
 ENDURANCE_MIN = 35.0
 CLIMB_MPS = 2.0
 DROP_TICKS = 18          # 내려놓는 데 걸리는 시간(약 14 시뮬레이션 초)
-CLEARANCE_TICKS = 12     # 승인을 확인하고 출발하기까지
+LOAD_TICKS = 22          # 이륙장에서 싣는 시간
+# 승인을 확인하고 출발하기까지. 화면이 승인 장면을 다 보여줄 만큼은 잡아둬야
+# '승인 전에 날아간다'로 보이지 않습니다 (UI 의 GROW+CHECK+APPROVED_HOLD 와 맞춤).
+CLEARANCE_TICKS = 34
 DESCENT_MPS = 1.75
 
 STEP_METRES = CRUISE_MPS * SIM_SECONDS_PER_TICK      # 틱당 17.6 m
@@ -199,13 +202,12 @@ ZONE_UNTIL = 900   # 응급헬기가 뜨고 내리는 동안만. 구역에는 �
 ZONE = {
     "id": "nofly-2026-09-hospital",
     "kind": "zone",
-    "forbid_resource": "pad:launch",
     "reason": "응급헬기 이착륙. 상공 비행금지",
-    "name": "이륙장 상공 응급헬기 회랑",
-    # 이륙장과 그 접근로만 닫습니다. 예전에는 780x590m 를 덮어서 일대를 통째로
-    # 빨갛게 칠했는데, 닫으려던 것은 그 한 자리였습니다.
-    "polygon": [[40.70125, -73.97125], [40.70125, -73.96975],
-                [40.70255, -73.96975], [40.70255, -73.97125]],
+    "name": "이스트빌리지 응급헬기 회랑",
+    # 배달 항로 위에 섭니다. 유일한 이륙장 위에 두면 기단이 갈 곳이 없어져서,
+    # 규칙이 무엇을 막는지가 아니라 기체가 갇힌 것만 보였습니다.
+    "polygon": [[40.71950, -73.98900], [40.71950, -73.98200],
+                [40.72550, -73.98200], [40.72550, -73.98900]],
     "floor_m": 0, "ceiling_m": None, "reference": "AGL",
     "rule": "forbidden", "source": "예시 데이터",
 }
@@ -413,8 +415,10 @@ class World:
             vehicle.state = "charging"
             vehicle.charge_mode = "fast" if action == "fast_charge" else "normal"
         elif action == "depart":
+            # 뜨기 전에 싣습니다. 이륙장을 붙잡고 있는 시간이라 다른 기체는 기다립니다.
             vehicle.assigned_pad = None
-            vehicle.state = "cruising"
+            vehicle.state = "loading"
+            vehicle.work_ticks = LOAD_TICKS
             vehicle.cruise_alt = LOITER_ALT_M
             vehicle.waypoints = []   # 다 쓴 경로입니다
             vehicle.vibration = 0.0  # 패드에 있는 동안 정비를 받았습니다
@@ -466,11 +470,15 @@ class World:
         self._detect_ceiling_breaches(tick)
 
     def _advance(self, vehicle: Vehicle, tick: int) -> None:
-        if vehicle.state == "dropping":
+        if vehicle.state in ("dropping", "loading"):
             vehicle.battery -= BATTERY_PER_TICK
             vehicle.work_ticks -= 1
-            if vehicle.work_ticks <= 0:
+            if vehicle.work_ticks > 0:
+                return
+            if vehicle.state == "dropping":
                 self._deliver(vehicle, tick)
+            else:
+                vehicle.state = "cruising"
             return
         if vehicle.hold_ticks > 0:
             # 승인이 떨어졌다고 그 자리에서 방향을 트는 기체는 없습니다.
@@ -481,6 +489,12 @@ class World:
             gain = 2.4 if vehicle.charge_mode == "fast" else 1.0
             vehicle.battery = min(100.0, vehicle.battery + gain)
             vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
+            return
+        if vehicle.state == "landing":
+            vehicle.battery -= BATTERY_PER_TICK
+            self._hold_altitude(vehicle, (vehicle.x, vehicle.y))
+            if vehicle.alt <= 1.0:
+                vehicle.state = "landed"
             return
         if vehicle.state in ("stranded", "diverted", "grounded"):
             vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
@@ -527,12 +541,10 @@ class World:
             # 도착했다고 물건이 사라지지 않습니다. 내려놓는 동안 그 자리에 머뭅니다.
             vehicle.state = "dropping"
             vehicle.work_ticks = DROP_TICKS
-        if (
-            vehicle.state == "approaching"
-            and vehicle.assigned_pad
-            and self._at(vehicle, target)
-            and vehicle.alt <= 1.0
-        ):
+        if vehicle.state == "approaching" and vehicle.assigned_pad and self._at(vehicle, target):
+            # 이륙장 위에 왔습니다. 여기서부터는 내려앉는 중입니다.
+            vehicle.state = "landing"
+        if vehicle.state == "landing" and vehicle.alt <= 1.0:
             vehicle.state = "landed"
 
     @staticmethod
@@ -580,7 +592,7 @@ class World:
     @staticmethod
     def _at_cruise(vehicle: Vehicle, target: tuple[float, float]) -> bool:
         """승인받은 고도에 올라왔는가. 도착점 위에서 내려가는 중이면 묻지 않습니다."""
-        if vehicle.state in ("landed", "charging"):
+        if vehicle.state in ("landed", "landing", "charging"):
             return True
         if World._at(vehicle, target):
             return True
@@ -594,7 +606,7 @@ class World:
         1.5km 앞에서부터 비스듬히 활공했는데, 그 비탈이 건물 높이를 그대로 지나가서
         승인된 경로를 날면서도 건물을 스쳤습니다.
         """
-        if vehicle.state == "landed" or (
+        if vehicle.state in ("landed", "landing") or (
             vehicle.state == "approaching" and World._at(vehicle, target)
         ):
             vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)

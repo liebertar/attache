@@ -39,6 +39,15 @@ def main() -> None:
         return 200, {**world.snapshot(simulation.tick_count, volumes=wants_volumes),
                      "round": simulation.rounds}
 
+    def reset(body, query):
+        """판을 처음부터. 화면을 열었을 때 시나리오 시작점에서 보고 싶을 때 씁니다.
+
+        조종장치로 가는 명령이 아니라 시연용 되감기입니다. 런타임은 판 번호가
+        바뀐 것을 보고 자기 상태(예산·잠금·공지)를 알아서 새로 시작합니다.
+        """
+        simulation.reset()
+        return 200, {"ok": True, "round": simulation.rounds, "tick": simulation.tick_count}
+
     def act(body, query):
         world = simulation.worlds.get(body.get("world", "guarded"))
         if world is None:
@@ -126,11 +135,11 @@ def main() -> None:
     server.add("GET", "/pad_rows", pad_rows)
     server.add("GET", "/state", state)
     server.add("POST", "/act", act)
+    server.add("POST", "/reset", reset)
     server.add("GET", "/compare", compare)
     server.add("GET", "/bulletins", lambda body, query: (200, {
         "tick": simulation.tick_count, "bulletins": simulation.bulletins()
     }))
-    server.add("POST", "/reset", lambda body, query: (200, simulation.reset() or {"ok": True}))
     server.add("GET", "/health", lambda body, query: (200, {"ok": True}))
     print(f"sim listening on :{os.getenv('PORT', '8100')}", flush=True)
     server.serve_forever()

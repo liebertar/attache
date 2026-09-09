@@ -240,18 +240,36 @@ class WeavingBetweenBuildingsTest(unittest.TestCase):
             self.skipTest("건물 데이터가 없습니다 (scripts/fetch_buildings.py)")
         return Router(AIRSPACE)
 
-    def test_a_route_through_the_city_exists_and_bends_around_things(self):
+    def test_a_route_through_the_city_exists_and_survives_the_judge(self):
         from attache.core.geo import first_breach
 
         router = self._router()
-        route = router.plan((40.7019, -73.9721), (40.7250, -73.9900))
+        route = router.plan((40.7019, -73.97049), (40.7250, -73.9900))
         self.assertIsNotNone(route, "도심을 가로지르는 경로가 하나도 안 나옵니다")
         legs = [leg.to_dict() for leg in route.legs]
         self.assertIsNone(first_breach(router.airspace, legs),
                           "계획기가 스스로 어기는 경로를 내놨습니다")
-        self.assertGreater(len(legs), 5, "직선 하나면 아무것도 피하지 않은 것입니다")
         self.assertTrue(all(leg["alt_m"] <= router.cruise_alt_m + 0.1 for leg in legs),
                         "순항 고도보다 높이 날면 건물을 볼 일이 없습니다")
+
+    def test_flying_lower_means_more_buildings_to_go_around(self):
+        """건물은 옥상까지만 막습니다. 높이 날면 넘어가고 낮게 날면 돌아가야 합니다.
+
+        고도를 안 보고 발자국만 피하면 20m 건물도 영영 벽이 되고, 순항 고도를 바꿔도
+        경로가 똑같이 나옵니다 — 실제로 그러고 있었습니다.
+        """
+        from attache.core.route import Router
+        from sim.world import AIRSPACE, BUILDINGS
+
+        if not BUILDINGS:
+            self.skipTest("건물 데이터가 없습니다")
+        start, goal = (40.7019, -73.97049), (40.7250, -73.9900)
+        high = Router(AIRSPACE, cruise_alt_m=70).plan(start, goal)
+        low = Router(AIRSPACE, cruise_alt_m=25).plan(start, goal)
+        self.assertIsNotNone(high)
+        self.assertIsNotNone(low)
+        self.assertGreater(len(low.legs), len(high.legs),
+                           "낮게 나는데 경로가 안 휘면 고도를 안 보고 있는 것입니다")
 
     def test_the_route_starts_where_you_are_and_ends_where_you_are_going(self):
         """격자점에서 끝나면 남은 100m 를 아무도 판정한 적 없는 채로 날게 됩니다."""

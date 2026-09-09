@@ -47,7 +47,8 @@ function scene() {
   let now = 0;
   const elements = new Map(), sources = new Map();
   const element = id => {
-    if (!elements.has(id)) elements.set(id,{style:{},hidden:true,textContent:'',innerHTML:''});
+    if (!elements.has(id)) elements.set(id,
+      {style:{},hidden:true,textContent:'',innerHTML:'',addEventListener(){}});
     return elements.get(id);
   };
   const map = {on(){}, addControl(){}, setPaintProperty(){}, getLayer(){return {};},
@@ -123,7 +124,7 @@ test('the label sits at the start of the route, not on the moving head', () => {
   assert.deepEqual(geometry.labelAnchor(curve), [start.lon, start.lat]);
 });
 
-test('the flight path floats at the approved altitude and the pole reaches the drone', () => {
+test('the flight path floats at the approved altitude, segment by segment', () => {
   const climb = [{lon:-73.97,lat:40.71,alt_m:60},{lon:-73.96,lat:40.71,alt_m:120}];
   const pieces = geometry.ribbon([{lon:-73.97,lat:40.70,alt_m:60},...climb]);
   assert.equal(pieces.length,2);
@@ -131,22 +132,28 @@ test('the flight path floats at the approved altitude and the pole reaches the d
   assert.ok(pieces[1].base > pieces[0].base, '구간마다 승인 고도가 다르면 판도 따로 떠야 합니다');
   assert.ok(pieces.every(p => p.height > p.base && p.polygon.length === 5));
   assert.ok(pieces.flatMap(p => p.polygon).flat().every(Number.isFinite));
-  const pole = geometry.column(40.71,-73.97,88);
-  assert.equal(pole.base,0);
-  assert.equal(pole.height,88);
 });
 
-test('a snapshot raises a flight path and a pole for a drone that is flying', () => {
+test('a snapshot raises a flight path for a drone that is flying', () => {
   const ui = scene();
   ui.run('renderSnapshot',snapshot(),null);
   ui.run('draw');
   const path = ui.source('flightpath').features;
   assert.ok(path.length, '승인 경로가 있으면 고도 판이 서야 합니다');
   assert.ok(path.every(f => f.properties.height > f.properties.base));
-  assert.equal(ui.source('altitude').features.length, 2);   // 두 세계 각각 한 대
-  assert.ok(ui.source('altitude').features.every(f => f.properties.base === 0));
   ui.run('renderSnapshot',snapshot(1,2,[]),null); ui.run('draw');
   assert.equal(ui.source('flightpath').features.length, 0);
+});
+
+test('a drone that has stopped to work says so next to its name', () => {
+  const ui = scene();
+  ui.run('renderSnapshot',snapshot(1,1,[],{lon:-73.97,lat:40.70,state:'dropping'}),null);
+  ui.run('draw');
+  assert.equal(ui.source('guarded').features[0].properties.work,'unloading');
+  ui.run('renderSnapshot',snapshot(2,1,route,{lon:-73.97,lat:40.70,state:'delivering'}),null);
+  ui.run('draw');
+  assert.equal(ui.source('guarded').features[0].properties.work,'',
+               '나는 중에는 아무것도 안 붙습니다');
 });
 
 test('warehouse, curved green path and drone update from snapshots and clear on reset', () => {
@@ -154,11 +161,14 @@ test('warehouse, curved green path and drone update from snapshots and clear on 
   ui.run('renderSnapshot',snapshot(),null);
   ui.run('draw');
   assert.equal(ui.source('depot').features[0].geometry.coordinates[0],start.lon);
-  const original = JSON.stringify(ui.source('approved'));
+  const first = ui.source('approved').features[0].geometry.coordinates;
   ui.time(500);
   ui.run('renderSnapshot',snapshot(2,1,route.slice(1),{lon:-73.969,lat:40.71}),null);
   ui.time(750); ui.run('draw');
-  assert.equal(JSON.stringify(ui.source('approved')),original);
+  const later = ui.source('approved').features[0].geometry.coordinates;
+  // 곡선은 다시 만들지 않습니다(경유점이 빠져도 같은 곡선). 다만 지나온 구간은 지웁니다.
+  assert.deepEqual(later.at(-1), first.at(-1), '목적지는 그대로여야 합니다');
+  assert.ok(later.length < first.length, '지나온 구간이 안 지워지고 있습니다');
   assert.ok(ui.source('guarded').features[0].geometry.coordinates[1] > 40.70);
   ui.run('renderSnapshot',snapshot(1,2,[]),null); ui.run('draw');
   assert.equal(ui.source('approved').features.length,0);

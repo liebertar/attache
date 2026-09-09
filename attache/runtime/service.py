@@ -260,8 +260,10 @@ class Runtime:
             if item["id"] in known:
                 continue
             if item.get("polygon"):
-                self.airspace.add(Volume.from_dict(item))
+                volume = Volume.from_dict(item)
+                self.airspace.add(volume)
                 self.zone_volumes.add(item["id"])
+                self.recall_flights(volume)
             # 제한하는 정책은 즉시 걸립니다. 푸는 정책만 사람이 풉니다.
             policy = config_module.Policy(
                 id=item["id"],
@@ -283,6 +285,40 @@ class Runtime:
             self._pull_world()
             self._settle_contended()
             time.sleep(0.25)
+
+    def recall_flights(self, volume) -> list[Decision]:
+        """이미 승인해서 날고 있는 경로를 새 구역으로 다시 판정합니다.
+
+        거절만으로는 부족합니다. 규칙이 도착하기 전에 승인한 비행은 그 규칙을 모르고
+        계속 날아갑니다. 강제점이 있다는 말은 이미 벌어진 일도 되돌린다는 뜻입니다.
+        """
+        pulled = []
+        for asset_id, telemetry in self.telemetry.items():
+            legs = [{"lat": telemetry.get("lat"), "lon": telemetry.get("lon"),
+                     "alt_m": telemetry.get("alt_m", 0.0)}]
+            legs += [{"lat": leg["lat"], "lon": leg["lon"], "alt_m": leg.get("alt_m", 0.0)}
+                     for leg in (telemetry.get("route") or [])]
+            if len(legs) < 2 or legs[0]["lat"] is None:
+                continue
+            if first_breach(Airspace([volume], default_ceiling_m=None), legs) is None:
+                continue
+            retreat = Proposal(
+                asset_id=asset_id, action="divert_ground", cost_usd=35.0,
+                blast_radius="cargo", rationale=f"{volume.name} ({volume.id})",
+                author="runtime",
+            )
+            decision = Decision(
+                retreat.id, Verdict.AUTO,
+                f"{volume.id} 로 비행 중이던 경로를 회수",
+                policy_hit=volume.id, code="recalled",
+                detail={"resource": asset_id, "policy": volume.id},
+            )
+            entry = self.ledger.open_entry(retreat, decision)
+            decision.ledger_id = entry
+            self.adapter.execute(asset_id, "divert_ground", {}, entry)
+            self.ledger.close_entry(entry, "done")
+            pulled.append(decision)
+        return pulled
 
     def revoke_under(self, policy) -> Decision | None:
         """금지가 도착했는데 이미 그 자원을 잡고 있으면 뺏고 회항시킵니다.
