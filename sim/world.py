@@ -223,6 +223,9 @@ ADDRESSES = load_addresses()
 # 없고 순항 90m 로 이륙장과 왕복 길이 나는지 tests/test_cycle.py 가 봅니다.
 # 센트럴파크·미드타운 동쪽·칼슈어츠파크는 KLGA 0ft 격자 안이라(FAA 데이터) 착륙장이 될 수 없고,
 # 브라이언트파크·매디슨스퀘어는 둘레에 건물 없는 자리가 없거나 길이 안 났습니다.
+# 판 시작 때 정해 두는 첫 배달지. 이 둘의 직선은 미드타운 KLGA 0ft 격자를 관통합니다.
+OPENING_STOPS = {"drone-01": "Central Park North 110th", "drone-03": "Morningside Park"}
+
 LANDING_AREAS = [
     # 맨해튼 섬 (17)
     {"id": "la-battery", "name": "Battery Park", "lat": 40.70335, "lon": -74.01565},
@@ -466,6 +469,15 @@ class World:
         self.vehicles = {v.id: v for v in fresh_fleet(seed)}
         for vehicle in self.vehicles.values():
             self._assign_job(vehicle)
+        # 판의 첫 배달은 정해진 곳으로. 첫 정차가 무작위면 "브루클린에서 할렘까지 직선을 내고
+        # 미드타운 0ft 격자에 거절당해 돌아가는" 장면이 한 판에 안 나올 수 있습니다.
+        # 두 세계에 똑같이 적용되고, 그 뒤 정차는 무작위입니다.
+        for asset_id, name in OPENING_STOPS.items():
+            vehicle = self.vehicles.get(asset_id)
+            area = next((a for a in LANDING_AREAS if a["name"] == name), None)
+            if vehicle is not None and area is not None:
+                vehicle.job_label = area["name"]
+                vehicle.job_x, vehicle.job_y = to_grid(area["lat"], area["lon"])
         self.score = Scoreboard()
         self.events: list[dict] = []
 
@@ -758,12 +770,20 @@ class World:
         vehicle.job_label = "Warehouse"
 
     def _assign_job(self, vehicle: Vehicle) -> None:
-        """다음 배달지. 지정된 착륙장 중 지금 있는 곳이 아닌 데를 무작위로 고릅니다."""
+        """다음 배달지. 첫 정차는 아무 착륙장이고, 두 번째는 첫 정차에서 가까운 여섯 곳 중 하나.
+
+        먼 두 곳을 연달아 찍으면(할렘 → 배터리파크) 한 바퀴가 한 판을 넘깁니다. 실제 배차도
+        한 번 나가서는 같은 동네를 돕니다.
+        """
         pool = [area for area in LANDING_AREAS if area["name"] != vehicle.job_label]
         if not pool:
             vehicle.job_x = vehicle.job_y = None
             vehicle.job_label = ""
             return
+        if vehicle.stops_left < STOPS_PER_TRIP and vehicle.job_x is not None:
+            here_lat, here_lon = to_latlon(vehicle.job_x, vehicle.job_y)
+            pool = sorted(pool, key=lambda a: math.hypot((a["lat"] - here_lat) * 110_570,
+                                                         (a["lon"] - here_lon) * 84_400))[:6]
         area = self._rng.choice(pool)
         vehicle.job_label = area["name"]
         vehicle.job_x, vehicle.job_y = to_grid(area["lat"], area["lon"])
@@ -783,12 +803,17 @@ class World:
 
     @staticmethod
     def _at_cruise(vehicle: Vehicle, target: tuple[float, float]) -> bool:
-        """승인받은 고도에 올라왔는가. 도착점 위에서 내려가는 중이면 묻지 않습니다."""
+        """이 구간의 승인 고도에 있는가. 아니면 제자리에서 오르내린 다음 갑니다.
+
+        내려가면서 앞으로 나가면 다음 구간의 첫 부분을 판정받은 것보다 높게 날아 낮은 천장을
+        넘고, 올라가면서 나가면 낮게 날아 옥상 이격을 못 지킵니다. 실제 배달 드론도 꼭짓점에서
+        고도를 맞추고 갑니다.
+        """
         if vehicle.state in ("landed", "landing", "charging"):
             return True
         if World._at(vehicle, target):
             return True
-        return vehicle.alt >= vehicle.cruise_alt - CLIMB_RATE_M
+        return abs(vehicle.alt - vehicle.cruise_alt) <= max(CLIMB_RATE_M, DESCENT_RATE_M)
 
     @staticmethod
     def _hold_altitude(vehicle: Vehicle, target: tuple[float, float]) -> None:

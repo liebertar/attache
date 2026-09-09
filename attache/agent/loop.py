@@ -78,8 +78,7 @@ class GuardedAgent:
             # 우리 공역 사본으로 바로 우회로를 그려 냅니다.
             decision = None
         else:
-            proposal.params = {**proposal.params,
-                               "legs": self.planner.straight(here, goal, self.preferred_alt_m)}
+            proposal.params = {**proposal.params, "legs": self.planner.straight(here, goal)}
             decision = post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
             if not decision or decision.get("policy_hit") != "airspace":
                 return decision

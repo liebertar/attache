@@ -13,12 +13,14 @@ import heapq
 import math
 from dataclasses import dataclass
 
-from attache.core.geo import Airspace, first_breach
+from attache.core.geo import VERTICAL_CLEARANCE_M, Airspace, first_breach, highest_roof_along
 
-# 기체가 다니고 싶은 높이. 건물 위로는 옥상에서 50m(geo.VERTICAL_CLEARANCE_M)를 띄워야 하므로
-# 90m 면 40m 아래 건물은 넘어가고 그보다 높은 건물은 옆으로 돌아갑니다 — 맨해튼에서 실제로
-# 우회로가 나오는 높이입니다. 25m 로 해 봤더니 어떤 건물도 못 넘어 길이 하나도 안 났습니다.
-CRUISE_ALT_M = 90.0
+# 구간 고도는 "그 구간에서 가장 낮은 안전 고도"입니다: 아래 가장 높은 옥상 + 이격 50m, 최소
+# FLOOR. 그게 그 자리의 천장(FAA 격자, 최대 CRUISE)을 넘으면 그 구간은 못 지나고 옆으로
+# 돕니다. 그래서 강 위에서는 40m, 저층 위에서는 70m, 탑 옆에서는 돌아가는 식으로 고도가
+# 구간마다 달라집니다 — 한 높이로만 다니면 고도를 판정한다는 게 화면에 안 보입니다.
+CRUISE_ALT_M = 120.0      # 올라갈 수 있는 최대. FAA 기본 상한 400ft(121.9m) 바로 아래
+FLOOR_ALT_M = 40.0        # 아무것도 없는 곳(강·공원)의 순항 최소
 
 # 목적지에서 이만큼 벗어난 곳까지는 우회로로 봅니다. 도시 한 구역을 크게
 # 돌아가는 경로가 나올 수 있어야 합니다.
@@ -72,8 +74,9 @@ class Router:
         self.cell = cell_deg
         self.min_alt_m = min_alt_m
         self.cruise_alt_m = cruise_alt_m or CRUISE_ALT_M
+        self.floor_alt_m = min(FLOOR_ALT_M, self.cruise_alt_m)
         self._blocked_memo: dict[tuple[int, int], bool] = {}
-        self._crossing_memo: dict[tuple, bool] = {}
+        self._edge_memo: dict[tuple, float | None] = {}
         self._memo_for = -1
 
     @staticmethod
@@ -111,29 +114,52 @@ class Router:
             self._blocked_memo[node] = known
         return known
 
-    def _crosses(self, a: tuple[int, int], b: tuple[int, int], samples: int = 0) -> bool:
-        """두 격자점을 잇는 선분이 금지 구역을 지나는가.
+    def leg_altitude(self, start: tuple[float, float], goal: tuple[float, float]) -> float | None:
+        """이 선분을 지날 수 있는 가장 낮은 안전 고도. 못 지나면 None.
 
-        격자점만 보면 모서리를 잘라먹습니다. 대각선 한 칸이 폴리곤 귀퉁이를 관통해도
-        양 끝은 바깥이라 통과로 보이고, 그 경로는 first_breach 에서 반드시 떨어집니다.
-        판정자가 선분을 보므로 계획기도 선분을 봐야 합니다.
+        아래 가장 높은 옥상 + 이격(50m), 최소 FLOOR. 그게 선분 위 가장 낮은 천장(-1m, 최대
+        CRUISE)을 넘으면 옆으로 돌아야 하는 구간입니다. 마지막에 판정자와 같은 first_breach 로
+        한 번 더 봅니다 — 옆 이격·격자·구역은 거기서 잡힙니다.
         """
+        here = {"lat": start[0], "lon": start[1]}
+        nxt = {"lat": goal[0], "lon": goal[1]}
+        allowed = min(self._altitude_at(*start), self._altitude_at(*goal),
+                      self._ceiling_allowance(start, goal))
+        roof = highest_roof_along(self.airspace, here, nxt)
+        # 건물 Volume 은 옥상 + 이격까지를 막습니다(닫힌 구간). 딱 그 높이는 아직 안이라 0.5m 더.
+        needed = max(self.floor_alt_m, self.min_alt_m,
+                     roof + VERTICAL_CLEARANCE_M + 0.5 if roof > 0 else 0.0)
+        if needed > allowed:
+            return None
+        legs = [{**here, "alt_m": needed}, {**nxt, "alt_m": needed}]
+        return None if first_breach(self.airspace, legs) is not None else needed
+
+    def _ceiling_allowance(self, start, goal, samples: int = 24) -> float:
+        """선분 위에서 가장 낮은 천장 - 1m. 천장이 없으면 최대 순항."""
+        lowest = self.cruise_alt_m
+        for step in range(samples + 1):
+            fraction = step / samples
+            ceiling = self.airspace.ceiling_at(start[0] + (goal[0] - start[0]) * fraction,
+                                               start[1] + (goal[1] - start[1]) * fraction)
+            if ceiling is not None:
+                lowest = min(lowest, ceiling - 1.0)
+        return max(self.min_alt_m, lowest)
+
+    def _edge(self, a: tuple[int, int], b: tuple[int, int]) -> float | None:
+        """격자 간선의 고도(못 지나면 None). 같은 간선을 탐색 중 수십 번 다시 봅니다."""
         key = (a, b) if a <= b else (b, a)
-        known = self._crossing_memo.get(key)
-        if known is not None:
-            return known
-        lat_a, lon_a = self._coords(a)
-        lat_b, lon_b = self._coords(b)
-        # 구간 고도는 양 끝 중 낮은 쪽입니다. 끝점 고도를 따로 주면 판정자는 구간 전체를
-        # 도착점 고도로 보므로, 천장 낮은 칸에서 높은 칸으로 나가는 구간이 낮은 칸 안에서
-        # 천장을 넘어 늘 거절됩니다 — 낮은 칸에 들어간 기체가 영영 못 나오던 원인입니다.
-        altitude = min(self._altitude_at(lat_a, lon_a), self._altitude_at(lat_b, lon_b))
-        known = first_breach(self.airspace, [
-            {"lat": lat_a, "lon": lon_a, "alt_m": altitude},
-            {"lat": lat_b, "lon": lon_b, "alt_m": altitude},
-        ]) is not None
-        self._crossing_memo[key] = known
-        return known
+        if key in self._edge_memo:
+            return self._edge_memo[key]
+        altitude = self.leg_altitude(self._coords(a), self._coords(b))
+        self._edge_memo[key] = altitude
+        return altitude
+
+    def _crosses(self, a: tuple[int, int], b: tuple[int, int], samples: int = 0) -> bool:
+        """두 격자점을 잇는 선분을 어느 고도로도 못 지나는가.
+
+        격자점만 보면 모서리를 잘라먹습니다. 판정자가 선분을 보므로 계획기도 선분을 봅니다.
+        """
+        return self._edge(a, b) is None
 
     def _ceiling_between(self, a: tuple[int, int], b: tuple[int, int],
                          samples: int = 48) -> float | None:
@@ -154,7 +180,7 @@ class Router:
     def plan(self, start: tuple[float, float], goal: tuple[float, float]) -> Route | None:
         if self._memo_for != self.airspace.revision:
             self._blocked_memo.clear()          # 공역이 바뀌면 기억한 답도 버립니다
-            self._crossing_memo.clear()
+            self._edge_memo.clear()
             self._memo_for = self.airspace.revision
         if self.airspace.landing_breach(*goal) is not None:
             return None  # 내려앉을 수 없는 자리입니다. 길이 있어도 소용없습니다
@@ -201,11 +227,7 @@ class Router:
         for node in candidates:
             if self._blocked(node):
                 continue
-            lat, lon = self._coords(node)
-            altitude = min(self._altitude_at(lat, lon), self._altitude_at(*point))
-            hop = [{"lat": point[0], "lon": point[1], "alt_m": altitude},
-                   {"lat": lat, "lon": lon, "alt_m": altitude}]
-            if first_breach(self.airspace, hop) is None:
+            if self.leg_altitude(point, self._coords(node)) is not None:
                 open_nodes.append(node)
         return open_nodes
 
@@ -225,8 +247,10 @@ class Router:
         """
         if not legs:
             return legs
-        head_alt = min(legs[0].alt_m, self._altitude_at(*start))
-        tail_alt = min(legs[-1].alt_m, self._altitude_at(*goal))
+        head_alt = self.leg_altitude(start, (legs[0].lat, legs[0].lon))
+        tail_alt = self.leg_altitude((legs[-1].lat, legs[-1].lon), goal)
+        if head_alt is None or tail_alt is None:
+            return legs      # _free_nodes_near 가 이미 확인한 구간이라 여기 올 일은 없습니다
         legs[0] = Leg(legs[0].lat, legs[0].lon, head_alt)
         return ([Leg(start[0], start[1], head_alt)] + legs
                 + [Leg(goal[0], goal[1], tail_alt)])
@@ -326,17 +350,13 @@ class Router:
         return kept
 
     def _to_legs(self, nodes: list[tuple[int, int]]) -> list[Leg]:
-        """구간마다 그 구간에서 허용되는 가장 높은 고도를 붙입니다.
-
-        구간 하나에 천장이 여러 개면 가장 낮은 것을 따릅니다. 한 구간 안에서 오르내리는
-        비행은 실제로도 안 합니다.
-        """
+        """구간마다 그 구간의 가장 낮은 안전 고도(_edge)를 붙입니다. 한 구간 안에서는 한 고도."""
         legs = []
         for index, node in enumerate(nodes):
             lat, lon = self._coords(node)
-            ceiling = (self.airspace.ceiling_at(lat, lon) if index == 0
-                       else self._ceiling_between(nodes[index - 1], node))
-            allowed = self.cruise_alt_m if ceiling is None else ceiling - 1.0
-            altitude = max(self.min_alt_m, min(self.cruise_alt_m, allowed))
-            legs.append(Leg(lat, lon, altitude))
+            if index == 0:
+                altitude = self._edge(node, nodes[1]) if len(nodes) > 1 else self.floor_alt_m
+            else:
+                altitude = self._edge(nodes[index - 1], node)
+            legs.append(Leg(lat, lon, self.floor_alt_m if altitude is None else altitude))
         return legs

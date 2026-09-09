@@ -388,6 +388,25 @@ def nearest_exit(volume: Volume, lat: float, lon: float,
     return (lat + north * push / METRES_PER_DEG_LAT, lon + east * push / METRES_PER_DEG_LON)
 
 
+def highest_roof_along(airspace: "Airspace", here: dict, nxt: dict,
+                       margin_m: float = SEPARATION_M) -> float:
+    """이 선분 아래(옆 이격 안까지)에서 가장 높은 옥상. 건물이 없으면 0.
+
+    운영사가 구간 고도를 정할 때 씁니다 — 옥상 + 이격만큼 떠야 그 위를 지날 수 있고,
+    그게 천장을 넘으면 옆으로 돌아야 합니다. 판정(first_breach)은 이 값을 믿지 않고 따로 봅니다.
+    """
+    top = 0.0
+    for volume in _leg_volumes(airspace, here, nxt):
+        if not volume.id.startswith("bldg-") or volume.ceiling_m is None or not volume.polygon:
+            continue
+        if volume.ceiling_m <= top:
+            continue
+        crosses = len(_crossing_fractions(here, nxt, volume.polygon)) > 2
+        if crosses or _clearance_m(here, nxt, volume.polygon)[0] < margin_m:
+            top = volume.ceiling_m
+    return top
+
+
 def first_breach(airspace: "Airspace", legs: list[dict], samples: int | None = None):
     """선분이 규정을 어기는 첫 구간. 런타임과 계획기가 같은 함수를 씁니다.
 

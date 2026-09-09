@@ -42,10 +42,20 @@ class OperatorPlanner:
         altitude = float((telemetry or {}).get("alt_m") or self.router.cruise_alt_m)
         return self.airspace.too_close(start[0], start[1], altitude)
 
+    def straight(self, start: tuple[float, float], goal: tuple[float, float],
+                 alt_m: float | None = None) -> list[dict]:
+        """제일 싼 길: 직선 하나. 고도는 우리 사본 기준의 가장 낮은 안전 고도이고, 그런 고도가
+        없으면(옥상 + 이격이 천장을 넘음) 천장 아래 최대로 내서 런타임이 왜 안 되는지 말하게 둡니다."""
+        if alt_m is None:
+            alt_m = self.router.leg_altitude(start, goal)
+            if alt_m is None:
+                alt_m = min(self.router._altitude_at(*start), self.router._altitude_at(*goal))
+        return self.straight_at(start, goal, alt_m)
+
     @staticmethod
-    def straight(start: tuple[float, float], goal: tuple[float, float],
-                 alt_m: float) -> list[dict]:
-        """공역을 안 보는 계획. 데이터가 없거나 안 볼 때 나오는 그 경로입니다."""
+    def straight_at(start: tuple[float, float], goal: tuple[float, float],
+                    alt_m: float) -> list[dict]:
+        """공역을 안 보는 계획. 직결 세계가 내는 그 경로입니다."""
         return [
             {"lat": start[0], "lon": start[1], "alt_m": alt_m},
             {"lat": goal[0], "lon": goal[1], "alt_m": alt_m},

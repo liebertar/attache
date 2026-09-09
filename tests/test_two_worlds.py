@@ -23,7 +23,7 @@ from sim.world import RECALL, RECALL_TICK, ZONE, ZONE_TICK, Simulation
 # 구역 폐쇄(560~900틱) 이후까지 봐야 두 세계가 갈리는 지점이 나옵니다.
 # 서비스 반경 11km. 한 바퀴(적재 → 배달 두 곳 → 창고)가 2천 틱 안팎이라 한 바퀴는 보려면
 # 이만큼 돌려야 합니다. 구역 폐쇄(560~900틱)와 감항성 지시(1050~1350틱)는 그 안에 듭니다.
-TICKS = 3200
+TICKS = 4000
 PADS = ["pad:launch"]
 
 
@@ -93,8 +93,7 @@ class GuardedSide:
             return self.runtime.file(proposal.to_dict())
 
         # 먼저 최단 직선으로 냅니다. 운영사는 원래 제일 싼 길을 냅니다.
-        proposal.params = {**proposal.params,
-                           "legs": self.planner.straight(here, goal, self.preferred_alt_m)}
+        proposal.params = {**proposal.params, "legs": self.planner.straight(here, goal)}
         decision = self.runtime.file(proposal.to_dict())
         if decision.policy_hit != "airspace":
             return decision
@@ -162,7 +161,7 @@ class DirectSide:
                 if proposal.action == "fly_route" and telemetry.get("job_lat") is not None:
                     goal = (telemetry["job_lat"], telemetry["job_lon"])
                 if goal:
-                    proposal.params = {**proposal.params, "legs": OperatorPlanner.straight(
+                    proposal.params = {**proposal.params, "legs": OperatorPlanner.straight_at(
                         (telemetry["lat"], telemetry["lon"]), goal,
                         Router.cruise_alt_default())}
             result = self.world.act(asset_id, proposal.action, proposal.params, None,

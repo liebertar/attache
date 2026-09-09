@@ -289,24 +289,34 @@ class WeavingBetweenBuildingsTest(unittest.TestCase):
         self.assertTrue(all(leg["alt_m"] <= router.cruise_alt_m + 0.1 for leg in legs),
                         "순항 고도보다 높이 날면 건물을 볼 일이 없습니다")
 
-    def test_flying_lower_means_more_buildings_to_go_around(self):
-        """건물은 옥상까지만 막습니다. 높이 날면 넘어가고 낮게 날면 돌아가야 합니다.
+    def test_a_leg_flies_fifty_metres_over_a_roof_or_goes_around(self):
+        """구간 고도는 아래 가장 높은 옥상 + 50m. 그게 최대 순항을 넘으면 그 구간은 못 지납니다.
 
-        고도를 안 보고 발자국만 피하면 20m 건물도 영영 벽이 되고, 순항 고도를 바꿔도
-        경로가 똑같이 나옵니다 — 실제로 그러고 있었습니다.
+        고도를 안 보고 발자국만 피하면 20m 건물도 영영 벽이 되고, 고도를 한 값으로만 두면
+        옥상 이격이 판정된다는 것이 화면에 안 보입니다.
         """
-        from attache.core.route import Router
-        from sim.world import AIRSPACE, BUILDINGS
+        from attache.core.geo import VERTICAL_CLEARANCE_M, highest_roof_along
+        from attache.core.route import CRUISE_ALT_M, FLOOR_ALT_M
 
-        if not BUILDINGS:
-            self.skipTest("건물 데이터가 없습니다")
-        # 옥상 위 50m 규칙이라 120m 는 70m 아래 건물을 넘어가고, 90m 는 40m 아래 건물만 넘어갑니다.
-        high = Router(AIRSPACE, cruise_alt_m=120).plan(self.START, self.GOAL)
-        low = Router(AIRSPACE, cruise_alt_m=90).plan(self.START, self.GOAL)
-        self.assertIsNotNone(high)
-        self.assertIsNotNone(low)
-        self.assertGreater(len(low.legs), len(high.legs),
-                           "낮게 나는데 경로가 안 휘면 고도를 안 보고 있는 것입니다")
+        router = self._router()
+        # 강 위: 아무것도 없으니 바닥 고도
+        over_water = router.leg_altitude((40.7150, -73.9720), (40.7180, -73.9700))
+        self.assertEqual(over_water, FLOOR_ALT_M)
+        # 시내: 옥상이 있는 구간은 옥상 + 50, 없는 구간은 바닥. 어떤 구간도 그보다 낮지 않다.
+        route = router.plan(self.START, self.GOAL)
+        self.assertIsNotNone(route)
+        for a, b in zip(route.legs, route.legs[1:], strict=False):
+            roof = highest_roof_along(router.airspace, {"lat": a.lat, "lon": a.lon},
+                                      {"lat": b.lat, "lon": b.lon})
+            floor = max(FLOOR_ALT_M, roof + VERTICAL_CLEARANCE_M if roof else 0)
+            self.assertGreaterEqual(b.alt_m + 0.01, floor, "옥상 위 50m 를 못 지키는 구간이 있습니다")
+            self.assertLessEqual(b.alt_m, CRUISE_ALT_M + 0.01)
+        # 최대 순항보다 높이 떠야 지나는 건물(옥상 > 70m) 바로 위는 못 지납니다
+        tall = max((v for v in router.airspace.all() if v.id.startswith("bldg-")),
+                   key=lambda v: v.ceiling_m)
+        inside = tall.polygon[0]
+        self.assertIsNone(router.leg_altitude((inside[0] - 0.0005, inside[1]),
+                                              (inside[0] + 0.0005, inside[1])))
 
     def test_the_route_starts_where_you_are_and_ends_where_you_are_going(self):
         """격자점에서 끝나면 남은 100m 를 아무도 판정한 적 없는 채로 날게 됩니다."""

@@ -43,22 +43,22 @@ def detect(telemetry: dict) -> Concern | None:
     battery = telemetry.get("battery", 100.0)
     idle = not telemetry.get("assigned_pad") and not telemetry.get("route")
 
-    # 배달 주문이 있고 배터리가 되는데 아직 승인된 경로가 없으면, 갈 수 있게 해달라는 신청.
+    # 배달 주문(또는 창고 복귀)이 있는데 아직 승인된 경로가 없으면, 갈 수 있게 해달라는 신청.
     # 싣거나 내리는 중에도 냅니다 — 그래야 일이 끝난 자리에서 승인을 기다리며 서 있지 않습니다.
+    # 배터리는 여기서 안 봅니다. 나간 기체는 어쨌든 돌아와야 하고(안 그러면 착륙장에 영영
+    # 앉아 있었습니다), 나가기 전 잔량은 마당에서(아래 needs_pad) 봅니다.
     if (
         telemetry.get("job")
-        and battery > BATTERY_LOW
         and state in ("loading", "dropping", "picking", "ready", "cruising", "landed")
         and idle
     ):
         return Concern("needs_route", "normal",
                        f"배달지 {telemetry['job']}, 배터리 {battery:.0f}%")
 
-    # 창고 마당의 제 자리(갈 곳 없음, 땅). 배터리가 모자라면 충전대(자원이라 예약)를,
-    # 아니면 그 자리에서 바로 다음 짐을 싣습니다.
+    # 창고 마당의 제 자리(갈 곳 없음, 땅). 그 자리에서 바로 다음 짐을 싣습니다.
+    # 충전대 순환은 뺐습니다 — 배터리 관리는 운영사 몫이고, 마당에서 이륙장으로 가는 짧은
+    # 비행이 화면에서 "저 이상한 경로는 뭐냐"가 됐습니다.
     if not telemetry.get("job") and state == "ready" and idle:
-        if battery < CHARGE_BELOW:
-            return Concern("needs_pad", "normal", f"배터리 {battery:.0f}%, 충전대로")
         return Concern("needs_reload", "normal", f"배터리 {battery:.0f}%, 다음 짐을 싣습니다")
 
     if state == "landed":
