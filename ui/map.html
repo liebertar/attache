@@ -194,6 +194,9 @@ const TEXT = {
     ph_refused:"REJECTED", ph_approved:"APPROVED",
     blk_building:"BUILDING %s m", blk_zone:"CLOSED ZONE", blk_grid:"FAA GRID · NO FLIGHT",
     blk_ceiling:"CEILING %s m", blk_other:"RESTRICTED", blk_landing:"NO ROOM TO LAND · %s",
+    blk_traffic:"CROSSES %s", blk_takeoff:"NO ROOM TO LIFT OFF · %s", blk_column:"CLIMB BLOCKED · %s",
+    separation_losses:"Separation losses", holding_for:"holding for %s",
+    res_altitude:"+%s m", res_delay:"after %s",
     r_within_limits:"within limits", r_invalid:"malformed request",
     r_policy:"banned by %s", r_human_action:"“%s” always needs a person",
     r_human_blast:"blast radius is “%s”", r_over_asset:"aircraft cap: $%s > $%s",
@@ -244,6 +247,9 @@ const TEXT = {
     ph_refused:"거절", ph_approved:"승인",
     blk_building:"건물 %s m", blk_zone:"닫힌 구역", blk_grid:"FAA 격자 · 비행 불가",
     blk_ceiling:"천장 %s m", blk_other:"제한 구역", blk_landing:"착륙 불가 · %s",
+    blk_traffic:"%s 경로와 교차", blk_takeoff:"이륙 불가 · %s", blk_column:"승강 구간 막힘 · %s",
+    separation_losses:"분리 상실", holding_for:"%s 지나가길 대기",
+    res_altitude:"+%s m", res_delay:"%s 다음에",
     r_within_limits:"한도 안", r_invalid:"양식이 아닙니다",
     r_policy:"%s 로 금지", r_human_action:"“%s” 은 사람이 봐야 합니다",
     r_human_blast:"영향 범위가 “%s”", r_over_asset:"기체 한도 초과: $%s > $%s",
@@ -291,7 +297,7 @@ const t = (key, ...args) => {
 };
 
 // 착륙대 충돌 행은 뺐습니다. 충전대 순환이 없어져 두 세계 다 0이 되는 행은 뜻이 없습니다.
-const ROWS = ["zone_incursions", "zone_dwell_ticks",
+const ROWS = ["separation_losses", "zone_incursions", "zone_dwell_ticks",
               "post_recall_violations", "unapproved_passenger_actions",
               "unrecorded_actions"];
 
@@ -740,8 +746,8 @@ function renderSnapshot(data, runtime){
   const g = data.worlds.guarded.scoreboard, d = data.worlds.direct.scoreboard;
   document.getElementById("rows").innerHTML = ROWS.map(key =>
     `<tr><td>${t(key)}</td>
-         <td class="${g[key]?'hit':'zero'}">${g[key]}</td>
-         <td class="${d[key]?'hit':'zero'}">${d[key]}</td></tr>`).join("");
+         <td class="${g[key]?'hit':'zero'}">${g[key] ?? 0}</td>
+         <td class="${d[key]?'hit':'zero'}">${d[key] ?? 0}</td></tr>`).join("");
 
   if (runtime) { renderFeed(runtime); renderDenials(runtime, now); }
 
@@ -773,7 +779,12 @@ function drafterWord(params, legs){
   return d ? t("drafter_model") : "";
 }
 // 승인 문구는 판정 코드에서 나옵니다. "APPROVED · RUNTIME" 은 아무 정보도 아니었습니다.
-function approvedWord(decision){
+function approvedWord(decision, params){
+  // 교차 때문에 고도를 올리거나 앞 기체를 기다린 승인은 그 방법을 씁니다.
+  if (params?.resolution === "altitude" && params.altitude_shift_m)
+    return t("res_altitude", Math.round(params.altitude_shift_m));
+  if (params?.resolution === "delay" && params.holding_for)
+    return t("res_delay", params.holding_for);
   const arbiter = decision?.arbiter && String(decision.arbiter).startsWith("ultra") ? " · ultra" : "";
   if (decision?.approved_by) return `${decision.approved_by}${arbiter}`;
   const code = decision?.code || "";
@@ -840,7 +851,7 @@ function stageRoute(entry, now){
     : (verdict === "auto" || verdict === "human") ? "approved" : null;
   if (!kind) return;   // 대기 중인 것은 아직 오간 경로가 아닙니다
   const params = entry.proposal.params || {};
-  const by = approvedWord(decision);
+  const by = approvedWord(decision, params);
   // 한 기체에 한 선만. 앞 구간이 완전히 사라진 다음에 다음 구간이 시작합니다.
   // 노란 선 → 거절되어 회수 → 그 다음에 새 노란 선 → 승인. 절대 겹치지 않습니다.
   // 시뮬레이터도 이 재생이 끝날 때까지 기체를 잡아둡니다(CLEARANCE_TICKS).
@@ -889,7 +900,7 @@ function workLabel(v){
     case "picking": return `${t("picking")} ${Number(v.load) || 0}`;
     // 지상에서 승인을 기다리는 동안은 한 단어만. 무슨 일이 되어 가는지는 그 기체에서
     // 뻗어 나가는 경로의 글자(산출중·판정 대기·거절·승인)가 말해 줍니다.
-    case "ready": return t("ready");
+    case "ready": return v.holding_for ? t("holding_for", v.holding_for) : t("ready");
     case "charging": return `${t("charging")} ${Math.round(v.battery)}%`;
     // 공중에서 승인된 경로 없이 떠 있으면 무엇을 기다리는지 씁니다. 그냥 '대기'는 안 읽힙니다.
     case "cruising": return Number(v.alt_m) > 1 && !v.route?.length ? t("awaiting_route") : "";
@@ -920,6 +931,10 @@ function reasonText(entry){
 function blockedLabel(params){
   const id = params.blocked_volume || "";
   const height = Math.round(Number(params.blocked_ceiling_m) || 0);
+  if (params.blocked_kind === "traffic") return t("blk_traffic", params.blocked_asset || "");
+  if (params.blocked_kind === "takeoff" || params.blocked_kind === "column")
+    return t(params.blocked_kind === "takeoff" ? "blk_takeoff" : "blk_column",
+             id.startsWith("bldg-") ? t("blk_building", height) : params.blocked_name || id);
   if (params.blocked_kind === "landing")
     return t("blk_landing", id.startsWith("bldg-") ? t("blk_building", height) : params.blocked_name || id);
   if (id.startsWith("bldg-")) return t("blk_building", height);
@@ -963,6 +978,9 @@ function drawStages(now, corridors){
       opacity = blink * (stage.kind === "rejected" ? alpha : 1);
     }
     corridorAlpha(stage.asset, opacity);
+    // 교차 거절이면 누구와 교차하는지 — 그 기체의 회랑이 같이 깜빡입니다.
+    if (phase === "refused" && stage.params?.blocked_kind === "traffic" && stage.params.blocked_asset)
+      corridorAlpha(stage.params.blocked_asset, opacity);
     // 막은 것 역시 판정 뒤에만 드러납니다.
     if (phase === "refused"){
       if (stage.blocker) blockers.push({

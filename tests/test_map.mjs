@@ -295,6 +295,30 @@ test('provenance: tier tag from the model id, drafter word, and the approved hea
   assert.match(ui.element('llm-line').textContent, /rules only/);
 });
 
+test('a traffic refusal names the other aircraft and blinks its corridor; a delayed approval says who it waited for', () => {
+  const ui = scene();
+  const crossing = denial('x1', {proposal:{asset_id:'drone-01', action:'fly_route',
+    params:{legs:[start,...route], blocked_kind:'traffic', blocked_asset:'drone-03', blocked_leg:1,
+            blocked_at:{lat:route[0].lat, lon:route[0].lon}}},
+    decision:{verdict:'denied', reason:'교차', code:'airspace'}});
+  ui.run('renderDenials',{ledger:[crossing]},0);
+  ui.run('corridorAlpha','drone-03',1);
+  ui.time(GROW_MS + CHECK_MS + HOLD_MS / 6); ui.run('draw');
+  assert.match(ui.source('stage-label').features[0].properties.label, /^REJECTED · CROSSES drone-03/);
+  assert.equal(ui.source('blocker').features.length, 0, '교차는 다각형이 아니라 기체입니다');
+  assert.ok(ui.layer('flightpath:drone-03').paint['fill-extrusion-opacity'] < .85, '상대 회랑이 깜빡입니다');
+  const later = approval('x2', {proposal:{asset_id:'drone-02', action:'fly_route',
+    params:{legs:[start,...route], resolution:'delay', holding_for:'drone-03'}},
+    decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}});
+  ui.run('renderDenials',{ledger:[later]},0);
+  ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
+  const labels = ui.source('stage-label').features.map(f => f.properties.label);
+  assert.ok(labels.some(l => /^APPROVED · after drone-03$/.test(l)), labels.join('|'));
+  ui.run('renderSnapshot', snapshot(1,1,[],{...start, state:'ready', holding_for:'drone-03'}), null);
+  ui.run('draw');
+  assert.equal(ui.source('guarded').features[0].properties.work, 'holding for drone-03');
+});
+
 test('a route approved while already in the air is not replayed from the old spot', () => {
   const ui = scene();
   ui.run('renderSnapshot',snapshot(1,1,[],{...start,alt_m:55}),null);
