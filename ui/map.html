@@ -42,9 +42,12 @@
   .tier{display:inline-block;padding:0 4px;border-radius:3px;font-size:9.5px;font-weight:700;
         letter-spacing:.4px;background:rgba(118,185,0,.18);color:#a6e05a;vertical-align:1px}
   #legend{bottom:12px;left:12px;font-size:11.5px;color:var(--dim);line-height:1.9}
-  /* 단축키 안내. 범례 아래 한 줄. */
-  #legend #keys{font-size:10.5px;color:var(--dim);margin-top:4px;line-height:1.6;white-space:normal;max-width:330px}
-  #keys b{color:var(--text);font-weight:600}
+  /* 카메라 조작. 왼쪽 세로 버튼. 단축키도 같이 됩니다(툴팁). */
+  #cam{top:200px;left:12px;padding:6px;display:flex;flex-direction:column;gap:4px;width:auto}
+  #cam button{width:34px;height:30px;background:transparent;border:1px solid var(--line);
+    color:var(--text);border-radius:6px;cursor:pointer;font:600 12px inherit;line-height:1}
+  #cam button:hover{border-color:var(--guard);color:#bcd8ff}
+  #cam .sep{height:1px;background:var(--line);margin:2px 0}
   .k{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;
      vertical-align:-1px}
   #banner{bottom:12px;right:12px;width:330px;border-color:var(--zone);display:none;
@@ -152,7 +155,17 @@
        <span class="k" style="background:#48c06a"></span>91
        <span class="k" style="background:#2b8fe0"></span>122&nbsp;m</div>
   <div class="note" data-t="lg_source"></div>
-  <div id="keys" data-t="keys"></div>
+</div>
+
+<div class="card" id="cam" aria-label="camera">
+  <button data-cam="left" title="rotate left · Shift+←">⟲</button>
+  <button data-cam="right" title="rotate right · Shift+→">⟳</button>
+  <div class="sep"></div>
+  <button data-cam="up" title="tilt up · Shift+↑">⤒</button>
+  <button data-cam="down" title="tilt down · Shift+↓">⤓</button>
+  <div class="sep"></div>
+  <button data-cam="north" title="north up · N">N</button>
+  <button data-cam="home" title="start view · H">⌂</button>
 </div>
 
 <div class="card" id="banner"></div>
@@ -531,16 +544,25 @@ for (const button of (document.querySelectorAll?.("#lang button") || [])){
     applyLanguage();
   });
 }
-// 키보드. 회전·기울이기·확대는 MapLibre 기본(Shift+화살표, +/-)이고, 여기서는 N·H·1~4 만 더합니다.
-// 지도를 누르지 않아도 먹게 문서에 겁니다.
+// 카메라 버튼과 키보드. 회전·기울이기는 MapLibre 기본(Shift+화살표)이기도 하고 버튼으로도 됩니다.
 const HOME_VIEW = {center:[-73.973, 40.718], zoom:14.5, pitch:45, bearing:-28};
+function camera(what){
+  if (what === "left") map.easeTo({bearing:map.getBearing() - 30, duration:400});
+  else if (what === "right") map.easeTo({bearing:map.getBearing() + 30, duration:400});
+  else if (what === "up") map.easeTo({pitch:Math.min(85, map.getPitch() + 15), duration:400});
+  else if (what === "down") map.easeTo({pitch:Math.max(0, map.getPitch() - 15), duration:400});
+  else if (what === "north") map.easeTo({bearing:0, duration:500});
+  else if (what === "home") map.flyTo({...HOME_VIEW, duration:900});
+}
+for (const button of (document.querySelectorAll?.("#cam button") || []))
+  button.addEventListener("click", () => camera(button.dataset.cam));
 document.addEventListener?.("keydown", event => {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const tag = event.target?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA") return;
   const key = event.key.toLowerCase();
-  if (key === "n") map.easeTo({bearing:0, duration:500});
-  else if (key === "h") map.flyTo({...HOME_VIEW, duration:900});
+  if (key === "n") camera("north");
+  else if (key === "h") camera("home");
   else if (/^[1-4]$/.test(key)) focusAsset(`drone-0${key}`);
   else return;
   event.preventDefault();
