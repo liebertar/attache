@@ -271,6 +271,30 @@ test('a route refused for a held pad says so, and draws no blocker', () => {
   assert.equal(ui.source('breach').features.length,0);
 });
 
+test('provenance: tier tag from the model id, drafter word, and the approved headline names the rule', () => {
+  const ui = scene();
+  const llm = {enabled:true, host:'ollama', models:{nano:'nemotron-3-nano', super:'', ultra:''}};
+  const wrote = approval('w1', {proposal:{asset_id:'drone-01', action:'fly_route', author:'nemotron-3-nano',
+    params:{legs:[start,...route], drafter:'nano:nemotron-3-nano'}}, decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}});
+  const byRules = approval('w2', {proposal:{asset_id:'drone-02', action:'fly_route', author:'rules',
+    params:{legs:[start,...route], drafter:'astar'}}, decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}});
+  ui.run('renderSnapshot', snapshot(), {ledger:[wrote, byRules], llm, locks:{}});
+  const feed = ui.element('feed').innerHTML;
+  assert.match(feed, /drone-01<\/b> <span class="tier">nano<\/span>/, '모델이 쓴 신청서는 티어 한 단어');
+  assert.ok(!/nemotron-3-nano/.test(feed), '모델 id 전체는 화면에 안 씁니다');
+  assert.ok(!/drone-02<\/b> <span class="tier">/.test(feed), '규칙이 쓴 것은 표시가 없습니다');
+  assert.match(feed, /delivery route · A\*/);
+  assert.match(ui.element('llm-line').textContent, /Nemotron nano · via ollama/);
+  ui.time(100); ui.run('draw');
+  const labels = ui.source('stage-label').features.map(f => f.properties.label);
+  assert.ok(labels.some(l => l === 'PLANNING… · nano'), labels.join('|'));
+  ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
+  const later = ui.source('stage-label').features.map(f => f.properties.label);
+  assert.ok(later.some(l => /^APPROVED · within limits$/.test(l)), later.join('|'));
+  ui.run('renderSnapshot', snapshot(), {ledger:[], llm:{enabled:false, models:{}}, locks:{}});
+  assert.match(ui.element('llm-line').textContent, /rules only/);
+});
+
 test('a route approved while already in the air is not replayed from the old spot', () => {
   const ui = scene();
   ui.run('renderSnapshot',snapshot(1,1,[],{...start,alt_m:55}),null);

@@ -39,6 +39,8 @@
   .t-auto{background:rgba(24,179,166,.18);color:var(--ok)}
   .t-deny{background:rgba(255,59,48,.18);color:var(--zone)}
   .t-human{background:rgba(232,176,58,.18);color:var(--warn)}
+  .tier{display:inline-block;padding:0 4px;border-radius:3px;font-size:9.5px;font-weight:700;
+        letter-spacing:.4px;background:rgba(118,185,0,.18);color:#a6e05a;vertical-align:1px}
   #legend{bottom:12px;left:12px;font-size:11.5px;color:var(--dim);line-height:1.9}
   /* 단축키 안내. 범례 아래 한 줄. */
   #keys{font-size:10.5px;color:var(--dim);margin-top:4px;line-height:1.6;white-space:normal;max-width:330px}
@@ -118,6 +120,7 @@
     <span>tick <b id="tick">0</b> · <a href="index.html" data-t="approvals"></a></span>
     <button id="restart" data-t="restart"></button>
   </div>
+  <p class="note" id="llm-line" style="margin-top:6px"></p>
 </div>
 
 
@@ -175,7 +178,6 @@ const TEXT = {
     title:"Same fleet, two wirings",
     lede:'Same seed, same detector, same request writer. <span class="g">Blue</span> files to '
       + 'the runtime; <span class="d">orange</span> drives the autopilot directly.',
-    hint:"Right-drag to orbit · Shift+←→ rotate · Shift+↑↓ tilt · +/− zoom · click a drone",
     approvals:"approval screen →", show:"Show", restart:"RESTART",
     ledger:"What the runtime did", empty:"Nothing yet",
     guarded:"RUNTIME", direct:"DIRECT",
@@ -183,14 +185,11 @@ const TEXT = {
     zone_dwell_ticks:"Ticks inside closed zone", post_recall_violations:"Acts after recall",
     unapproved_passenger_actions:"Unapproved passenger acts",
     unrecorded_actions:"Acts with no record",
-    spend:"Fleet spend (cap $%s)",
-    lg_guard:"Flies on runtime approval", lg_direct:"Drives the autopilot itself",
     lg_pending:"PLANNING", lg_ok:"APPROVED", lg_no:"REJECTED",
-    lg_corridor:"Corridor at the approved altitude",
     lg_block:"What blocked it", lg_pad:"Charging bay", lg_depot:"Warehouse", lg_landing:"DRONE LANDING AREA",
     lg_nofly:"No-fly grid", lg_source:"FAA UAS Facility Map · OpenStreetMap buildings — real data.",
     keys:"<b>Right-drag</b> orbit · <b>Shift+←→</b> rotate · <b>Shift+↑↓</b> tilt · <b>+ −</b> zoom · <b>N</b> north · <b>H</b> home · <b>1–4</b> focus drone",
-    lg_ceil:"Ceiling", lg_note:"FAA UAS Facility Map · NYC Building Footprints — real data.",
+    lg_ceil:"Ceiling",
     ph_drawing:"PLANNING…", ph_checking:"AWAITING VERDICT…",
     ph_refused:"REJECTED", ph_approved:"APPROVED",
     blk_building:"BUILDING %s m", blk_zone:"CLOSED ZONE", blk_grid:"FAA GRID · NO FLIGHT",
@@ -210,9 +209,10 @@ const TEXT = {
     p_guarded:"via runtime", p_direct:"direct control",
     p_state:"State", p_battery:"Battery", p_alt:"Altitude", p_job:"Delivery",
     p_route:"Approved legs", p_done:"Delivered", p_spend:"Spent", p_none:"none · straight",
-    recall:"<b>Recall notice</b> (tick %s) — no fast charging for dv-x500.<br>"
-      + "Blue refuses from the moment the notice lands. Orange keeps going until each "
-      + "aircraft checks for itself.",
+    llm_on:"Nemotron %s · via %s", llm_off:"rules only — no model configured",
+    drafter_nano:"nano", drafter_astar:"A*", drafter_straight:"straight", drafter_model:"model",
+    p_form:"Last form by", p_drafter:"Route by", p_judged:"Judged", by_rules:"rules",
+    rule_source:"rule %s",
     fly_route:"delivery route", reserve_pad:"bay reservation", charge:"charge",
     fast_charge:"fast charge", divert_ground:"route pulled · holding",
     disengage_autonomy:"disengage autonomy", decline_job:"decline order", depart:"depart",
@@ -228,7 +228,6 @@ const TEXT = {
     title:"같은 기단, 다른 배선",
     lede:'같은 씨앗 · 같은 감지 코드 · 같은 신청서 작성기. <span class="g">파랑</span>은 '
       + '런타임에 신청하고 <span class="d">주황</span>은 조종장치를 직접 만집니다.',
-    hint:"우클릭 드래그 회전 · Shift+←→ 회전 · Shift+↑↓ 기울이기 · +/− 확대 · 기체 클릭",
     approvals:"승인 화면 →", show:"표시", restart:"처음부터",
     ledger:"런타임이 한 일", empty:"아직 없음",
     guarded:"런타임", direct:"직접",
@@ -236,14 +235,11 @@ const TEXT = {
     zone_dwell_ticks:"구역 안에 머문 시간", post_recall_violations:"리콜 이후 금지 행동",
     unapproved_passenger_actions:"승객 영향 무단 실행",
     unrecorded_actions:"기록 없는 실행",
-    spend:"기단 지출 (한도 $%s)",
-    lg_guard:"런타임 승인을 거쳐 나는 기체", lg_direct:"조종장치를 직접 만지는 기체",
     lg_pending:"경로 산출중", lg_ok:"승인", lg_no:"거절",
-    lg_corridor:"승인 고도에 뜬 회랑",
     lg_block:"막은 구역·건물", lg_pad:"충전대", lg_depot:"물류 창고", lg_landing:"드론 착륙장",
     lg_nofly:"비행금지 격자", lg_source:"FAA UAS Facility Map · OpenStreetMap 건물 — 실제 데이터.",
     keys:"<b>우클릭 드래그</b> 회전 · <b>Shift+←→</b> 회전 · <b>Shift+↑↓</b> 기울이기 · <b>+ −</b> 확대 · <b>N</b> 정북 · <b>H</b> 처음 · <b>1–4</b> 기체로",
-    lg_ceil:"천장", lg_note:"FAA UAS Facility Map · NYC Building Footprints — 둘 다 실제 데이터.",
+    lg_ceil:"천장",
     ph_drawing:"경로 산출중…", ph_checking:"판정 대기중…",
     ph_refused:"거절", ph_approved:"승인",
     blk_building:"건물 %s m", blk_zone:"닫힌 구역", blk_grid:"FAA 격자 · 비행 불가",
@@ -263,9 +259,10 @@ const TEXT = {
     p_guarded:"런타임 경유", p_direct:"직접 조종",
     p_state:"상태", p_battery:"배터리", p_alt:"고도", p_job:"배달지",
     p_route:"승인된 경유점", p_done:"완료", p_spend:"누적 지출", p_none:"없음 · 직선",
-    recall:"<b>리콜 공지</b> (tick %s) — dv-x500 급속충전 금지.<br>"
-      + "파란 쪽은 공지가 들어온 순간부터 거부됩니다. 주황 쪽은 기체마다 따로 확인할 "
-      + "때까지 계속합니다.",
+    llm_on:"Nemotron %s · %s 경유", llm_off:"규칙만 — 모델 설정 없음",
+    drafter_nano:"nano", drafter_astar:"A*", drafter_straight:"직선", drafter_model:"모델",
+    p_form:"신청서 작성", p_drafter:"경로 작성", p_judged:"판정", by_rules:"규칙",
+    rule_source:"규칙 %s",
     fly_route:"배달 경로", reserve_pad:"착륙대 예약", charge:"충전",
     fast_charge:"급속충전", divert_ground:"경로 회수 · 대기",
     disengage_autonomy:"자율주행 해제", decline_job:"주문 반려", depart:"이륙",
@@ -492,6 +489,15 @@ function assetCard(world, v){
     [t("p_route"), guarded ? `${(v.route || []).length}` : t("p_none")],
     [t("p_done"), `${v.delivered ?? 0}`],
   ];
+  if (guarded){
+    const last = (lastRuntime?.ledger || []).find(e => e.proposal?.asset_id === v.id && e.outcome !== "pending");
+    if (last){
+      rows.push([t("p_form"), tierOf(last.proposal.author) || t("by_rules")]);
+      const drafter = ROUTED.includes(last.proposal.action) ? drafterWord(last.proposal.params, last.proposal.params?.legs) : "";
+      if (drafter) rows.push([t("p_drafter"), drafter]);
+      rows.push([t("p_judged"), reasonText(last)]);
+    }
+  }
   return `<div class="pop"><h3>
       <span class="k" style="background:var(--${guarded ? "guard" : "direct"})"></span>
       ${safe(v.id)}
@@ -661,6 +667,7 @@ async function poll(){
 }
 
 function renderSnapshot(data, runtime){
+  lastRuntime = runtime || lastRuntime;   // 출처 표시(tierOf)가 모델 목록을 여기서 봅니다
   if (latest && (data.round !== latest.round || data.tick < latest.tick)){
     motion.clear(); flights.clear(); stages = []; queued.clear(); seenDenials.clear();
     denialUntil = 0; roundStartedAt = Date.now() / 1000;
@@ -749,6 +756,41 @@ function renderSnapshot(data, runtime){
 
 const ROUTED = ["fly_route", "reserve_pad"];
 
+// 누가 썼고 무엇으로 그렸는가. 원장에는 모델 id 가 그대로 남고, 화면에는 티어 한 단어만.
+// 규칙이 쓴 것은 아무 표시도 안 합니다 — 표시가 없으면 규칙입니다.
+function tierOf(author){
+  if (!author || author === "rules" || author === "runtime") return "";
+  const models = lastRuntime?.llm?.models || {};
+  for (const [tier, id] of Object.entries(models))
+    if (id && author === id) return tier;
+  return t("drafter_model");
+}
+function drafterWord(params, legs){
+  const d = String(params?.drafter || "");
+  if (d.startsWith("nano")) return t("drafter_nano");
+  if (d === "astar") return t("drafter_astar");
+  if (d === "straight" || (!d && (legs?.length || 0) === 2)) return t("drafter_straight");
+  return d ? t("drafter_model") : "";
+}
+// 승인 문구는 판정 코드에서 나옵니다. "APPROVED · RUNTIME" 은 아무 정보도 아니었습니다.
+function approvedWord(decision){
+  const arbiter = decision?.arbiter && String(decision.arbiter).startsWith("ultra") ? " · ultra" : "";
+  if (decision?.approved_by) return `${decision.approved_by}${arbiter}`;
+  const code = decision?.code || "";
+  if (code === "within_limits") return t("r_within_limits") + arbiter;
+  if (code === "resource_granted") return t("r_resource_granted", decision.detail?.resource || "") + arbiter;
+  return (decision?.reason || t("r_within_limits")) + arbiter;
+}
+function renderLlmLine(runtime){
+  const line = document.getElementById("llm-line");
+  if (!line) return;
+  const llm = runtime?.llm;
+  line.textContent = llm?.enabled
+    ? t("llm_on", Object.entries(llm.models || {}).filter(([, id]) => id).map(([tier]) => tier).join(" · "),
+        llm.host || "api")
+    : t("llm_off");
+}
+
 function renderDenials(runtime, now){
   const closed = runtime.ledger.filter(e => e.outcome !== "pending");
   const recent = closed.filter(e => !seenDenials.has(e.id) &&
@@ -780,7 +822,9 @@ function renderDenials(runtime, now){
     : reasonText(e);
   const floor = Math.round(Number(params.blocked_floor_m) || 0);
   const top = Math.round(Number(params.blocked_ceiling_m) || 0);
+  const source = params.blocked_volume || e.decision.policy_hit || "";
   const notes = [params.blocked_leg ? `${floor}–${top || "∞"} m AGL` : "",
+                 source ? t("rule_source", source) : "",
                  fresh.length > 1 ? t("d_more", fresh.length - 1) : ""];
   document.getElementById("denial-more").textContent = notes.filter(Boolean).join(" · ");
   document.getElementById("denial").hidden = false;
@@ -796,7 +840,7 @@ function stageRoute(entry, now){
     : (verdict === "auto" || verdict === "human") ? "approved" : null;
   if (!kind) return;   // 대기 중인 것은 아직 오간 경로가 아닙니다
   const params = entry.proposal.params || {};
-  const by = decision.approved_by || decision.arbiter || t("guarded");
+  const by = approvedWord(decision);
   // 한 기체에 한 선만. 앞 구간이 완전히 사라진 다음에 다음 구간이 시작합니다.
   // 노란 선 → 거절되어 회수 → 그 다음에 새 노란 선 → 승인. 절대 겹치지 않습니다.
   // 시뮬레이터도 이 재생이 끝날 때까지 기체를 잡아둡니다(CLEARANCE_TICKS).
@@ -813,6 +857,7 @@ function stageRoute(entry, now){
   stages.push({
     id:entry.id, asset, kind, at, by, params, filed:entry.at,
     reason: airspace ? blockedLabel(params) : reasonText(entry),
+    drafter: drafterWord(params, legs),
     curve:makeCurve(legs[0], legs.slice(1)),
     blocker: airspace && params.blocked_polygon?.length ? {
       polygon: params.blocked_polygon,
@@ -901,6 +946,7 @@ function drawStages(now, corridors){
     const headline =
       phase === "approved" ? `${t("ph_approved")} · ${stage.by}`
       : phase === "refused" ? `${t("ph_refused")} · ${stage.reason}`
+      : phase === "drawing" && stage.drafter ? `${t(PHRASE[phase])} · ${stage.drafter}`
       : t(PHRASE[phase]);
     labels.push({type:"Feature",
       properties:{kind: phase === "approved" ? "approved"
@@ -971,19 +1017,28 @@ function renderFeed(runtime){
   const seen = new Set(), lines = [];
   for (const entry of runtime.ledger){
     if (entry.outcome === "pending" || seen.has(entry.id)) continue;
+    // 지난 판의 기록은 안 보여줍니다. 판을 새로 시작했는데 감항성 지시 거절이 남아 있으면
+    // 지금 무슨 일이 있는 줄 압니다.
+    if (roundStartedAt && entry.at < roundStartedAt) continue;
     seen.add(entry.id);
     const p = entry.proposal, d = entry.decision;
     const [cls, key] = TAG[d.verdict] || ["t-auto", d.verdict];
     const word = t(key);
     const who = d.approved_by ? ` · ${d.approved_by}` : "";
-    const how = d.arbiter ? ` · 중재 ${d.arbiter}` : "";
+    const how = d.arbiter && String(d.arbiter).startsWith("ultra") ? " · ultra" : "";
+    const tier = tierOf(p.author);
+    const wrote = tier ? ` <span class="tier">${safe(tier)}</span>` : "";
+    const drafter = ROUTED.includes(p.action) ? drafterWord(p.params, p.params?.legs) : "";
+    const drew = drafter && drafter !== t("drafter_straight") ? ` · ${safe(drafter)}` : "";
+    const why = d.detail?.arbiter_reason ? `<div class="note">${safe(d.detail.arbiter_reason)}</div>` : "";
     lines.push(`<div class="ev" data-asset="${safe(p.asset_id)}"><span class="tag ${cls}">${word}</span>
-      <b>${p.asset_id}</b> ${t(p.action)}
-      <div style="color:var(--dim)">${reasonText(entry)}${who}${how}</div></div>`);
+      <b>${p.asset_id}</b>${wrote} ${t(p.action)}${drew}
+      <div style="color:var(--dim)">${reasonText(entry)}${who}${how}</div>${why}</div>`);
     if (lines.length >= 12) break;
   }
   document.getElementById("feed").innerHTML = lines.join("")
     || `<div class="ev" style="color:var(--dim)">${t("empty")}</div>`;
+  renderLlmLine(runtime);
 }
 </script>
 </body>
