@@ -41,8 +41,8 @@ class Policy:
 class Authority:
     """한도, 그리고 사람이 꼭 봐야 하는 행동 목록."""
 
-    per_asset_usd: float
-    fleet_usd: float
+    per_asset_usd: float | None      # null 이면 돈을 판정하지 않습니다(예산은 운영사 몫)
+    fleet_usd: float | None
     human_required_blast: list[str] = field(default_factory=list)
     human_required_actions: list[str] = field(default_factory=list)
 

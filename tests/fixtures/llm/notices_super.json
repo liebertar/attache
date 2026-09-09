@@ -1,0 +1,23 @@
+[
+ {
+  "label": "ollama-recorded",
+  "tier": "super",
+  "model": "nemotron-3-nano:latest",
+  "needle": "MEDEVAC INBOUND HARLEM HOSPITAL HELIPAD",
+  "text": "{\n  \"name\": \"HARLEM_MED_RESTRICT\",\n  \"polygon\": [\n    [40.78520, -73.93672],\n    [40.78515, -73.93668],\n    [40.78510, -73.93663],\n    [40.78505, -73.93658],\n    [40.78500, -73.93653],\n    [40.78495, -73.93648],\n    [40.78490, -73.93643],\n    [40.78485, -73.93638],\n    [40.78480, -73.93633],\n    [40.78475, -73.93628],\n    [40.78470, -73.93623],\n    [40.78465, -73.93618],\n    [40.78460, -73.93613],\n    [40.78455, -73.93608],\n    [40.78450, -73.93603],\n    [40.78445, -73.93598]\n  ],\n  \"floor_m\": 0,\n  \"ceiling_m\": 121.92,\n  \"from\": \"0918\",\n  \"until\": \"0928\"\n}",
+  "via": "content",
+  "latency_ms": 10721,
+  "at": 1788970252.105332,
+  "note": "Recorded from Ollama nemotron-3-nano (30B-A3B, reasoning_effort none) on 2026-09-10. The form is valid but the polygon is wrong: an 83 x 62 m sliver centred 3.3 km south of the helipad instead of a 0.5 NM circle. That is why a model-read notice is held for a person."
+ },
+ {
+  "label": "reference",
+  "tier": "super",
+  "model": "nemotron-3-super-reference",
+  "needle": "MEDEVAC INBOUND HARLEM HOSPITAL HELIPAD",
+  "text": "{\"name\": \"Harlem Hospital helipad\", \"polygon\": [[40.82282, -73.93972], [40.82218, -73.93552], [40.82037, -73.93196], [40.81765, -73.92959], [40.81444, -73.92875], [40.81124, -73.92959], [40.80852, -73.93196], [40.80671, -73.93552], [40.80607, -73.93972], [40.80671, -73.94392], [40.80852, -73.94748], [40.81124, -73.94986], [40.81444, -73.95069], [40.81765, -73.94986], [40.82037, -73.94748], [40.82218, -73.94392]], \"floor_m\": 0, \"ceiling_m\": 121.92, \"from\": \"0918\", \"until\": \"0928\"}",
+  "via": "authored",
+  "latency_ms": 0,
+  "note": "Not a recording: the answer the Super tier is expected to give (a 16-vertex 0.5 NM circle around 404852N0735623W), written by hand so the approve -> apply -> recall path can be tested offline. Tests choose it by label; the default fixture order serves the recording first."
+ }
+]

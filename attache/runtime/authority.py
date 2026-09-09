@@ -71,8 +71,10 @@ class AuthorityCheck:
                 code="human_blast", detail={"blast": proposal.blast_radius},
             )
 
+        # 돈 한도는 운영사 몫입니다. 설정에 한도가 없으면(null) 런타임은 돈을 보지 않습니다 —
+        # 한도가 걸린 채로 두었더니 착륙대 예약 여덟 번에 기체 하나가 사람 승인에 묶여 섰습니다.
         asset_after = self._spent_by_asset[proposal.asset_id] + proposal.cost_usd
-        if asset_after > self.authority.per_asset_usd:
+        if self.authority.per_asset_usd is not None and asset_after > self.authority.per_asset_usd:
             return Decision(
                 proposal.id,
                 Verdict.HUMAN,
@@ -83,7 +85,7 @@ class AuthorityCheck:
             )
 
         fleet_after = self._spent_fleet + proposal.cost_usd
-        if fleet_after > self.authority.fleet_usd:
+        if self.authority.fleet_usd is not None and fleet_after > self.authority.fleet_usd:
             return Decision(
                 proposal.id,
                 Verdict.HUMAN,

@@ -65,13 +65,25 @@ class JsonServer:
                     status, payload = server._dispatch(verb, parsed.path, query, body)
                 except Exception as exc:  # noqa: BLE001 - 데모 서버는 죽지 않는 편이 낫습니다
                     status, payload = 500, {"error": str(exc)}
-                encoded = json.dumps(payload, ensure_ascii=False, default=str).encode()
+                # 문자열 본문은 그대로 보냅니다(마크다운 보고서). 나머지는 전부 JSON 입니다.
+                if isinstance(payload, str):
+                    encoded, content_type = payload.encode(), "text/markdown; charset=utf-8"
+                else:
+                    encoded = json.dumps(payload, ensure_ascii=False, default=str).encode()
+                    content_type = "application/json; charset=utf-8"
                 self.send_response(status)
                 self._cors()
-                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(encoded)))
                 self.end_headers()
-                self.wfile.write(encoded)
+                try:
+                    self.wfile.write(encoded)
+                except (BrokenPipeError, ConnectionResetError):
+                    # 화면이 폴링 도중 탭을 닫거나 새로고침하면 답을 받을 상대가 없습니다. 스레드
+                    # 서버가
+                    # 스택 트레이스를 찍어 로그를 더럽히던 것이라 조용히 접습니다. 판정과는
+                    # 무관합니다.
+                    return
 
             def do_GET(self):
                 self._respond("GET")

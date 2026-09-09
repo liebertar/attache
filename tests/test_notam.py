@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 from attache.core.geo import box
-from attache.core.models import Verdict
+from attache.core.models import Proposal, Verdict
 from attache.core.notam import (
     MAX_AREA_M2,
     Clock,
@@ -24,6 +24,7 @@ from attache.core.notam import (
 from attache.llm.client import LlmReply, TieredLlm
 from attache.runtime.service import Runtime
 from sim import world as sim_world
+from tests.fixture_llm import FixtureLlm, load_fixtures
 
 CONFIG = "configs/fleet.yaml"
 
@@ -131,6 +132,7 @@ def make_runtime(llm=None):
     adapter = RecordingAdapter()
     runtime.adapter = adapter
     runtime.committer.adapter = adapter
+    runtime.notice_async = False        # 시험은 absorb 가 돌아온 다음을 봅니다(스레드는 아래 따로)
     if llm is not None:
         runtime.llm = llm
         runtime.notices.llm = llm
@@ -201,8 +203,6 @@ class GrammarNoticeEnforcementTest(unittest.TestCase):
         self.assertEqual((zone["published_tick"], zone["until_tick"]), (525, 900))
 
     def test_a_route_through_the_notice_is_refused_while_it_holds(self):
-        from attache.core.models import Proposal
-
         self.runtime.tick = 600
         self.runtime.telemetry = {"drone-01": {"lat": 40.7100, "lon": -73.9855, "alt_m": 0.0}}
         self.runtime.absorb([self.item])
@@ -266,9 +266,12 @@ class ProseNoticeTest(unittest.TestCase):
         inside = (40.7225, -73.9855)
         runtime.absorb([self.item()])
         self.assertEqual([tier for tier, _ in llm.asked], ["super"])
-        # 보류: 공역에 없고, 배너에도 없고, 승인 목록에 있습니다
+        # 보류: 공역에 없고, 배너에는 '사람 대기' 로(held), 승인 목록에 있습니다
         self.assertIsNone(runtime.airspace.breach(*inside, 60.0))
-        self.assertEqual(runtime.snapshot()["notices"], [])
+        shown = runtime.snapshot()["notices"]
+        self.assertEqual([(n["id"], n["held"], n["applied"]) for n in shown],
+                         [("nofly-prose", True, False)])
+        self.assertEqual([n["id"] for n in runtime.notices.pending()], ["nofly-prose"])
         pending = runtime.snapshot()["awaiting_human"]
         self.assertEqual(len(pending), 1)
         self.assertEqual(pending[0]["action"], "publish_notice")
@@ -287,6 +290,8 @@ class ProseNoticeTest(unittest.TestCase):
         self.assertEqual(volume.source, "human")
         notices = runtime.snapshot()["notices"]
         self.assertEqual((notices[0]["source"], notices[0]["confirmed_by"]), ("human", "관제사"))
+        self.assertEqual((notices[0]["held"], notices[0]["applied"]), (False, True))
+        self.assertEqual(runtime.notices.pending(), [])
         self.assertEqual(runtime.snapshot()["awaiting_human"], [])
 
     def test_a_person_can_refuse_it_and_nothing_applies(self):
@@ -323,6 +328,290 @@ class ProseNoticeTest(unittest.TestCase):
         runtime.absorb([self.item()])
         self.assertEqual(runtime.snapshot()["awaiting_human"], [])
         self.assertEqual(llm.stats["super"].fallback, 1)
+
+
+def medevac_item() -> dict:
+    """시뮬레이터의 두 번째 공지, 공지 목록에 실리는 모양 그대로(문장뿐)."""
+    return {"id": sim_world.MEDEVAC["id"], "kind": "notam", "name": sim_world.MEDEVAC["name"],
+            "text": sim_world.MEDEVAC_TEXT, "published_tick": sim_world.MEDEVAC_TICK,
+            "until_tick": sim_world.MEDEVAC_UNTIL}
+
+
+def fixture_super(label: str) -> FixtureLlm:
+    """tests/fixtures/llm/notices_super.json 의 기록 하나로 답하는 Super 티어."""
+    records = [r for r in load_fixtures() if r.get("label") == label]
+    assert records, label
+    return FixtureLlm(records, model=records[0]["model"], tiers=("super",))
+
+
+class SecondNoticeTest(unittest.TestCase):
+    """두 번째 공지는 문법 밖의 자유 문장입니다. 첫 구역이 걷힌 뒤 문장으로만 옵니다."""
+
+    def test_the_simulator_publishes_prose_the_grammar_cannot_read_once_the_first_zone_lapses(self):
+        self.assertIsNone(parse_notice(sim_world.MEDEVAC_TEXT, sim_world.CLOCK))
+        self.assertEqual((sim_world.MEDEVAC_TICK, sim_world.MEDEVAC_UNTIL), (1350, 2100))
+        self.assertEqual(sim_world.CLOCK.zulu_of(sim_world.MEDEVAC_TICK), "0918")
+        self.assertGreater(sim_world.MEDEVAC_TICK, sim_world.ZONE_UNTIL)
+        simulation = sim_world.Simulation()
+        simulation.tick_count = sim_world.ZONE_UNTIL + 1
+        self.assertEqual([b["kind"] for b in simulation.bulletins()], [])
+        simulation.tick_count = sim_world.MEDEVAC_TICK
+        notams = [b for b in simulation.bulletins() if b["kind"] == "notam"]
+        self.assertEqual([b["id"] for b in notams], ["nofly-2026-09-medevac"])
+        self.assertEqual(notams[0]["text"], sim_world.MEDEVAC_TEXT)
+        self.assertNotIn("polygon", notams[0])
+        self.assertEqual((notams[0]["published_tick"], notams[0]["until_tick"]), (1350, 2100))
+        simulation.tick_count = sim_world.MEDEVAC_UNTIL + 1
+        self.assertNotIn("nofly-2026-09-medevac", [b["id"] for b in simulation.bulletins()])
+
+    def test_without_a_model_it_is_ledgered_unreadable_and_stays_out_of_the_notices(self):
+        """배너는 /state.notices 에 없는 공지를 원문 그대로 '런타임이 아직 못 읽음' 으로 씁니다."""
+        runtime, adapter = make_runtime()
+        runtime.tick = 1400
+        runtime.absorb([medevac_item()])
+        runtime.absorb([medevac_item()])
+        self.assertEqual(runtime.snapshot()["notices"], [])
+        self.assertEqual(runtime.snapshot()["awaiting_human"], [])
+        unread = [e for e in ledger_lines(runtime)
+                  if e["decision"].get("code") == "notice_unreadable"]
+        self.assertEqual(len(unread), 1)
+        self.assertEqual(unread[0]["decision"]["detail"]["notice"], "nofly-2026-09-medevac")
+        self.assertIn("모델이 없음", unread[0]["decision"]["reason"])
+        self.assertEqual(adapter.sent, [])
+
+
+class HeldNoticeTest(unittest.TestCase):
+    """문장 → 모델 양식 → 보류 → 사람 확인 → 적용. 확인 전에는 판정에 들어가지 않습니다."""
+
+    CENTRE = (40.81444, -73.93972)        # 404852N0735623W, 할렘 병원
+
+    def setUp(self):
+        self.llm = fixture_super("reference")
+        self.runtime, self.adapter = make_runtime(self.llm)
+        self.runtime.tick = 1400
+        # 병원 상공을 지나는 승인 경로를 날고 있는 기체 하나(회수 대상)와 땅에 선 기체 하나.
+        self.runtime.telemetry = {
+            "drone-02": {"lat": 40.8050, "lon": -73.93972, "alt_m": 60.0,
+                         "route": [{"lat": 40.8250, "lon": -73.93972, "alt_m": 60.0}]},
+            "drone-01": {"lat": 40.8050, "lon": -73.9450, "alt_m": 0.0},
+        }
+
+    def through(self) -> list[dict]:
+        return [{"lat": 40.8050, "lon": -73.9450, "alt_m": 60},
+                {"lat": 40.8144, "lon": -73.9397, "alt_m": 60},
+                {"lat": 40.8250, "lon": -73.9350, "alt_m": 60}]
+
+    def file_through(self) -> Verdict:
+        decision = self.runtime.file(Proposal(
+            asset_id="drone-01", action="fly_route", cost_usd=12.0, blast_radius="schedule",
+            rationale="", params={"legs": self.through()}).to_dict())
+        return decision
+
+    def test_it_is_held_shown_kept_out_of_judging_and_applied_only_after_a_person_confirms(self):
+        self.runtime.absorb([medevac_item()])
+        self.assertEqual(self.llm.served, ["notices_super.json"])
+        shown = self.runtime.snapshot()["notices"]
+        self.assertEqual([(n["id"], n["held"], n["applied"], n["source"]) for n in shown],
+                         [("nofly-2026-09-medevac", True, False,
+                           "model:nemotron-3-super-reference")])
+        self.assertEqual((shown[0]["from_tick"], shown[0]["until_tick"]), (1350, 2100))
+        self.assertEqual(len(shown[0]["polygon"]), 16)
+        pending = self.runtime.snapshot()["awaiting_human"]
+        self.assertEqual([p["action"] for p in pending], ["publish_notice"])
+        # 보류 중에는 판정에 없습니다. 병원 상공의 새 경로가 승인되고, 날던 기체도 회수되지 않음.
+        self.assertIsNone(self.runtime.airspace.breach(*self.CENTRE, 60.0))
+        self.assertIs(self.file_through().verdict, Verdict.AUTO)
+        self.assertEqual([s[1] for s in self.adapter.sent], ["fly_route"])
+        self.assertNotIn("nofly-2026-09-medevac",
+                         [p["id"] for p in self.runtime.snapshot()["policies"]])
+        # 사람이 확인하면 그때부터: 공역에 들어가고, 지나던 경로는 회수되고, 새 경로는 거절됩니다.
+        decision = self.runtime.approve(pending[0]["id"], "관제사", allow=True)
+        self.assertEqual((decision.verdict, decision.code), (Verdict.AUTO, "notice_published"))
+        volume = self.runtime.airspace.breach(*self.CENTRE, 60.0)
+        self.assertEqual((volume.id, volume.source), ("nofly-2026-09-medevac", "human"))
+        recalled = [s for s in self.adapter.sent if s[1] == "divert_ground"]
+        self.assertEqual([s[0] for s in recalled], ["drone-02"])
+        self.assertEqual(recalled[0][2]["volume"], "nofly-2026-09-medevac")
+        self.runtime.tick = 1420       # 중복 방지 창(15틱) 밖에서 다시 냅니다
+        decision = self.file_through()
+        self.assertEqual((decision.verdict, decision.forbids),
+                         (Verdict.DENIED, "nofly-2026-09-medevac"))
+        shown = self.runtime.snapshot()["notices"][0]
+        self.assertEqual((shown["held"], shown["applied"], shown["confirmed_by"]),
+                         (False, True, "관제사"))
+        self.assertIn("nofly-2026-09-medevac",
+                      [p["id"] for p in self.runtime.snapshot()["policies"]])
+        published = [e for e in ledger_lines(self.runtime)
+                     if e["decision"].get("code") == "notice_published"]
+        self.assertEqual(published[0]["context"]["checks_run"],
+                         ["notice:grammar", "notice:model", "notice:human"])
+        self.assertEqual(published[0]["outcome"], "done")
+        # 보류할 때 연 항목이 사람의 답으로 닫힙니다 — 같은 원장 번호, 열린 채 남는 줄 없음
+        self.assertEqual(published[0]["id"], self._card_id(pending[0]["id"]))
+        self.assertEqual(self._open_ids(), set())
+        self.assertEqual(self.runtime.snapshot()["awaiting_human"], [])
+
+    def _lines(self):
+        with open(self.runtime.ledger.path, encoding="utf-8") as handle:
+            return [json.loads(line) for line in handle]
+
+    def _card_id(self, proposal_id):
+        return next(e["id"] for e in self._lines() if e["proposal"]["id"] == proposal_id)
+
+    def _open_ids(self):
+        """열렸는데 닫히지 않은 원장 번호."""
+        opened = {e["id"] for e in self._lines() if e["outcome"] == "pending"}
+        closed = {e["id"] for e in self._lines() if e["outcome"] != "pending"}
+        return opened - closed
+
+    def test_a_refusal_closes_the_held_entry_instead_of_opening_another(self):
+        self.runtime.absorb([medevac_item()])
+        pending = self.runtime.snapshot()["awaiting_human"][0]
+        self.runtime.approve(pending["id"], "관제사", allow=False)
+        rows = [(e["id"], e["outcome"], e["decision"]["code"]) for e in self._lines()
+                if e["proposal"]["id"] == pending["id"]]
+        self.assertEqual(rows, [(rows[0][0], "pending", "human_notice"),
+                                (rows[0][0], "denied", "notice_refused")])
+        self.assertEqual(self._open_ids(), set())
+
+    def test_a_round_change_closes_a_held_card_as_lapsed(self):
+        self.runtime.absorb([medevac_item()])
+        pending = self.runtime.snapshot()["awaiting_human"][0]
+        self.runtime._follow_round(2)
+        self.assertEqual(self.runtime.snapshot()["awaiting_human"], [])
+        self.assertEqual(self.runtime.snapshot()["notices"], [])
+        rows = [(e["outcome"], e["decision"]["code"]) for e in self._lines()
+                if e["proposal"]["id"] == pending["id"]]
+        self.assertEqual(rows, [("pending", "human_notice"), ("lapsed", "notice_lapsed")])
+        self.assertEqual(self._open_ids(), set())
+
+    def test_confirming_after_the_window_closed_applies_nothing_and_says_so(self):
+        """폴링 한 번 사이의 경주. 창이 닫힌 뒤의 승인은 '걸렸다' 가 아니라 '지나갔다' 입니다."""
+        self.runtime.absorb([medevac_item()])
+        pending = self.runtime.snapshot()["awaiting_human"][0]
+        self.runtime.tick = 2101
+        decision = self.runtime.approve(pending["id"], "관제사", allow=True)
+        self.assertEqual((decision.verdict, decision.code), (Verdict.DENIED, "notice_lapsed"))
+        self.assertEqual(self.runtime.snapshot()["notices"], [])
+        self.assertEqual(self.runtime.airspace.all(), [])
+        self.assertNotIn("nofly-2026-09-medevac",
+                         [p["id"] for p in self.runtime.snapshot()["policies"]])
+        self.assertEqual([e["outcome"] for e in self._lines()
+                          if e["proposal"]["id"] == pending["id"]], ["pending", "lapsed"])
+        self.runtime.absorb([medevac_item()])
+        self.assertEqual(len(self.llm.asked), 1, "닫힌 창의 공지를 다시 묻지 않습니다")
+
+    def test_confirmed_before_the_window_opens_it_is_shown_as_confirmed_then_applies(self):
+        self.runtime.tick = 1300
+        self.runtime.absorb([medevac_item()])
+        pending = self.runtime.snapshot()["awaiting_human"][0]
+        self.runtime.approve(pending["id"], "관제사", allow=True)
+        shown = self.runtime.snapshot()["notices"][0]
+        self.assertEqual((shown["held"], shown["applied"], shown["source"]),
+                         (False, False, "human"))
+        self.runtime.tick = 1350
+        self.runtime.absorb([medevac_item()])
+        self.assertTrue(self.runtime.snapshot()["notices"][0]["applied"])
+        # 확인됐지만 걸리기 전에 목록에서 빠지면 기록도 갑니다
+        other, _ = make_runtime(fixture_super("reference"))
+        other.tick = 1300
+        other.absorb([medevac_item()])
+        other.approve(other.snapshot()["awaiting_human"][0]["id"], "관제사", allow=True)
+        other.absorb([])
+        self.assertEqual(other.snapshot()["notices"], [])
+
+    def test_the_model_reads_off_the_world_thread_and_the_next_poll_collects_it(self):
+        """실서비스 배선. 읽기 스레드가 도는 동안 absorb 는 바로 돌아오고, 답은 다음 폴링이 적음."""
+        import threading
+
+        self.runtime.notice_async = True
+        self.runtime.absorb([medevac_item()])
+        self.assertIn("nofly-2026-09-medevac", self.runtime._reading)
+        for thread in threading.enumerate():
+            if thread.name.startswith("notice-"):
+                self.assertTrue(thread.daemon)
+                thread.join(5.0)
+        self.assertEqual(self.runtime.snapshot()["awaiting_human"], [], "아직 적히기 전")
+        self.runtime.absorb([medevac_item()])
+        self.assertEqual(self.runtime._reading, set())
+        shown = self.runtime.snapshot()["notices"]
+        self.assertEqual([(n["id"], n["held"]) for n in shown], [("nofly-2026-09-medevac", True)])
+        self.assertEqual([p["action"] for p in self.runtime.snapshot()["awaiting_human"]],
+                         ["publish_notice"])
+        self.assertEqual(len(self.llm.asked), 1)
+
+    def test_an_answer_that_arrives_after_the_round_changed_is_dropped(self):
+        import threading
+
+        self.runtime.notice_async = True
+        self.runtime._round = 1
+        self.runtime.absorb([medevac_item()])
+        for thread in threading.enumerate():
+            if thread.name.startswith("notice-"):
+                thread.join(5.0)
+        self.runtime._follow_round(2)
+        self.runtime.absorb([medevac_item()])
+        self.assertEqual(self.runtime.snapshot()["awaiting_human"], [], "지난 판의 답은 버립니다")
+        # 같은 폴링이 새 판의 이름으로 다시 묻고, 다음 폴링이 그 답을 적습니다
+        self.assertEqual(self.runtime._reading, {"nofly-2026-09-medevac"})
+        for thread in threading.enumerate():
+            if thread.name.startswith("notice-"):
+                thread.join(5.0)
+        self.runtime.absorb([medevac_item()])
+        self.assertEqual(len(self.llm.asked), 2)
+
+    def test_a_held_notice_lapses_with_its_window_and_leaves_no_card(self):
+        """사람이 안 봤는데 창이 닫혔습니다. 카드와 배너는 내려가고, 걸린 적이 없으니 뺄 것도 없음."""
+        self.runtime.absorb([medevac_item()])
+        pending = self.runtime.snapshot()["awaiting_human"]
+        self.assertEqual(len(pending), 1)
+        self.runtime.tick = 2101
+        self.runtime.absorb([medevac_item()])          # 목록에 아직 있어도 창은 닫혔습니다
+        self.assertEqual(self.runtime.snapshot()["notices"], [])
+        self.assertEqual(self.runtime.snapshot()["awaiting_human"], [])
+        self.assertEqual(self.runtime.airspace.all(), [])
+        lapsed = [e for e in ledger_lines(self.runtime) if e["outcome"] == "lapsed"]
+        self.assertEqual([(e["proposal"]["id"], e["decision"]["code"], e["decision"]["verdict"])
+                          for e in lapsed], [(pending[0]["id"], "notice_lapsed", "denied")])
+        self.runtime.absorb([medevac_item()])
+        self.assertEqual(len(self.llm.asked), 1, "닫힌 창의 공지를 다시 묻지 않습니다")
+        self.assertIsNone(self.runtime.approve(pending[0]["id"], "관제사", allow=True),
+                          "내려간 카드는 승인할 수 없습니다")
+
+    def test_a_held_notice_dropped_from_the_feed_leaves_no_card_either(self):
+        self.runtime.absorb([medevac_item()])
+        self.runtime.tick = 1500
+        self.runtime.absorb([])
+        self.assertEqual(self.runtime.snapshot()["notices"], [])
+        self.assertEqual(self.runtime.snapshot()["awaiting_human"], [])
+        self.assertEqual([e["decision"]["reason"] for e in ledger_lines(self.runtime)
+                          if e["outcome"] == "lapsed"],
+                         ["사람이 확인하기 전에 공지가 내려감 — 걸린 적 없음"])
+
+    def test_the_local_stand_in_answer_is_held_and_a_person_can_refuse_it(self):
+        """Ollama 의 30B 스탠드인이 실제로 준 답. 양식과 검사는 통과하지만 다각형이 공지가 아닙니다.
+
+        병원에서 3km 남쪽의 80m 짜리 조각. 사람이 봐야 하는 이유가 이것입니다."""
+        llm = fixture_super("ollama-recorded")
+        runtime, adapter = make_runtime(llm)
+        runtime.tick = 1400
+        runtime.absorb([medevac_item()])
+        held = runtime.notices.pending()
+        self.assertEqual([h["id"] for h in held], ["nofly-2026-09-medevac"])
+        centre_lat = sum(p[0] for p in held[0]["polygon"]) / len(held[0]["polygon"])
+        self.assertGreater(abs(centre_lat - self.CENTRE[0]) * 110_570, 1000)
+        pending = runtime.snapshot()["awaiting_human"][0]
+        self.assertEqual(pending["author"], "model:nemotron-3-nano:latest")
+        decision = runtime.approve(pending["id"], "관제사", allow=False)
+        self.assertEqual((decision.verdict, decision.code), (Verdict.DENIED, "notice_refused"))
+        self.assertEqual(runtime.snapshot()["notices"], [])
+        self.assertEqual(runtime.airspace.all(), [])
+        self.assertEqual(adapter.sent, [])
+        self.assertNotIn("nofly-2026-09-medevac", [p["id"] for p in runtime.snapshot()["policies"]])
+        runtime.absorb([medevac_item()])
+        self.assertEqual(runtime.snapshot()["awaiting_human"], [],
+                         "거부한 공지를 다시 올리지 않습니다")
+        self.assertEqual(len(llm.asked), 1, "같은 공지를 다시 묻지 않습니다")
 
 
 if __name__ == "__main__":

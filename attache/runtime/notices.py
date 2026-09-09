@@ -8,6 +8,7 @@ and can never impose one. The banner on the screen is drawn from this book, not 
 simulator: what is enforced is what is shown.
 """
 
+import os
 from dataclasses import dataclass, field
 
 from attache.core.geo import Volume
@@ -21,6 +22,11 @@ from attache.core.notam import (
     validate,
 )
 from attache.llm.client import LlmTier, TieredLlm, parse_json_object
+
+# 공지 하나를 모델이 구조화하는 데 주는 시간(초). 런타임의 기본 20초로는 로컬 30B 대역이 넉 판 중
+# 세 판을 못 읽었습니다(5~27초 걸림). 읽기는 세계 스레드 밖에서 도니(service._read_later) 길어도
+# 틱은 멈추지 않고, 늦은 답은 다음 폴링이 거둡니다.
+NOTICE_TIMEOUT_S = float(os.getenv("NOTICE_TIMEOUT_S", "60"))
 
 
 @dataclass
@@ -70,43 +76,66 @@ class NoticeBook:
     def known(self, notice_id: str) -> bool:
         return notice_id in self.records or notice_id in self.unreadable
 
+    @property
+    def can_compile(self) -> bool:
+        return (self.llm is not None and self.llm.enabled
+                and bool(self.llm.model_for(LlmTier.SUPER)))
+
+    def needs_model(self, item: dict) -> bool:
+        """문법·구조화 양식으로는 못 읽고 모델이 있어야 읽히는 공지인가(모델이 없으면 False —
+        그건 그냥 못 읽는 것이고 즉시 그렇게 기록됩니다)."""
+        if item.get("polygon") or not self.can_compile:
+            return False
+        text = str(item.get("text") or "")
+        return bool(text.strip()) and parse_notice(text, self.clock) is None
+
     def read(self, item: dict,
              bbox: tuple[float, float, float, float] | None) -> NoticeRecord | None:
         """공지 하나를 기록으로. 문법 → 즉시, 모델 → 보류, 둘 다 아니면 None(못 읽음)."""
         notice_id = str(item.get("id") or "")
         if not notice_id or self.known(notice_id):
             return self.records.get(notice_id)
+        return self.settle(item, self.compile_item(item, bbox))
+
+    def compile_item(self, item: dict, bbox: tuple[float, float, float, float] | None
+                     ) -> tuple[NoticeRecord | None, str]:
+        """기록을 만들되 저장하지 않습니다 — 다른 스레드에서 불러도 됩니다. (기록, 못 읽은 이유).
+
+        모델 호출이 여기 있습니다. 세계 스레드는 settle() 로 결과만 받아 적습니다.
+        """
+        notice_id = str(item.get("id") or "")
         name = str(item.get("name") or notice_id)
         if item.get("polygon"):
             # 구조화된 옛 양식(polygon 이 실려 옴). 문법과 같은 신뢰도 — 데이터로 온 것입니다.
             problems = shape_problems(item["polygon"])
             if problems:
-                self.unreadable[notice_id] = "; ".join(problems)
-                return None
+                return None, "; ".join(problems)
             # 게시 틱은 정보이지 창이 아닙니다 — 목록에 실려 왔으면 지금 걸립니다.
             volume = Volume.from_dict({**item, "name": name, "from_tick": None})
-            record = NoticeRecord(notice_id, name, str(item.get("kind") or "zone"),
-                                  str(item.get("text") or ""), volume,
-                                  None, item.get("until_tick"), "structured")
-            self.records[notice_id] = record
-            return record
+            return NoticeRecord(notice_id, name, str(item.get("kind") or "zone"),
+                                str(item.get("text") or ""), volume,
+                                None, item.get("until_tick"), "structured"), ""
 
         text = str(item.get("text") or "")
         parsed = parse_notice(text, self.clock)
         if parsed is not None:
-            record = self._record(notice_id, name, item, parsed, "grammar")
-            self.records[notice_id] = record
-            return record
+            return self._record(notice_id, name, item, parsed, "grammar"), ""
 
         compiled, model, problems = self.compile(text)
         if compiled is None:
-            self.unreadable[notice_id] = "; ".join(problems) or "모델 답 없음"
-            return None
+            return None, "; ".join(problems) or "모델 답 없음"
         problems = validate(compiled, bbox)
         if problems:
-            self.unreadable[notice_id] = "; ".join(problems)
+            return None, "; ".join(problems)
+        return self._record(notice_id, name, item, compiled, f"model:{model}", held=True), ""
+
+    def settle(self, item: dict, result: tuple[NoticeRecord | None, str]) -> NoticeRecord | None:
+        """compile_item 의 결과를 적습니다. 못 읽은 것은 이유와 함께(매 폴링마다 다시 묻지 않게)."""
+        notice_id = str(item.get("id") or "")
+        record, why = result
+        if record is None:
+            self.unreadable[notice_id] = why or "모델 답 없음"
             return None
-        record = self._record(notice_id, name, item, compiled, f"model:{model}", held=True)
         self.records[notice_id] = record
         return record
 
@@ -128,12 +157,12 @@ class NoticeBook:
         """문법이 못 읽은 문장을 모델에게. (공지, 모델 id, 문제). 모델이 없으면 못 읽은 것입니다."""
         if not text.strip():
             return None, "", ["빈 문장"]
-        if self.llm is None or not self.llm.enabled or not self.llm.model_for(LlmTier.SUPER):
+        if not self.can_compile:
             return None, "", ["문법으로 못 읽었고 구조화할 모델이 없음"]
         reply = self.llm.ask(LlmTier.SUPER, COMPILE_SYSTEM,
                              f"Clock: tick 0 is {self.clock.epoch_z}Z, one tick is "
                              f"{self.clock.seconds_per_tick} s.\nNotice: {text}",
-                             max_tokens=600, json_object=True)
+                             max_tokens=600, json_object=True, timeout_s=NOTICE_TIMEOUT_S)
         if reply is None:
             return None, "", ["모델 답 없음"]
         form = parse_json_object(reply.text)
@@ -158,21 +187,60 @@ class NoticeBook:
             self.unreadable[notice_id] = f"{actor} 가 거부"
         return record
 
+    # 아래 목록들은 records 의 사본 위에서 돕니다. 승인(HTTP 스레드)이 기록을 지우는 사이에 세계
+    # 스레드가 같은 dict 를 돌면 "dictionary changed size during iteration" 으로 폴링이 죽습니다.
+
     def due(self, tick: int) -> list[NoticeRecord]:
-        return [r for r in self.records.values() if not r.applied and r.due(tick)]
+        return [r for r in list(self.records.values()) if not r.applied and r.due(tick)]
 
     def lapsed(self, tick: int, feed_ids: set[str]) -> list[NoticeRecord]:
         """더는 걸려 있으면 안 되는 것: 창이 닫혔거나 공지 목록에서 사라졌습니다."""
-        return [r for r in self.records.values()
+        return [r for r in list(self.records.values())
                 if r.applied and (not r.due(tick) or r.id not in feed_ids)]
 
-    def forget(self, notice_id: str) -> None:
+    def stale_held(self, tick: int, feed_ids: set[str]) -> list[NoticeRecord]:
+        """보류 중인데 더는 물을 것이 없는 것: 창이 닫혔거나 공지 목록에서 빠졌습니다.
+
+        그대로 두면 사람 확인 카드와 '사람 대기' 배너가 판이 끝날 때까지 남고, 뒤늦은 확인은
+        아무것도 걸지 못합니다(due 가 창을 봅니다).
+        """
+        return [r for r in list(self.records.values())
+                if r.held and self._over(r, tick, feed_ids)]
+
+    def stale_confirmed(self, tick: int, feed_ids: set[str]) -> list[NoticeRecord]:
+        """사람이 확인했지만 걸린 적 없이 지나간 것: 창이 열리기 전에 닫혔거나 목록에서 빠졌습니다.
+
+        그대로 두면 /state.notices 에 판이 끝날 때까지 남고, 다시 물을 문법도 없어 잊어야 합니다
+        (문법이 읽은 기록은 창이 닫혀도 남겨 둡니다 — 다시 읽는 데 드는 것이 없습니다).
+        """
+        return [r for r in list(self.records.values())
+                if r.source == "human" and not r.held and not r.applied
+                and self._over(r, tick, feed_ids)]
+
+    @staticmethod
+    def _over(record: NoticeRecord, tick: int, feed_ids: set[str]) -> bool:
+        return ((record.until_tick is not None and tick > record.until_tick)
+                or record.id not in feed_ids)
+
+    def forget(self, notice_id: str, why: str | None = None) -> None:
+        """기록을 지웁니다. why 를 주면 같은 id 가 다시 와도 모델에게 다시 묻지 않습니다."""
         self.records.pop(notice_id, None)
+        if why:
+            self.unreadable[notice_id] = why
 
     def clear(self) -> None:
         self.records.clear()
         self.unreadable.clear()
 
     def snapshot(self) -> list[dict]:
-        """화면 배너의 원천. 걸려 있거나 예정된 것만 — 보류 중인 것은 승인 목록에 따로 있습니다."""
-        return [r.to_dict() for r in self.records.values() if not r.held]
+        """화면 배너의 원천. 걸려 있거나 예정된 것과, 사람을 기다리는 것.
+
+        보류 기록도 싣습니다(held=True, applied=False). 배너는 held 를 보고 '사람이 확인해야
+        적용됩니다' 라고 씁니다 — 빼면 모델이 읽은 공지는 승인 화면에만 있고 지도에는 그 공지가
+        '아직 못 읽음' 으로 남습니다. 강제되는 것은 applied 가 말하고, 보류는 아무것도 안 막습니다.
+        """
+        return [r.to_dict() for r in list(self.records.values())]
+
+    def pending(self) -> list[dict]:
+        """사람 확인을 기다리는 것만. 승인 화면과 같은 목록입니다."""
+        return [r.to_dict() for r in list(self.records.values()) if r.held]

@@ -271,9 +271,12 @@ def from_model_form(form: dict, clock: Clock, text: str) -> Notice | None:
         until_tick = _tick_field(form.get("until"), clock)
     except (TypeError, ValueError, IndexError):
         return None
+    # 이름은 화면(승인 카드·배너)에 그대로 오릅니다. 모델이 지은 문자열이라 표시 문자는 여기서
+    # 뺍니다 — 화면도 이스케이프하지만, 어느 화면에 오르든 모델 출력이 마크업이 돼서는 안 됩니다.
+    name = "".join(ch for ch in str(form.get("name") or "") if ch not in "<>&\"'`")
     return Notice(polygon=polygon, floor_m=floor_m, ceiling_m=ceiling_m, reference="AGL",
                   from_tick=from_tick, until_tick=until_tick,
-                  name=str(form.get("name") or "")[:80], text=text)
+                  name=" ".join(name.split())[:80], text=text)
 
 
 def _tick_field(value, clock: Clock) -> int | None:

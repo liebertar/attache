@@ -46,3 +46,18 @@ class Ledger:
     def tail(self, limit: int = 30) -> list[dict]:
         with self._lock:
             return list(reversed(self._recent[-limit:]))
+
+    def read_all(self) -> list[dict]:
+        """파일의 전부, 적힌 순서대로. 보고서는 기억이 아니라 파일에서 만듭니다 — 기억은 200줄뿐."""
+        with self._lock:
+            if not self.path.exists():
+                return []
+            with self.path.open(encoding="utf-8") as handle:
+                lines = [line for line in handle if line.strip()]
+        out = []
+        for line in lines:
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue    # 반쯤 적힌 마지막 줄. 보고서 하나 때문에 원장을 못 읽어서는 안 됩니다
+        return out

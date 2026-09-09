@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Attaché — 관제</title>
+<link rel="icon" href="data:,">
 <style>
   :root{
     --bg:#0b0f12; --panel:#141a1f; --line:#243038; --text:#e6eef2; --dim:#7d8f9a;
@@ -74,6 +75,11 @@
 const SIM = `http://${location.hostname}:8100`;
 const RT  = `http://${location.hostname}:8000`;
 
+// 화면에 오르는 값은 전부 여기를 지납니다. 승인 카드의 사유에는 모델이 지은 공지 이름이 실립니다 —
+// 모델 출력이 사람의 확인 화면에서 마크업으로 실행되면 확인 관문이 관문이 아닙니다.
+const safe = value => String(value ?? "").replace(/[&<>"']/g,
+  ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[ch]);
+
 const ROWS = [
   ["pad_conflicts",               "착륙 패드 충돌"],
   ["post_recall_violations",      "리콜 이후 금지 행동"],
@@ -134,10 +140,10 @@ function inbox(pending){
   if (!pending.length){ el.innerHTML = '<div class="empty">없음</div>'; return; }
   el.innerHTML = pending.map(p => `
     <div class="card">
-      <div><b>${p.asset_id}</b> · ${p.action} · $${p.cost_usd.toFixed(0)} · 영향 ${p.blast_radius}</div>
-      <div class="why">${p.rationale || ""}</div>
-      <button class="ok" data-ok="${p.id}">승인</button>
-      <button class="no" data-no="${p.id}">거부</button>
+      <div><b>${safe(p.asset_id)}</b> · ${safe(p.action)} · $${Number(p.cost_usd || 0).toFixed(0)} · 영향 ${safe(p.blast_radius)}</div>
+      <div class="why">${safe(p.rationale || "")}</div>
+      <button class="ok" data-ok="${safe(p.id)}">승인</button>
+      <button class="no" data-no="${safe(p.id)}">거부</button>
     </div>`).join("");
 }
 
@@ -164,7 +170,7 @@ async function refresh(){
     }
     const events = cmp.worlds.direct.events;
     document.getElementById("events").innerHTML = events.length
-      ? events.map(e=>`<div><b>${e.kind}</b> · ${e.text} <span>(${e.tick})</span></div>`).join("")
+      ? events.map(e=>`<div><b>${safe(e.kind)}</b> · ${safe(e.text)} <span>(${safe(e.tick)})</span></div>`).join("")
       : '<div class="empty">없음</div>';
 
     const banner = document.getElementById("recall");
@@ -177,16 +183,16 @@ async function refresh(){
 
     if (rt){
       document.getElementById("llm").textContent =
-        rt.llm.enabled ? Object.values(rt.llm.models)[0] : "규칙 기반 (키 없음)";
+        rt.llm.enabled ? String(Object.values(rt.llm.models)[0] || "") : "규칙 기반 (키 없음)";
       inbox(rt.awaiting_human || []);
       const tail = (rt.ledger || []).filter(e => e.outcome !== "pending").slice(0,12);
       document.getElementById("ledger").innerHTML = tail.length
         ? tail.map(e => {
             const p = e.proposal, d = e.decision;
-            const who = d.approved_by ? ` · ${d.approved_by}` : "";
-            const arb = d.arbiter ? ` · ${d.arbiter}` : "";
-            return `<div><b>${p.asset_id}</b> ${p.action} → ${d.verdict}${who}${arb}
-                    <span> · ${d.reason}</span></div>`;
+            const who = d.approved_by ? ` · ${safe(d.approved_by)}` : "";
+            const arb = d.arbiter ? ` · ${safe(d.arbiter)}` : "";
+            return `<div><b>${safe(p.asset_id)}</b> ${safe(p.action)} → ${safe(d.verdict)}${who}${arb}
+                    <span> · ${safe(d.reason)}</span></div>`;
           }).join("")
         : '<div class="empty">아직 없음</div>';
     }

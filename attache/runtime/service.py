@@ -22,6 +22,7 @@ from attache.core.models import Decision, Proposal, Verdict
 from attache.core.notam import Clock
 from attache.core.route import Router
 from attache.llm.client import TieredLlm
+from attache.runtime.advisory import AdvisoryDesk, Refusal, build_options
 from attache.runtime.arbiter import Arbiter
 from attache.runtime.authority import AuthorityCheck
 from attache.runtime.commit import Committer
@@ -40,6 +41,7 @@ from attache.runtime.ledger import Ledger
 from attache.runtime.locks import LockTable
 from attache.runtime.notices import NoticeBook
 from attache.runtime.policy import PolicyBook
+from attache.runtime.reports.ledger import build_report, to_markdown
 
 # 한 구간의 최대 길이. 서비스 반경이 11km 라 그 안의 어떤 경로도 이보다 긴 구간은 없습니다.
 # 유한하기만 한 좌표로 지구 반 바퀴짜리 구간을 내면 판정이 색인 격자 1e10 칸을 돌며 영영 안
@@ -81,9 +83,21 @@ class Runtime:
         self.clock = Clock(self.performance.clock_epoch_z, self.performance.seconds_per_tick)
         self.intents = IntentRegistry()
         self.notices = NoticeBook(self.clock, self.llm)
+        # 관제 권고. 연속 거절을 세고, 코드가 만든 선택지를 판정으로 확인해 원장에 남깁니다.
+        # 모델이 문구를 쓸 때는 따로 스레드에서 — 거절 답장이 모델을 기다리면 운영사가 멈춥니다.
+        self.advisor = AdvisoryDesk(self.llm)
+        self.advisory_async = True
+        # 문법 밖의 공지를 모델이 읽는 일도 세계 스레드 밖에서(시험은 False 로 두고 바로 봅니다).
+        self.notice_async = True
+        self._reading: set[str] = set()       # 모델이 읽는 중인 공지 id
+        self._read_notices: list[tuple] = []  # 읽기 스레드가 놓고 간 (판, 공지, 결과)
+        # 공지 적용은 세계 스레드와 승인(HTTP) 스레드가 같이 부릅니다.
+        self._notice_lock = threading.Lock()
         self._round = None                    # 시뮬레이터가 판을 새로 시작하면 따라갑니다
         self._contended: dict[str, list[tuple[Proposal, Decision, float]]] = {}
         self._awaiting_human: dict[str, Proposal] = {}
+        # 사람 카드(승인 대기) 신청서 id → 열어 둔 원장 항목. 사람의 답·창의 끝·판의 끝이 닫습니다.
+        self._open_cards: dict[str, object] = {}
         self._decisions: dict[str, Decision] = {}
         self._checks: dict[str, list[str]] = {}   # 신청서 id → 지금까지 돈 검사 이름
         # 벽시계가 아니라 세계의 시계로 셉니다. 그래야 재현이 됩니다.
@@ -124,29 +138,123 @@ class Runtime:
         if decision.verdict is Verdict.DENIED:
             return self._deny(proposal, decision)
         if decision.verdict is Verdict.HUMAN:
-            with self._guard:
-                existing = next(
-                    (
-                        waiting
-                        for waiting in self._awaiting_human.values()
-                        if waiting.asset_id == proposal.asset_id
-                        and waiting.action == proposal.action
-                    ),
-                    None,
-                )
-                if existing is not None:
-                    # 승인 화면에 같은 카드를 쌓지 않습니다
-                    return self._decisions[existing.id]
-                self._awaiting_human[proposal.id] = proposal
-            return decision
+            return self._park_for_human(proposal, decision)
         return self._queue_or_commit(proposal, decision)
+
+    def _park_for_human(self, proposal: Proposal, decision: Decision) -> Decision:
+        """사람 카드를 올립니다. 원장 항목은 열어 두고 사람의 답(또는 판의 끝)이 닫습니다.
+
+        실주행에서 기체 하나가 한도를 넘긴 뒤 'human' 답을 309번 받았는데 원장에는 한 줄도 없었고,
+        카드는 판이 바뀌어도 남았습니다. 같은 카드가 이미 있으면 그 결정을 그대로 돌려주되
+        (승인 화면에 같은 카드를 쌓지 않습니다), 그것도 판정이라 한 줄은 남깁니다(outcome waiting).
+        """
+        with self._guard:
+            existing = next((waiting for waiting in self._awaiting_human.values()
+                             if waiting.asset_id == proposal.asset_id
+                             and waiting.action == proposal.action), None)
+            if existing is None:
+                self._awaiting_human[proposal.id] = proposal
+        if existing is not None:
+            repeat = Decision(proposal.id, Verdict.HUMAN,
+                              f"같은 카드({existing.id})가 이미 승인 대기 중 — {decision.reason}",
+                              authority_hit=decision.authority_hit, code=decision.code,
+                              detail={**decision.detail, "waiting_on": existing.id})
+            self.ledger.close_entry(
+                self.ledger.open_entry(proposal, repeat, self._context(proposal)), "waiting")
+            self._checks.pop(proposal.id, None)
+            return self._decisions[existing.id]
+        self._open_cards[proposal.id] = self.ledger.open_entry(proposal, decision,
+                                                              self._context(proposal))
+        return decision
+
+    def _close_card(self, card, proposal: Proposal, decision: Decision, outcome: str,
+                    check: str = "human") -> None:
+        """열어 둔 카드 항목을 닫습니다. 항목이 없으면(있어서는 안 되지만) 한 쌍을 새로 적습니다."""
+        if card is None:
+            card = self.ledger.open_entry(proposal, decision, self._context(proposal))
+        checks = list(card.context.get("checks_run") or []) + [check]
+        self.ledger.close_entry(card, outcome, decision, {"tick": self.tick, "checks_run": checks})
 
     def _deny(self, proposal: Proposal, decision: Decision) -> Decision:
         self._decisions[proposal.id] = decision
         self.ledger.close_entry(
             self.ledger.open_entry(proposal, decision, self._context(proposal)), "denied")
         self._checks.pop(proposal.id, None)
+        self._record_refusal(proposal, decision)
         return decision
+
+    # ---------- 관제 권고 ----------
+
+    def _record_refusal(self, proposal: Proposal, decision: Decision) -> None:
+        """경로 신청의 거절 하나. 세 번 연속이면 권고를 씁니다.
+
+        중복 거절은 세지 않습니다 — 길이 막힌 게 아니라 같은 신청을 두 번 낸 것입니다.
+        """
+        if proposal.action not in ROUTED or decision.code == "duplicate":
+            return
+        params = proposal.params or {}
+        refusal = Refusal(
+            asset=proposal.asset_id, tick=self.tick, code=decision.code,
+            policy_hit=decision.policy_hit,
+            blocked_kind=params.get("blocked_kind"), blocked_volume=params.get("blocked_volume"),
+            blocked_asset=params.get("blocked_asset"),
+            blocked_until_tick=params.get("blocked_until_tick"), proposal_id=proposal.id,
+            action=proposal.action, legs=list(params.get("legs") or []),
+            params={k: v for k, v in params.items()
+                    if k != "legs" and not k.startswith("blocked_")},
+            resource=proposal.resource,
+        )
+        if self.advisor.refused(proposal.asset_id, refusal):
+            self._advise(proposal.asset_id, "refusals")
+
+    def _judge_legs(self, refusal: Refusal, legs: list[dict]) -> str | None:
+        """이 경로가 지금 막히는 이유. 권고의 선택지를 확인할 뿐, 아무것도 접수하지 않습니다."""
+        probe = Proposal(asset_id=refusal.asset, action=refusal.action, cost_usd=0.0,
+                         blast_radius="none", rationale="advisory probe",
+                         params={**refusal.params, "legs": legs},
+                         resource=refusal.resource or refusal.params.get("pad"))
+        checks: list[str] = []
+        return self.check_route(probe, checks) or self._check_traffic(probe, checks)
+
+    def _notice_until(self, volume_id: str | None) -> int | None:
+        """그 구역이 공지라면 닫히는 틱. 상시 구역·건물이면 None."""
+        record = self.notices.get(volume_id or "")
+        return record.until_tick if record is not None else None
+
+    def _advise(self, asset: str, trigger: str) -> None:
+        """권고 하나를 씁니다. 선택지는 지금 상태로 판정하고, 문구는(모델이 있으면) 따로 스레드에서.
+        """
+        refusals = self.advisor.streak(asset)
+        if not refusals:
+            return
+        airborne = float(self.telemetry.get(asset, {}).get("alt_m") or 0.0) > 1.0
+        options = build_options(refusals, self._judge_legs, self._notice_until, airborne)
+        context = self._context(None, ["advisory"])
+        round_at = self._round
+
+        def finish() -> None:
+            params = self.advisor.compose(asset, trigger, refusals, options, airborne)
+            if round_at != self._round:
+                return      # 모델이 답하는 사이 판이 바뀌었습니다. 지난 판의 권고는 적지 않습니다
+            self._ledger_advisory(asset, params, context)
+
+        if self.advisor.has_model and self.advisory_async:
+            threading.Thread(target=finish, daemon=True, name=f"advisory-{asset}").start()
+        else:
+            finish()
+
+    def _ledger_advisory(self, asset: str, params: dict, context: dict) -> None:
+        """권고는 원장 항목입니다(action advisory, outcome noted). 실행은 없습니다."""
+        noted = Proposal(asset_id=asset, action="advisory", cost_usd=0.0, blast_radius="none",
+                         author="runtime", rationale=params["summary"][:180], params=params)
+        decision = Decision(noted.id, Verdict.AUTO, params["summary"], code="advisory",
+                            detail={"resource": asset, "chosen": params["chosen"],
+                                    "trigger": params["trigger"], "source": params["source"]})
+        entry = self.ledger.open_entry(noted, decision, context)
+        self.ledger.close_entry(entry, "noted")
+        with self._guard:
+            self.advisor.latest[asset] = {"asset": asset, "tick": context.get("tick"),
+                                          "at": entry.at, "ledger_id": entry.id, **params}
 
     @staticmethod
     def _airspace_denial(proposal: Proposal, blocked: str) -> Decision:
@@ -524,6 +632,7 @@ class Runtime:
         물림은 여기서만 일어납니다 — 실행되지 않은 신청은 아무도 물리지 않습니다.
         """
         if proposal.action in ROUTED and proposal.params.get("legs"):
+            self.advisor.succeeded(proposal.asset_id)   # 승인이 나갔으니 연속 거절은 끊깁니다
             withdrew = []
             for other in proposal.params.get("withdraw") or []:
                 standing = self.intents.get(other)
@@ -537,6 +646,12 @@ class Runtime:
                 proposal.params = {**proposal.params, "withdrew": withdrew}
             entry.proposal = proposal.to_dict()   # 닫는 줄은 물린 뒤의 신청서를 담아야 합니다
             return {"intent_id": intent.id, **({"withdrew": withdrew} if withdrew else {})}
+        if proposal.action == "decline_job":
+            # 거절 뒤의 반려("규정상 경로 없음"). 반려가 실행된 뒤에 씁니다 — 접수 때 쓰면 중복으로
+            # 거절된 반려에도 권고가 하나 더 적힙니다. 주문이 사라졌으니 연속 거절도 끊습니다.
+            if self.advisor.declined(proposal.asset_id):
+                self._advise(proposal.asset_id, "decline_after_refusals")
+            self.advisor.succeeded(proposal.asset_id)
         ended = self._end_intent(proposal.asset_id, proposal.action,
                                  exit_point=proposal.params.get("exit"))
         return {"intent_id": ended.id} if ended is not None else None
@@ -565,6 +680,7 @@ class Runtime:
         decision.detail = fresh.detail
         self.ledger.close_entry(
             self.ledger.open_entry(proposal, decision, self._context(proposal)), "denied")
+        self._record_refusal(proposal, decision)
         return decision.reason
 
     def _queue_or_commit(self, proposal: Proposal, decision: Decision) -> Decision:
@@ -596,16 +712,18 @@ class Runtime:
             return None
         decision = self._decisions[proposal_id]
         decision.approved_by = actor
+        card = self._open_cards.pop(proposal_id, None)
         if proposal.action == "publish_notice":
-            return self._confirm_notice(proposal, decision, actor, allow)
+            return self._confirm_notice(proposal, decision, actor, allow, card)
         if not allow:
             decision.verdict = Verdict.DENIED
             decision.reason = f"{actor} 가 거부했습니다"
-            self.ledger.close_entry(
-                self.ledger.open_entry(proposal, decision, self._context(proposal)), "denied")
+            self._close_card(card, proposal, decision, "denied")
             return decision
         decision.verdict = Verdict.AUTO
         decision.reason = f"{actor} 가 승인했습니다"
+        # 카드 줄은 사람의 답으로 닫힙니다. 그 다음의 재판정·실행은 자기 줄을 따로 남깁니다.
+        self._close_card(card, proposal, decision, "approved")
         if self._rejudge(proposal, decision):
             return decision   # 기다리는 사이 공역이 바뀌었습니다. 승인은 옛 경로를 살리지 못합니다
         return self._queue_or_commit(proposal, decision)
@@ -638,6 +756,7 @@ class Runtime:
                     self.ledger.close_entry(
                         self.ledger.open_entry(proposal, decision, self._context(proposal)),
                         "denied")
+                    self._record_refusal(proposal, decision)
                 continue
 
             choice = self.arbiter.pick(candidates, self.telemetry)
@@ -667,6 +786,7 @@ class Runtime:
                     self.ledger.close_entry(
                         self.ledger.open_entry(proposal, decision, self._context(proposal)),
                         "denied")
+                    self._record_refusal(proposal, decision)
 
     # ---------- 바깥에서 오는 소식 ----------
 
@@ -709,11 +829,28 @@ class Runtime:
         self.zone_volumes.clear()
         self.policies.clear()
         self.intents.clear()
+        self._expire_cards("판이 바뀜")
         self.notices.clear()
         with self._guard:
-            for proposal_id, waiting in list(self._awaiting_human.items()):
-                if waiting.action == "publish_notice":
-                    self._awaiting_human.pop(proposal_id)
+            self.advisor.clear()
+
+    def _expire_cards(self, why: str) -> None:
+        """판이 끝나면 사람 카드도 내립니다. 보류 공지는 lapsed 로, 나머지도 판이 바뀌었다고.
+
+        실주행에서 지난 판의 카드 다섯이 판이 바뀐 뒤에도 남아 있었습니다 — 새 판의 기체에 지난 판의
+        한도 초과 카드를 승인하는 일은 없어야 합니다.
+        """
+        for record in [r for r in list(self.notices.records.values()) if r.held]:
+            self._lapse_held(record, why)
+        with self._guard:
+            cards = list(self._awaiting_human.items())
+            self._awaiting_human.clear()
+        for proposal_id, proposal in cards:
+            decision = self._decisions.get(proposal_id) or Decision(proposal_id, Verdict.HUMAN, "")
+            decision.verdict = Verdict.DENIED
+            decision.reason = f"사람이 보기 전에 {why} — 카드를 내림"
+            decision.code = "card_lapsed"
+            self._close_card(self._open_cards.pop(proposal_id, None), proposal, decision, "lapsed")
 
     def service_bbox(self) -> tuple[float, float, float, float] | None:
         """착륙장·이륙장을 담는 상자 + 여유. 모델이 구조화한 공지는 이 안이어야 합니다."""
@@ -734,22 +871,58 @@ class Runtime:
         유효기간이 끝나거나 공지에서 빠지면 판정 기준에서도 빠집니다.
         """
         items = [i for i in bulletins if i.get("kind") in ("recall", "zone", "notam")]
+        self._collect_read_notices()
         known = {p.id for p in self.policies.all()}
+        bbox = self.service_bbox()
         for item in items:
             if item["id"] in known:
                 continue
             if item.get("kind") == "recall":
                 self._enforce_policy(item)
                 continue
-            if self.notices.known(item["id"]):
+            if self.notices.known(item["id"]) or item["id"] in self._reading:
                 continue
-            record = self.notices.read(item, self.service_bbox())
-            if record is None:
-                self._ledger_notice(item, "unreadable",
-                                    self.notices.unreadable.get(item["id"], ""))
-            elif record.held:
-                self._hold_notice(item, record)
+            if self.notice_async and self.notices.needs_model(item):
+                self._read_later(item, bbox)
+                continue
+            self._settle_notice(item, self.notices.read(item, bbox))
         self._apply_notices({i["id"] for i in items})
+
+    def _settle_notice(self, item: dict, record) -> None:
+        if record is None:
+            self._ledger_notice(item, "unreadable", self.notices.unreadable.get(item["id"], ""))
+        elif record.held:
+            self._hold_notice(item, record)
+
+    def _read_later(self, item: dict, bbox) -> None:
+        """문법 밖의 공지는 모델이 읽습니다 — 세계 스레드 밖에서. 답은 다음 폴링이 거둡니다.
+
+        같은 스레드에서 물었더니 30B 대역이 답하는 5~27초 동안 런타임의 틱·텔레메트리가 멈췄고
+        (그 사이 들어온 신청은 옛 위치로 판정됐습니다), 20초 타임아웃에 넉 판 중 세 판을 못 읽음.
+        같은 id 는 한 번에 하나만 묻습니다(_reading).
+        """
+        self._reading.add(item["id"])
+        round_at = self._round
+
+        def work() -> None:
+            try:
+                result = self.notices.compile_item(item, bbox)
+            except Exception as error:  # noqa: BLE001 — 못 읽은 것으로 적습니다
+                result = (None, f"모델 읽기 실패 {error!r}")
+            with self._guard:
+                self._read_notices.append((round_at, item, result))
+
+        threading.Thread(target=work, daemon=True, name=f"notice-{item['id']}").start()
+
+    def _collect_read_notices(self) -> None:
+        """읽기 스레드가 놓고 간 결과를 세계 스레드에서 적습니다. 판이 바뀐 뒤의 답은 버립니다."""
+        with self._guard:
+            arrived, self._read_notices = self._read_notices, []
+        for round_at, item, result in arrived:
+            self._reading.discard(item["id"])
+            if round_at != self._round or self.notices.known(item["id"]):
+                continue
+            self._settle_notice(item, self.notices.settle(item, result))
 
     def _enforce_policy(self, item: dict) -> None:
         # 제한하는 정책은 즉시 걸립니다. 푸는 정책만 사람이 풉니다.
@@ -766,7 +939,15 @@ class Runtime:
         self.revoke_under(policy)
 
     def _apply_notices(self, feed_ids: set[str] | None = None) -> None:
-        """창이 열린 공지는 공역에 넣고 날던 경로를 회수하고, 닫힌 공지는 뺍니다."""
+        """창이 열린 공지는 공역에 넣고 날던 경로를 회수하고, 닫힌 공지는 뺍니다.
+
+        세계 스레드(폴링)와 승인 스레드(사람 확인)가 같이 부릅니다. 잠그지 않으면 둘이 같은 공지를
+        due() 에서 같이 집어 두 번 걸고 같은 기체를 두 번 회수합니다.
+        """
+        with self._notice_lock:
+            self._apply_notices_locked(feed_ids)
+
+    def _apply_notices_locked(self, feed_ids: set[str] | None) -> None:
         for record in self.notices.due(self.tick):
             record.applied = True
             self.airspace.add(record.volume)
@@ -787,6 +968,31 @@ class Runtime:
                                             if r.applied}:
             self.airspace.remove(expired)
             self.zone_volumes.discard(expired)
+        # 사람을 기다리다 창이 닫힌(또는 목록에서 빠진) 공지. 카드와 배너를 내리고 원장에 남깁니다.
+        for record in self.notices.stale_held(self.tick, feed):
+            self._lapse_held(record, "창이 닫힘" if record.id in feed else "공지가 내려감")
+        # 사람이 확인했지만 걸리기 전에 지나간 것. 남겨 두면 /state.notices 에 판 끝까지 남습니다.
+        for record in self.notices.stale_confirmed(self.tick, feed):
+            self.notices.forget(record.id, "확인 뒤 걸리기 전에 "
+                                + ("창이 닫힘" if record.id in feed else "공지가 내려감"))
+
+    def _lapse_held(self, record, why: str) -> None:
+        """확인 없이 지나간 보류 공지. 걸린 적이 없으니 뺄 것도 없고, 기록만 닫습니다."""
+        self.notices.forget(record.id, f"확인 전에 {why}")
+        with self._guard:
+            waiting = next((pid for pid, p in self._awaiting_human.items()
+                            if p.action == "publish_notice"
+                            and p.params.get("notice_id") == record.id), None)
+            if waiting is not None:
+                self._awaiting_human.pop(waiting)
+        entry = self._open_cards.pop(waiting, None) if waiting is not None else None
+        if entry is None:
+            return
+        decision = self._decisions[waiting]
+        decision.verdict = Verdict.DENIED
+        decision.reason = f"사람이 확인하기 전에 {why} — 걸린 적 없음"
+        decision.code = "notice_lapsed"
+        self.ledger.close_entry(entry, "lapsed", decision, {"tick": self.tick})
 
     def _hold_notice(self, item: dict, record) -> None:
         """모델이 구조화한 공지를 승인 화면에 올립니다. 사람이 승인하기 전에는 아무것도 안 막습니다.
@@ -805,12 +1011,28 @@ class Runtime:
         self._decisions[held.id] = decision
         with self._guard:
             self._awaiting_human[held.id] = held
-        self.ledger.open_entry(held, decision,
-                               self._context(None, ["notice:grammar", "notice:model"]))
+        self._open_cards[held.id] = self.ledger.open_entry(
+            held, decision, self._context(None, ["notice:grammar", "notice:model"]))
 
     def _confirm_notice(self, proposal: Proposal, decision: Decision, actor: str,
-                        allow: bool) -> Decision:
-        record = self.notices.confirm(proposal.params.get("notice_id", ""), actor, allow)
+                        allow: bool, card=None) -> Decision:
+        """사람의 답. 보류할 때 열어 둔 원장 항목(card)을 그 답으로 닫습니다.
+
+        창이 이미 닫힌 공지를 승인하면 걸 것이 없습니다 — 그때는 '걸렸다'(notice_published)가 아니라
+        notice_lapsed 로 적습니다. 실주행에서는 폴링 한 번 사이의 경주입니다.
+        """
+        notice_id = proposal.params.get("notice_id", "")
+        record = self.notices.get(notice_id)
+        if allow and record is not None and record.until_tick is not None \
+                and self.tick > record.until_tick:
+            self.notices.forget(notice_id, "창이 닫힌 뒤에 확인")
+            decision.verdict = Verdict.DENIED
+            decision.reason = (f"{actor} 가 확인했지만 창이 틱 {record.until_tick} 에 이미 "
+                               "닫혔습니다 — 걸린 적 없음")
+            decision.code = "notice_lapsed"
+            self._close_card(card, proposal, decision, "lapsed", "notice:human")
+            return decision
+        record = self.notices.confirm(notice_id, actor, allow)
         if allow and record is not None:
             decision.verdict = Verdict.AUTO
             decision.reason = f"{actor} 가 공지를 확인했습니다"
@@ -820,9 +1042,8 @@ class Runtime:
             decision.reason = f"{actor} 가 공지를 거부했습니다" if record is not None \
                 else "그런 공지가 없습니다"
             decision.code = "notice_refused"
-        self.ledger.close_entry(
-            self.ledger.open_entry(proposal, decision, self._context(None, ["notice:human"])),
-            "done" if allow and record is not None else "denied")
+        self._close_card(card, proposal, decision,
+                         "done" if allow and record is not None else "denied", "notice:human")
         self._apply_notices()
         return decision
 
@@ -977,7 +1198,11 @@ class Runtime:
             # 승인한 경로가 언제 어디에 있을지. 화면은 이것으로 누가 누구를 기다리는지 그립니다.
             "intents": self.intents.snapshot(),
             # 걸려 있는 공지. 배너는 시뮬레이터가 아니라 여기서 — 강제되는 것이 보이는 것입니다.
+            # 보류 기록(held)도 실립니다: 사람이 확인하기 전에는 applied 가 False 이고 아무것도
+            # 안 막습니다. 배너는 그것을 '사람이 확인해야 적용' 으로 씁니다.
             "notices": self.notices.snapshot(),
+            # 관제 권고. 기체마다 마지막 것. 정보일 뿐이고 아무것도 바꾸지 않습니다.
+            "advisories": self.advisor.snapshot(),
             "spend": {
                 "fleet": self.authority.fleet_spend,
                 "fleet_limit": self.config.authority.fleet_usd,
@@ -988,6 +1213,11 @@ class Runtime:
             },
             "ledger": self.ledger.tail(25),
         }
+
+    def report(self, asset: str | None = None, fmt: str = "json"):
+        """원장을 비행 단위로 접은 보고서. 원장 파일에서만 만듭니다 — 기억은 200줄뿐입니다."""
+        built = build_report(self.ledger.read_all(), self.tick, self.airspace.revision, asset)
+        return to_markdown(built) if fmt == "md" else built
 
 
 def _distance_m(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -1064,6 +1294,10 @@ def main() -> None:
         "landing_areas": runtime.landing_areas,
     }))
     server.add("GET", "/health", lambda body, query: (200, {"ok": True, "tick": runtime.tick}))
+    # 원장 보고서. ?asset=<id> 로 한 기체만, ?format=md 로 사람이 읽는 표.
+    server.add("GET", "/ledger/report", lambda body, query: (
+        200, runtime.report(query.get("asset") or None,
+                            "md" if query.get("format") == "md" else "json")))
     print(f"runtime listening on :{os.getenv('PORT', '8000')}", flush=True)
     server.serve_forever()
 
