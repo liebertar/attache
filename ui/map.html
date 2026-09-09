@@ -847,21 +847,27 @@ function drawStages(now, corridors){
       // 선 끝을 따라다니면 글자가 계속 움직여서 읽을 수가 없습니다. 출발점에 고정합니다.
       geometry:{type:"Point", coordinates:labelAnchor(stage.curve)}});
     const alpha = stageFade(stage.kind, elapsed);
+    // 승인 구간이 살아 있는 동안에는 실제 비행 회랑을 감춥니다. 둘이 같이 그려지면
+    // 승인될 때 선이 하나 더 생긴 것처럼 보입니다 — 선은 새로 그리는 게 아니라
+    // 같은 선의 색이 바뀌는 것이어야 합니다.
+    if (stage.kind === "approved") growing.add(stage.asset);
     if (phase === "drawing" || phase === "checking"){
       pending.push(feature);                 // 아직 답이 안 나온 선입니다
       pendingAlpha = 1;
-      // 승인 구간을 그리는 중일 때만 완성된 초록을 감춥니다. 거절 구간을 되짚는
-      // 동안에도 감추면, 기체가 실제로 날고 있는 승인 경로까지 같이 사라집니다.
-      if (stage.kind === "approved") growing.add(stage.asset);
     }
     else if (stage.kind === "approved"){
       approved.push(feature);
-      // 승인이 떨어졌다는 표시로 세 번 깜빡입니다. 그동안 기체는 아직 안 움직입니다 —
-      // 시뮬레이터도 승인 확인 시간을 두고 나서 출발합니다.
+      // 승인 표시로 세 번 깜빡입니다. 그동안 기체는 아직 안 움직입니다.
       const step = (elapsed - GROW_MS - CHECK_MS) / APPROVED_HOLD_MS;
       approvedPulse = .3 + .7 * Math.abs(Math.cos(step * Math.PI * 3));
     }
-    else { refused.push(feature); refusedAlpha = Math.max(refusedAlpha, alpha); }
+    else {
+      refused.push(feature);
+      // 거절도 같은 자리에서 붉게 세 번 깜빡인 뒤 흐려집니다.
+      const step = (elapsed - GROW_MS - CHECK_MS) / HOLD_MS;
+      const blink = step < 1 ? .3 + .7 * Math.abs(Math.cos(step * Math.PI * 3)) : 1;
+      refusedAlpha = Math.max(refusedAlpha, alpha * blink);
+    }
     // 막은 것은 선이 다 뻗은 다음에 보여줍니다. 같이 나오면 무엇이 원인인지 안 읽힙니다.
     if (stage.kind === "rejected" && window[1] > .98){
       if (stage.blocker) blockers.push({
