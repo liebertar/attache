@@ -145,7 +145,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script type="module">
-import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, hex, cargoStack, GROW_MS, CHECK_MS, APPROVED_HOLD_MS} from './map-route.mjs';
+import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, hex, droneBody, cargoStack, GROW_MS, CHECK_MS, APPROVED_HOLD_MS} from './map-route.mjs';
 const SIM = `http://${location.hostname}:8100`;
 const RT  = `http://${location.hostname}:8000`;
 const POLL_MS = 500;
@@ -355,18 +355,14 @@ map.on("load", () => {
       layout:{"line-join":"round", "line-cap":"round"},
       // 멀리서는 굵게 보여야 경로가 읽힙니다. 가까이 가면 고도에 뜬 회랑이
       // 그 역할을 이어받으므로 선은 바닥의 그림자 정도로 물러납니다.
-      // 산출 중인 선은 가는 노란 점선으로 앞으로 뻗어 나갑니다. 초록은 승인된 다음에만
-      // 씁니다 — 판정 전에 초록이 보이면 무엇이 결정된 것인지 알 수 없습니다.
-      paint:{"line-color":colour,
-        "line-width": id === "pending"
-          ? ["interpolate",["linear"],["zoom"], 11,3, 16,2]
-          : ["interpolate",["linear"],["zoom"], 11,7, 14,7, 16,3],
-        // 가까이 가면 고도에 뜬 회랑이 같은 경로를 그리므로 지면 선은 사라집니다.
-        // 두 벌이 같이 보이면 어느 것이 진행 경로인지 알 수 없습니다.
-        "line-opacity": id === "approved" ? APPROVED_ZOOM_ALPHA
-          : ["interpolate",["linear"],["zoom"], 14.5,.9, 15.5,0],
+      // 굵기는 셋 다 같습니다. 색과 점선 모양만 다릅니다 — 굵기가 다르면 무엇이 더
+      // 중요한지 잘못 읽힙니다.
+      paint:{"line-color":colour, "line-width":5,
+        // 승인된 경로는 가까이 가면 고도에 뜬 회랑이 대신합니다. 지면 선이 같이
+        // 남으면 지도에 박힌 선이 하나 더 생겨서 어느 것이 진행 경로인지 모릅니다.
+        "line-opacity": id === "approved" ? APPROVED_ZOOM_ALPHA : .9,
         ...(id === "approved" ? {}
-            : {"line-dasharray": id === "pending" ? [.4, 2.4] : [2.2, 1.4]})}});
+            : {"line-dasharray": id === "pending" ? [.5, 2.2] : [2, 1.4]})}});
   }
 
   // 승인된 고도에 떠 있는 경로 판. 선은 땅에 붙으니 높이를 못 보여줍니다.
@@ -374,10 +370,13 @@ map.on("load", () => {
   // 커튼(땅에서 고도까지)은 뺐습니다. 기체 자리에서는 대가리 위로 솟은 굵은 막대로
   // 보여서, 무엇을 뜻하는지 아무도 못 읽었습니다.
   map.addLayer({id:"flightpath", type:"fill-extrusion", source:"flightpath",
-    paint:{"fill-extrusion-color":"#29c76f",
+    // 경로는 하나입니다. 판정 단계에 따라 색만 바뀝니다 — 승인됐다고 새 선이
+    // 생기면 어느 것이 그 기체의 경로인지 알 수 없습니다.
+    paint:{"fill-extrusion-color":["match",["get","phase"],
+        "pending","#ffd23f", "rejected","#ff3b30", "#29c76f"],
       "fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"],
-      // 멀리서는 화소 이하라 안 보이고, 그때는 지면 선이 대신합니다.
-      "fill-extrusion-opacity":["interpolate",["linear"],["zoom"], 14.5,0, 15.5,.8]}});
+      // 멀리서는 화소 이하라 안 보이고, 그때만 지면 선이 대신합니다.
+      "fill-extrusion-opacity":["interpolate",["linear"],["zoom"], 13,0, 14,.85]}});
 
   // 무엇이 막았는지. 그 구역·건물만 따로 붉게 세웁니다.
   map.addSource("blocker", {type:"geojson", data:empty()});
@@ -528,14 +527,15 @@ function draw(){
   requestAnimationFrame(draw);
   const now = performance.now();
   expireDenials(now);
-  const staged = drawStages(now);
+  const ribbons0 = [];
+  const staged = drawStages(now, ribbons0);
   if (!latest){
     map.getSource("approved")?.setData(
       {type:"FeatureCollection", features:staged.approved});
     return;
   }
   const approved = [...staged.approved];
-  const ribbons = [], craft = [], cargo = [];
+  const ribbons = ribbons0, craft = [], cargo = [];
   for (const world of ["guarded","direct"]){
     const features = [];
     for (const v of Object.values(latest.worlds[world].assets)){
@@ -567,15 +567,15 @@ function draw(){
       });
       const altitude = Number(v.alt_m ?? 0);
       if (visible(world)){
-        craft.push(extrusion(hex(point[1], point[0], 6, Math.max(0, altitude - 1.5), 3),
-                             {world}));
+        for (const part of droneBody(point[1], point[0], altitude, heading))
+          craft.push(extrusion(part, {world}));
         for (const box of cargoStack(point[1], point[0], altitude, Number(v.load) || 0))
           cargo.push(extrusion(box, {}));
       }
       // 초록은 승인된 다음에만. 산출 중인 기체의 회랑도 같이 감춥니다.
       if (world === "guarded" && v.route?.length && !staged.growing.has(v.id)){
         const ahead = [{lat:point[1], lon:point[0], alt_m:altitude}, ...v.route];
-        for (const piece of ribbon(ahead)) ribbons.push(extrusion(piece, {}));
+        for (const piece of ribbon(ahead)) ribbons.push(extrusion(piece, {phase:"approved"}));
       }
     }
     map.getSource(world)?.setData(
@@ -768,6 +768,7 @@ function stageRoute(entry, now){
   if (kind !== "approved") queued.set(asset, at + stageLife(kind));
   stages.push({
     id:entry.id, asset, kind, at, by, params,
+    altitude: Number(legs[0].alt_m) || 55,
     curve:makeCurve(legs[0], legs.slice(1)),
     blocker: params.blocked_polygon?.length ? {
       polygon: params.blocked_polygon,
@@ -816,7 +817,7 @@ function blockedLabel(params){
   return params.blocked_name || t("blk_other");
 }
 
-function drawStages(now){
+function drawStages(now, corridors){
   const approved = [], refused = [], pending = [];
   const blockers = [], breaches = [], labels = [];
   const growing = new Set();
@@ -830,6 +831,11 @@ function drawStages(now){
     const drawn = sliceCurve(stage.curve, window[0] * total, window[1] * total);
     const feature = lineFeature(drawn, stage.asset);
     const phase = stagePhase(stage.kind, elapsed);
+    // 같은 경로를 고도에도 그립니다. 지면 선은 멀리서만 보이고, 가까이서는 이쪽이
+    // 그 기체의 경로가 됩니다 — 노랑에서 초록으로 바뀌는 것이 같은 덩어리여야 합니다.
+    const band = phase === "approved" ? "approved" : phase === "refused" ? "rejected" : "pending";
+    for (const piece of ribbon(drawn.map(([lon, lat]) => ({lat, lon, alt_m: stage.altitude}))))
+      corridors.push(extrusion(piece, {phase: band}));
     const headline =
       phase === "approved" ? `${t("ph_approved")} · ${stage.by}`
       : phase === "refused" ? `${t("ph_refused")} · ${blockedLabel(stage.params)}`
@@ -880,7 +886,8 @@ function drawStages(now){
 
 const alphas = {};
 let flashed = false;
-const APPROVED_ZOOM_ALPHA = ["interpolate",["linear"],["zoom"], 14.5,.95, 15.5,0];
+// 줌 14 위로는 회랑이 그리므로 지면 선은 완전히 사라집니다.
+const APPROVED_ZOOM_ALPHA = ["interpolate",["linear"],["zoom"], 13,.9, 14,0];
 
 /** 승인 직후에만 깜빡이고, 끝나면 평소의 줌 표현식으로 돌아갑니다. */
 function flashApproved(pulse){

@@ -189,6 +189,25 @@ export function hex(lat, lon, radiusM, base, thicknessM) {
   return {polygon, base: Math.max(0, base), height: Math.max(0.5, base + thicknessM)};
 }
 
+/**
+ * 쿼드콥터 한 대. 몸통 하나와 로터 넷을 고도에 띄웁니다.
+ * 육각 한 덩어리로는 무엇인지 안 읽혀서 팔과 로터를 따로 세웁니다.
+ */
+export function droneBody(lat, lon, altitude, heading = 0) {
+  const base = Math.max(0, altitude - 1.5);
+  const parts = [hex(lat, lon, 3.2, base, 3)];
+  const turn = (heading * Math.PI) / 180;
+  const armM = 6.5;
+  for (let i = 0; i < 4; i++) {
+    const angle = turn + Math.PI / 4 + (i / 4) * 2 * Math.PI;
+    const dLat = (armM * Math.cos(angle)) / METRES_PER_DEG_LAT;
+    const dLon = (armM * Math.sin(angle)) / METRES_PER_DEG_LAT
+      / (Math.cos(lat * Math.PI / 180) || 1);
+    parts.push(hex(lat + dLat, lon + dLon, 2.4, base + 0.8, 1.4));
+  }
+  return parts;
+}
+
 /** 실은 짐. 기체 위로 개수만큼 쌓입니다. */
 export function cargoStack(lat, lon, altitude, count, radiusM = 4) {
   const boxes = [];
