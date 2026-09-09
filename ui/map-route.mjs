@@ -21,15 +21,13 @@ export function makeCurve(position, route, steps = 16) {
       (points[i][0] - points[i - 1][0]) * scale, points[i][1] - points[i - 1][1]));
   }
   for (let i = 0; i < points.length - 1; i++) {
-    const a = points[Math.max(0, i - 1)], b = points[i];
-    const c = points[i + 1], d = points[Math.min(points.length - 1, i + 2)];
+    const b = points[i], c = points[i + 1];
     for (let j = 0; j < steps; j++) {
       const t = j / steps;
-      // Catmull-Rom interpolation; never used to approve a route.
-      coordinates.push(b.map((v, axis) => .5 * (
-        2 * v + (-a[axis] + c[axis]) * t +
-        (2 * a[axis] - 5 * v + 4 * c[axis] - d[axis]) * t * t +
-        (-a[axis] + 3 * v - 3 * c[axis] + d[axis]) * t * t * t)));
+      // 승인된 구간을 곧은 선으로 그대로 잇습니다. 예전에는 Catmull-Rom 으로 부드럽게
+      // 굽혔는데, 건물 사이 50m 격자 우회로에서는 그 곡선이 모서리를 잘라 건물을
+      // 뚫고 지나가는 것처럼 보였습니다. 판정받은 선과 화면의 선은 같은 선이어야 합니다.
+      coordinates.push(mix(b, c, t));
       progress.push(lengths[i] + (lengths[i + 1] - lengths[i]) * t);
     }
   }
@@ -75,11 +73,13 @@ export function motionPoint(motion, now, duration) {
 // 협상 애니메이션. 신청 → 거절 → 재작성 → 승인이 0.5초 폴링 사이에 다 끝나서,
 // 그대로 두면 화면에는 결과만 남습니다. 실제로 오간 경로를 느리게 되짚어 보여줍니다.
 // 그리는 좌표는 전부 원장/시뮬레이터가 준 것이고, 여기서 새 경로를 만들지 않습니다.
-export const GROW_MS = 3600;    // 산출 중인 경로가 앞으로 뻗어 나가는 시간
-export const CHECK_MS = 1000;    // 다 그린 뒤 판정을 기다리는 순간
-export const HOLD_MS = 2600;    // 무엇이 막았는지 읽을 시간
-export const FADE_MS = 1600;    // 거절된 선이 사라지는 시간
-export const APPROVED_HOLD_MS = 2200;   // 승인 표시가 남아 있는 시간
+// 절반으로 줄였습니다(3.6/1.0/2.6/1.6/2.2). 상자를 다 싣고도 15초를 서 있는 것은 길었습니다.
+// 바꾸면 sim/world.py CLEARANCE_TICKS 와 attache/agent/loop.py REDRAW_DELAY_S 도 같이 바꿀 것.
+export const GROW_MS = 2400;    // 산출 중인 경로가 앞으로 뻗어 나가는 시간
+export const CHECK_MS = 600;    // 다 그린 뒤 판정을 기다리는 순간
+export const HOLD_MS = 1600;    // 무엇이 막았는지 읽을 시간
+export const FADE_MS = 1000;    // 거절된 선이 사라지는 시간
+export const APPROVED_HOLD_MS = 1400;   // 승인 표시가 남아 있는 시간
 
 /** 이 구간 하나가 화면에서 살아 있는 시간. 다음 구간을 언제 시작할지가 여기서 나옵니다. */
 export function stageLife(kind) {
@@ -142,10 +142,16 @@ export function labelAnchor(curve) {
 // (line-z-offset 이 번들에 아예 없습니다). 대신 fill-extrusion 으로 얇은 리본을
 // 실제 고도에 세웁니다 — base 와 height 사이에 떠 있는 판이 곧 그 구간의 고도입니다.
 const METRES_PER_DEG_LAT = 110_570;
-// 실제 비행 회랑 크기로 잡습니다. 8m 폭으로 그렸더니 화면에서 1~3픽셀이라
-// 아무리 정확해도 안 보였습니다. 보이지 않는 정확함은 화면에서 없는 것과 같습니다.
-const RIBBON_HALF_M = 22;     // 표시용 반폭 → 44m 회랑 (충돌 판정 폭이 아님)
-const RIBBON_THICK_M = 8;     // 리본 두께(위아래)
+// 표시용 폭입니다(충돌 판정 폭이 아닙니다). 44m 로 그렸더니 골목보다 넓어서 건물 사이로
+// 어디로 가는지가 안 읽혔습니다. 18m 면 줌 14.5 에서 7픽셀 — 보이면서 길이 남습니다.
+const RIBBON_HALF_M = 9;      // 반폭 → 18m 회랑
+const RIBBON_THICK_M = 3;     // 리본 두께(위아래)
+// 회랑은 기체 바로 아래에 깔립니다. 고도에 정확히 맞춰 두꺼운 판을 세웠더니 기체가
+// 그 판 속에 파묻혀 반쯤 가려졌습니다. 몇 미터 아래는 화면에서 구분이 안 되고, 기체는 늘 보입니다.
+const RIBBON_DROP_M = 4.5;    // 리본 윗면이 기체 고도보다 이만큼 아래
+// 점선 한 토막과 간격. 토막이 폭보다 길어야 선으로 읽히고 진행 방향이 보입니다.
+const DASH_M = 36;
+const GAP_M = 14;
 
 /**
  * 경로를 구간마다 하나씩 사각형으로 만듭니다. 구간마다 승인 고도가 다르므로
@@ -163,14 +169,15 @@ export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_T
     const half = halfWidthM / METRES_PER_DEG_LAT;
     const nLat = (-dLon / length) * half, nLon = (dLat / length) * half / scale;
     const altitude = Number(b.alt_m ?? a.alt_m ?? 0);
+    const top = Math.max(thicknessM, altitude - RIBBON_DROP_M);
     out.push({
       polygon: [
         [a.lon + nLon, a.lat + nLat], [b.lon + nLon, b.lat + nLat],
         [b.lon - nLon, b.lat - nLat], [a.lon - nLon, a.lat - nLat],
         [a.lon + nLon, a.lat + nLat],
       ],
-      base: Math.max(0, altitude - thicknessM / 2),
-      height: Math.max(0.5, altitude + thicknessM / 2),
+      base: Math.max(0, top - thicknessM),
+      height: top,
     });
   }
   return out;
@@ -179,8 +186,8 @@ export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_T
 /** 같은 곡선을 공중 점선으로 표시합니다. 점선 간격은 출발점에 고정돼
  * 지나온 부분을 지워도 남은 도형이 밀리지 않습니다. 고도는 각 신청 구간을 따릅니다. */
 export function curveRibbon(curve, from, to) {
-  const dash = RIBBON_HALF_M * 2 / METRES_PER_DEG_LAT;
-  const period = dash * 1.5;
+  const dash = DASH_M / METRES_PER_DEG_LAT;
+  const period = (DASH_M + GAP_M) / METRES_PER_DEG_LAT;
   const out = [];
   for (let leg = 0; leg < curve.lengths.length - 1; leg++) {
     const start = Math.max(from, curve.lengths[leg]);
@@ -213,26 +220,37 @@ export function hex(lat, lon, radiusM, base, thicknessM) {
 /**
  * 쿼드콥터 한 대. 몸통 하나와 로터 넷을 고도에 띄웁니다.
  * 육각 한 덩어리로는 무엇인지 안 읽혀서 팔과 로터를 따로 세웁니다.
+ * 실물(약 1m)보다 훨씬 큽니다 — 실물 크기면 줌 14.5 에서 한 픽셀도 안 됩니다.
  */
 export function droneBody(lat, lon, altitude, heading = 0) {
-  const base = Math.max(0, altitude - 1.5);
-  const parts = [hex(lat, lon, 3.2, base, 3)];
+  const base = Math.max(0, altitude - 1);
+  const parts = [hex(lat, lon, 5, base, 3.5)];
   const turn = (heading * Math.PI) / 180;
-  const armM = 6.5;
+  const armM = 11;
   for (let i = 0; i < 4; i++) {
     const angle = turn + Math.PI / 4 + (i / 4) * 2 * Math.PI;
     const dLat = (armM * Math.cos(angle)) / METRES_PER_DEG_LAT;
     const dLon = (armM * Math.sin(angle)) / METRES_PER_DEG_LAT
       / (Math.cos(lat * Math.PI / 180) || 1);
-    parts.push(hex(lat + dLat, lon + dLon, 2.4, base + 0.8, 1.4));
+    parts.push(hex(lat + dLat, lon + dLon, 4.5, base + 1, 1.6));
   }
   return parts;
 }
 
-/** 실은 짐. 기체 위로 개수만큼 쌓입니다. */
-export function cargoStack(lat, lon, altitude, count, radiusM = 4) {
+/** 네모 상자 하나. 짐은 상자로 보여야 짐입니다. */
+export function box(lat, lon, halfM, base, thicknessM) {
+  const r = halfM / METRES_PER_DEG_LAT;
+  const rLon = r / (Math.cos(lat * Math.PI / 180) || 1);
+  return {polygon: [[lon - rLon, lat - r], [lon + rLon, lat - r], [lon + rLon, lat + r],
+                    [lon - rLon, lat + r], [lon - rLon, lat - r]],
+          base: Math.max(0, base), height: Math.max(0.5, base + thicknessM)};
+}
+
+/** 실은 짐. 기체 위로 개수만큼 쌓입니다. 싣는 중이면 늘고 내리는 중이면 줄어듭니다. */
+export const CARGO_MAX = 6;
+export function cargoStack(lat, lon, altitude, count, halfM = 3.5) {
   const boxes = [];
-  for (let i = 0; i < count; i++)
-    boxes.push(hex(lat, lon, radiusM, altitude + 4 + i * 4.5, 3.5));
+  for (let i = 0; i < Math.min(CARGO_MAX, count); i++)
+    boxes.push(box(lat, lon, halfM, altitude + 3 + i * 4.2, 3.6));
   return boxes;
 }

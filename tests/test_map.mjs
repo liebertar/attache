@@ -15,7 +15,13 @@ test('display curve preserves endpoints and leaves approved legs untouched', () 
   assert.deepEqual(curve.coordinates[0], [start.lon, start.lat]);
   assert.deepEqual(curve.coordinates.at(-1), [-73.96,40.72]);
   assert.equal(JSON.stringify(route), original);
-  assert.ok(curve.coordinates.some(p => p[0] < -73.97)); // Smoothed corner.
+  // 화면의 선은 판정받은 구간을 곧게 잇습니다. 모서리를 둥글리면 건물을 뚫고 가는 것처럼 보입니다.
+  const legs = [start, ...route].map(p => [p.lon, p.lat]);
+  const onALeg = ([x, y]) => legs.some((a, i) => i && (() => {
+    const b = legs[i - 1], t = Math.hypot(a[0]-b[0], a[1]-b[1]);
+    return Math.abs((x-b[0])*(a[1]-b[1]) - (y-b[1])*(a[0]-b[0])) / t < 1e-9;
+  })());
+  assert.ok(curve.coordinates.every(onALeg), '구간 밖으로 굽은 점이 있습니다');
   assert.ok(curve.coordinates.flat().every(Number.isFinite));
 });
 
@@ -83,8 +89,9 @@ function endOf(path) {
   return ring[1].map((v, i) => (v + ring[2][i]) / 2);
 }
 
+// 기본은 지상(alt 0)입니다. 협상 재생은 지상 출발에만 하므로, 공중 기체를 보려면 alt_m 을 넘깁니다.
 function snapshot(tick=1, round=1, remaining=route, position=start) {
-  const world = {assets:{'drone-01':{id:'drone-01',battery:80,alt_m:90,...position,
+  const world = {assets:{'drone-01':{id:'drone-01',battery:80,alt_m:0,...position,
       route:remaining.map(p => ({...p, alt_m:110}))}},
     depot_coords:start,scoreboard:{spend_usd:0},fleet_limit:450};
   return {tick,round,recall_tick:null,worlds:{guarded:world,direct:structuredClone(world)}};
@@ -160,9 +167,14 @@ test('a snapshot raises a flight path for a drone that is flying', () => {
 
 test('a drone that has stopped to work says so next to its name', () => {
   const ui = scene();
-  ui.run('renderSnapshot',snapshot(1,1,[],{lon:-73.97,lat:40.70,state:'dropping'}),null);
+  ui.run('renderSnapshot',snapshot(1,1,[],{lon:-73.97,lat:40.70,state:'dropping',load:2}),null);
   ui.run('draw');
-  assert.equal(ui.source('guarded').features[0].properties.work,'unloading');
+  // 남은 상자 수까지 씁니다. 상자가 하나씩 줄어드는 것과 같은 숫자입니다.
+  assert.equal(ui.source('guarded').features[0].properties.work,'unloading 2');
+  ui.run('renderSnapshot',snapshot(1,1,[],{lon:-73.97,lat:40.70,state:'loading',load:3}),null);
+  ui.run('draw');
+  assert.equal(ui.source('guarded').features[0].properties.work,'loading 3/6');
+  assert.equal(ui.source('cargo').features.length, 3, '상자는 실린 개수만큼 쌓입니다');
   ui.run('renderSnapshot',snapshot(2,1,route,{lon:-73.97,lat:40.70,state:'delivering'}),null);
   ui.run('draw');
   assert.equal(ui.source('guarded').features[0].properties.work,'',
@@ -247,6 +259,27 @@ test('the ledger is newest first, so stages are re-sorted into the order they ha
   assert.equal(ui.path('approved').length, 0);
 });
 
+test('a route refused for a held pad says so, and draws no blocker', () => {
+  const ui = scene();
+  const e = denial('held',{decision:{verdict:'denied',reason:'x',code:'resource_held',
+    detail:{resource:'pad:launch',holder:'drone-03'}}});
+  ui.run('renderDenials',{ledger:[e]},0);
+  ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
+  const label = ui.source('stage-label').features[0].properties.label;
+  assert.match(label,/^REJECTED · pad:launch is held by drone-03/);
+  assert.equal(ui.source('blocker').features.length,0);
+  assert.equal(ui.source('breach').features.length,0);
+});
+
+test('a route approved while already in the air is not replayed from the old spot', () => {
+  const ui = scene();
+  ui.run('renderSnapshot',snapshot(1,1,[],{...start,alt_m:55}),null);
+  ui.run('renderDenials',{ledger:[approval()]},0);
+  ui.time(GROW_MS / 2); ui.run('draw');
+  assert.equal(ui.path('pending').length,0,'나는 중에는 옛 자리에서 노란 선을 다시 그리지 않습니다');
+  assert.equal(ui.source('stage-label').features.length,0);
+});
+
 test('a queued decision has not travelled anywhere yet, so nothing is drawn', () => {
   const ui = scene();
   ui.run('renderDenials',{ledger:[approval('q',{decision:{verdict:'queued',reason:'대기'}})]},0);
@@ -310,6 +343,8 @@ test('the elevated curve keeps per-leg altitude and fixed dash positions after f
   const remaining = geometry.curveRibbon(c,c.progress.at(-1)/2,c.progress.at(-1));
   assert.deepEqual(remaining.at(-1),all.at(-1));
   assert.ok(remaining.length < all.length);
-  assert.equal(all[0].base,51);
-  assert.equal(all.at(-1).base,71);
+  // 리본 윗면은 기체 고도 4.5m 아래(RIBBON_DROP_M), 두께 3m 입니다.
+  assert.equal(all[0].height,50.5);
+  assert.equal(all[0].base,47.5);
+  assert.equal(all.at(-1).height,70.5);
 });
