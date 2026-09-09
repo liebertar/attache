@@ -222,3 +222,59 @@ class RouterAgreesWithTheJudgeTest(unittest.TestCase):
             self.assertIsNone(first_breach(planner.airspace, legs),
                               f"{start} 에서 그린 경로를 런타임이 거절합니다")
         self.assertTrue(drawn, "실제 공역에서 단 하나도 못 그리면 계획기가 고장난 것입니다")
+
+
+class WeavingBetweenBuildingsTest(unittest.TestCase):
+    """건물이 들어오면 길찾기가 다른 문제가 됩니다.
+
+    FAA 격자만 있을 때는 한 칸이 900m 라 200m 격자로 충분했습니다. 건물은 30~60m 라
+    간선 하나가 200m 면 맨해튼에서는 거의 모든 간선이 무언가를 스칩니다. 그러면
+    경로가 아니라 '경로 없음'만 나옵니다.
+    """
+
+    def _router(self):
+        from attache.core.route import Router
+        from sim.world import AIRSPACE, BUILDINGS
+
+        if not BUILDINGS:
+            self.skipTest("건물 데이터가 없습니다 (scripts/fetch_buildings.py)")
+        return Router(AIRSPACE)
+
+    def test_a_route_through_the_city_exists_and_bends_around_things(self):
+        from attache.core.geo import first_breach
+
+        router = self._router()
+        route = router.plan((40.7019, -73.9721), (40.7250, -73.9900))
+        self.assertIsNotNone(route, "도심을 가로지르는 경로가 하나도 안 나옵니다")
+        legs = [leg.to_dict() for leg in route.legs]
+        self.assertIsNone(first_breach(router.airspace, legs),
+                          "계획기가 스스로 어기는 경로를 내놨습니다")
+        self.assertGreater(len(legs), 5, "직선 하나면 아무것도 피하지 않은 것입니다")
+        self.assertTrue(all(leg["alt_m"] <= router.cruise_alt_m + 0.1 for leg in legs),
+                        "순항 고도보다 높이 날면 건물을 볼 일이 없습니다")
+
+    def test_the_route_starts_where_you_are_and_ends_where_you_are_going(self):
+        """격자점에서 끝나면 남은 100m 를 아무도 판정한 적 없는 채로 날게 됩니다."""
+        router = self._router()
+        start, goal = (40.7019, -73.9721), (40.7250, -73.9900)
+        route = router.plan(start, goal)
+        self.assertIsNotNone(route)
+        self.assertAlmostEqual(route.legs[0].lat, start[0], places=5)
+        self.assertAlmostEqual(route.legs[0].lon, start[1], places=5)
+        self.assertAlmostEqual(route.legs[-1].lat, goal[0], places=5)
+        self.assertAlmostEqual(route.legs[-1].lon, goal[1], places=5)
+
+    def test_a_building_taller_than_the_cruise_altitude_is_not_a_shortcut(self):
+        from attache.core.geo import first_breach
+        from sim.world import AIRSPACE
+
+        router = self._router()
+        tall = max((v for v in AIRSPACE.all()
+                    if v.id.startswith("bldg-") and v.ceiling_m > router.cruise_alt_m),
+                   key=lambda v: v.ceiling_m)
+        centre = (sum(p[0] for p in tall.polygon) / len(tall.polygon),
+                  sum(p[1] for p in tall.polygon) / len(tall.polygon))
+        through = [{"lat": centre[0] - 0.004, "lon": centre[1], "alt_m": router.cruise_alt_m},
+                   {"lat": centre[0] + 0.004, "lon": centre[1], "alt_m": router.cruise_alt_m}]
+        self.assertIsNotNone(first_breach(AIRSPACE, through),
+                             "건물 한복판을 지나는 직선이 통과로 나옵니다")

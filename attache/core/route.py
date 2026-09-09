@@ -20,6 +20,10 @@ from attache.core.geo import Airspace, _leg_samples, first_breach
 # 경로가 건물을 아예 안 보게 됩니다.
 CRUISE_ALT_M = 55.0
 
+# 목적지에서 이만큼 벗어난 곳까지는 우회로로 봅니다. 도시 한 구역을 크게
+# 돌아가는 경로가 나올 수 있어야 합니다.
+SEARCH_REACH_M = 12_000.0
+
 
 @dataclass
 class Leg:
@@ -51,9 +55,14 @@ class Route:
 
 
 class Router:
-    def __init__(self, airspace: Airspace, cell_deg: float = 0.0018,
+    def __init__(self, airspace: Airspace, cell_deg: float = 0.00045,
                  min_alt_m: float = 20.0, cruise_alt_m: float = 0.0):
-        """cell_deg 0.0018 은 위도로 약 200 m. FAA 격자(약 0.008°)보다 촘촘합니다.
+        """cell_deg 0.00045 는 약 50 m. 건물 하나 크기입니다.
+
+        200m 로 잡던 시절에는 FAA 격자(약 900m)만 피하면 됐습니다. 건물이 들어오면
+        간선 하나가 200m 라 맨해튼에서는 거의 모든 간선이 건물을 스쳐 그래프가 끊깁니다.
+        50m 로 내리면 골목이 열리고, 100m·28m 보다도 빠릅니다 — 전자는 간선이 자주
+        막혀 탐색이 헤매고, 후자는 같은 거리를 더 잘게 나눠 걷기 때문입니다.
 
         cruise_alt_m 은 허용 천장이 아니라 이 기체가 다니고 싶은 높이입니다. 실제
         배달 드론은 40~60m 로 납니다(Wing 이 약 45m). 천장까지 최대한 올라가면
@@ -63,6 +72,8 @@ class Router:
         self.cell = cell_deg
         self.min_alt_m = min_alt_m
         self.cruise_alt_m = cruise_alt_m or CRUISE_ALT_M
+        self._blocked_memo: dict[tuple[int, int], bool] = {}
+        self._memo_for = -1
 
     @staticmethod
     def cruise_alt_default() -> float:
@@ -78,14 +89,16 @@ class Router:
         return (node[0] * self.cell, node[1] * self.cell)
 
     def _forbidden_at(self, lat: float, lon: float) -> bool:
-        """공역의 색인을 그대로 씁니다. 여기에 따로 색인을 두면 또 갈라집니다."""
-        return any(
-            volume.rule == "forbidden" and volume.covers(lat, lon)
-            for volume in self.airspace.near(lat, lon)
-        )
+        """공역이 답합니다. 여기에 따로 적으면 또 갈라집니다."""
+        return self.airspace.forbidden_at(lat, lon)
 
     def _blocked(self, node: tuple[int, int]) -> bool:
-        return self._forbidden_at(*self._coords(node))
+        """격자점 하나의 답은 안 바뀝니다. 탐색 중에 같은 점을 수십 번 다시 봅니다."""
+        known = self._blocked_memo.get(node)
+        if known is None:
+            known = self._forbidden_at(*self._coords(node))
+            self._blocked_memo[node] = known
+        return known
 
     def _crosses(self, a: tuple[int, int], b: tuple[int, int], samples: int = 0) -> bool:
         """두 격자점을 잇는 선분이 금지 구역을 지나는가.
@@ -123,6 +136,9 @@ class Router:
     # ---------- 길찾기 ----------
 
     def plan(self, start: tuple[float, float], goal: tuple[float, float]) -> Route | None:
+        if self._memo_for != self.airspace.revision:
+            self._blocked_memo.clear()          # 공역이 바뀌면 기억한 답도 버립니다
+            self._memo_for = self.airspace.revision
         start_node, goal_node = self._node(*start), self._node(*goal)
         if self._blocked(goal_node):
             return None  # 목적지 자체가 금지 구역이면 우회로가 없습니다
@@ -173,7 +189,9 @@ class Router:
     def _straight(self, a: tuple[int, int], b: tuple[int, int]) -> bool | None:
         return True if self._legal_chain([a, b]) else None
 
-    def _search(self, start, goal, budget: int = 40_000):
+    def _search(self, start, goal, budget: int = 120_000):
+        reach = max(40, int(SEARCH_REACH_M / (self.cell * 110_570.0)))
+
         def heuristic(node):
             return math.dist(node, goal)
 
@@ -195,7 +213,9 @@ class Router:
             for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1),
                            (1, 1), (1, -1), (-1, 1), (-1, -1)):
                 nxt = (node[0] + di, node[1] + dj)
-                if abs(nxt[0] - goal[0]) > 200 or abs(nxt[1] - goal[1]) > 200:
+                # 탐색 범위는 거리로 잡습니다. 노드 수로 잡으면 격자를 촘촘하게 할수록
+                # 볼 수 있는 범위가 같이 좁아져서, 멀리 있는 목적지를 아예 못 찾습니다.
+                if abs(nxt[0] - goal[0]) > reach or abs(nxt[1] - goal[1]) > reach:
                     continue
                 if self._blocked(nxt) or self._crosses(node, nxt):
                     continue

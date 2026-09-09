@@ -51,7 +51,10 @@ DESCENT_MPS = 1.75
 STEP_METRES = CRUISE_MPS * SIM_SECONDS_PER_TICK      # 틱당 17.6 m
 CLIMB_RATE_M = CLIMB_MPS * SIM_SECONDS_PER_TICK      # 틱당 상승
 DESCENT_RATE_M = DESCENT_MPS * SIM_SECONDS_PER_TICK  # 틱당 하강
-ARRIVAL_RADIUS_M = 20.0  # 경유점에 이만큼 붙으면 다음 구간으로. 한 틱 이동이 17.6m
+# 경유점에 이만큼 붙으면 다음 구간으로. 한 틱 이동(17.6m)보다 작게 잡아야
+# 기체가 경유점에 정확히 내려앉습니다. 넉넉하게 잡으면 그만큼 모서리를 자르고,
+# 50m 격자로 건물 사이를 지나는 경로에서는 그 몇 미터가 건물입니다.
+ARRIVAL_RADIUS_M = 6.0
 
 
 def to_latlon(x: float, y: float) -> tuple[float, float]:

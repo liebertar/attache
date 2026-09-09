@@ -149,7 +149,25 @@ class Airspace:
         if self._index_for != self.revision:
             self._rebuild_index()
         cell = (int(math.floor(lat / INDEX_CELL_DEG)), int(math.floor(lon / INDEX_CELL_DEG)))
-        return self._grid.get(cell, EMPTY) + self._everywhere
+        boxes = self._grid.get(cell)
+        if not boxes:
+            return list(self._everywhere)
+        return [box[0] for box in boxes] + self._everywhere
+
+    def forbidden_at(self, lat: float, lon: float) -> bool:
+        """여기가 금지 구역 안인가. 계획기와 런타임이 같이 씁니다.
+
+        폴리곤 판정 전에 상자로 거릅니다. 탐색 한 번에 수십만 번 불리는 자리라
+        여기서 아끼는 것이 곧 경로를 찾는 시간입니다.
+        """
+        if self._index_for != self.revision:
+            self._rebuild_index()
+        cell = (int(math.floor(lat / INDEX_CELL_DEG)), int(math.floor(lon / INDEX_CELL_DEG)))
+        for volume, south, north, west, east in self._grid.get(cell, EMPTY):
+            if (volume.rule == "forbidden" and south <= lat <= north
+                    and west <= lon <= east and volume.covers(lat, lon)):
+                return True
+        return any(v.rule == "forbidden" and v.covers(lat, lon) for v in self._everywhere)
 
     def _rebuild_index(self) -> None:
         grid: dict[tuple[int, int], list[Volume]] = {}
@@ -160,11 +178,12 @@ class Airspace:
                 continue
             lats = [point[0] for point in volume.polygon]
             lons = [point[1] for point in volume.polygon]
+            box = (volume, min(lats), max(lats), min(lons), max(lons))
             for row in range(int(math.floor(min(lats) / INDEX_CELL_DEG)),
                              int(math.floor(max(lats) / INDEX_CELL_DEG)) + 1):
                 for col in range(int(math.floor(min(lons) / INDEX_CELL_DEG)),
                                  int(math.floor(max(lons) / INDEX_CELL_DEG)) + 1):
-                    grid.setdefault((row, col), []).append(volume)
+                    grid.setdefault((row, col), []).append(box)
         self._grid = grid
         self._everywhere = everywhere
         self._index_for = self.revision
@@ -197,6 +216,7 @@ class Airspace:
 
 
 SAMPLE_EVERY_M = 8.0     # 표본 간격. 가장 작은 건물(약 20m)보다 촘촘해야 합니다
+MIN_SAMPLES = 4         # 아주 짧은 구간에도 양 끝 말고 몇 점은 봅니다
 MAX_SAMPLES = 4000
 
 
@@ -210,7 +230,7 @@ def _leg_samples(here: dict, nxt: dict) -> int:
     north = (nxt["lat"] - here["lat"]) * 110_570.0
     east = (nxt["lon"] - here["lon"]) * 84_400.0
     metres = (north * north + east * east) ** 0.5
-    return max(40, min(MAX_SAMPLES, int(metres / SAMPLE_EVERY_M) + 1))
+    return max(MIN_SAMPLES, min(MAX_SAMPLES, int(metres / SAMPLE_EVERY_M) + 1))
 
 
 def first_breach(airspace: "Airspace", legs: list[dict], samples: int | None = None):
