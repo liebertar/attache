@@ -42,6 +42,25 @@
   #banner{bottom:12px;right:12px;width:330px;border-color:var(--zone);display:none;
           font-size:11.5px}
   a{color:var(--ok);text-decoration:none}
+  .route-key{display:inline-block;width:22px;border-top:3px solid #29c76f;
+             margin-right:6px;vertical-align:3px}
+  .route-key.denied{border-color:var(--zone);border-top-style:dashed}
+  #denial{top:12px;left:50%;transform:translateX(-50%);width:min(420px,calc(100% - 650px));
+          border-color:var(--zone);border-left-width:4px;overflow-wrap:anywhere}
+  #denial[hidden]{display:none}
+  #denial strong{color:#ff817a}
+  #denial p{margin:4px 0 0}
+  @media(max-width:1050px){
+    #denial{top:155px;left:12px;transform:none;width:300px}
+  }
+  @media(max-width:640px){
+    #head{width:calc(100% - 24px)}
+    #score{top:155px;width:205px}
+    #acts{top:390px;width:205px;max-height:22vh}
+    #denial{top:auto;bottom:175px;width:calc(100% - 24px);z-index:2}
+    #legend{font-size:10px;max-width:calc(100% - 24px)}
+    #banner{bottom:175px;width:calc(100% - 24px)}
+  }
 </style>
 </head>
 <body>
@@ -52,7 +71,7 @@
   <p>같은 씨앗 · 같은 감지 코드 · 같은 신청서 작성기.
      <span class="g">파랑</span>은 런타임에 신청하고
      <span class="d">주황</span>은 조종장치를 직접 만집니다.<br>
-     바닥 격자는 FAA 가 공개한 실제 허용 고도입니다.</p>
+     입체 공역은 FAA 가 공개한 실제 허용 고도입니다.</p>
   <p style="margin-top:5px">tick <b id="tick">0</b> ·
      <a href="index.html">승인 화면 →</a></p>
 </div>
@@ -73,6 +92,8 @@
   <div><span class="k" style="background:var(--guard)"></span>런타임을 거치는 기체</div>
   <div><span class="k" style="background:var(--direct)"></span>직접 만지는 기체</div>
   <div><span class="k" style="background:var(--warn)"></span>착륙 패드</div>
+  <div><span class="k" style="background:#eee7ce"></span>Delivery Warehouse · 물류 창고</div>
+  <div><span class="route-key"></span>승인 경로 <span class="route-key denied"></span>거절 경로 · 8초 표시</div>
   <div><span class="k" style="background:#e01e2b"></span>허가 없이 비행 불가 — 벽으로 세움</div>
   <div><span class="k" style="background:#ffb020"></span>30m &nbsp;
        <span class="k" style="background:#d8d92c"></span>61m &nbsp;
@@ -83,12 +104,17 @@
 </div>
 
 <div class="card" id="banner"></div>
+<div class="card" id="denial" role="alert" aria-atomic="true" hidden>
+  <strong>경로 거절 · 모니터링 필요</strong><p id="denial-detail"></p>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
-<script>
+<script type="module">
+import {isRemainingRoute, makeCurve, routeProgress, motionPoint} from './map-route.mjs';
 const SIM = `http://${location.hostname}:8100`;
 const RT  = `http://${location.hostname}:8000`;
 const POLL_MS = 500;
+const DENIAL_MS = 8000;
 
 const ROWS = [
   ["pad_conflicts",              "착륙 패드 충돌"],
@@ -102,28 +128,17 @@ const ROWS = [
 const map = new maplibregl.Map({
   container: "map",
   style: "https://tiles.openfreemap.org/styles/positron",
-  // 중심은 데이터에서 잡습니다. 도시를 바꿔도 이 파일은 안 고칩니다.
-  center: [0, 0], zoom: 2, pitch: 60, bearing: 20,
+  // 기체 위치와 무관하게 맨해튼과 브루클린 기지를 한 화면에 잡습니다.
+  center: [-73.975, 40.758], zoom: 11.3, pitch: 45, bearing: -28,
   attributionControl: {compact: true},
 });
-let framed = false;
-
-function frameOn(snapshot){
-  if (framed) return;
-  const points = Object.values(snapshot.assets)
-    .filter(v => v.lat != null).map(v => [v.lon, v.lat]);
-  for (const at of Object.values(snapshot.pad_coords || {})) points.push([at.lon, at.lat]);
-  if (!points.length) return;
-  const lons = points.map(p => p[0]), lats = points.map(p => p[1]);
-  map.fitBounds([[Math.min(...lons), Math.min(...lats)],
-                 [Math.max(...lons), Math.max(...lats)]],
-                {padding: 140, pitch: 60, bearing: 20, duration: 0});
-  framed = true;
-}
 
 const empty = () => ({type:"FeatureCollection", features:[]});
 // 폴링은 0.5초인데 화면은 60fps 입니다. 그 사이를 채워야 안 끊겨 보입니다.
 const motion = new Map();
+const flights = new Map();
+const rejected = new Map();
+let seenDenials = new Set(), denialUntil = 0, roundStartedAt = 0;
 
 function droneIcon(colour){
   const size = 40, c = document.createElement("canvas");
@@ -180,7 +195,7 @@ map.on("load", () => {
           15,"#f08c3c", 30,"#f0b73c", 61,"#c9d14a", 91,"#7fc27a", 122,"#4aa3d1"]],
       "fill-opacity":["case",["==",["get","rule"],"forbidden"],.22,.10]}});
   // 천장을 실제 높이로 세웁니다. 건물이 그 사이로 솟으면 그게 눈에 보입니다.
-  map.addLayer({id:"cells-roof", type:"fill-extrusion", source:"cells", minzoom:12,
+  map.addLayer({id:"cells-roof", type:"fill-extrusion", source:"cells",
     paint:{
       "fill-extrusion-color":["case",
         ["==",["get","rule"],"forbidden"], "#c1121f",
@@ -191,7 +206,7 @@ map.on("load", () => {
                              ["max",["-",["get","ceiling"],2],0]],
       "fill-extrusion-height":["case",["==",["get","rule"],"forbidden"],200,
                                ["get","ceiling"]],
-      "fill-extrusion-opacity":["case",["==",["get","rule"],"forbidden"],.16,.42],
+      "fill-extrusion-opacity":.32,
     }});
   map.addLayer({id:"cells-line", type:"line", source:"cells",
     paint:{"line-color":["case",["==",["get","rule"],"forbidden"],"#c1121f","#7d8f9a"],
@@ -204,6 +219,24 @@ map.on("load", () => {
     paint:{"fill-color":"#ff3b30","fill-opacity":.16}});
   map.addLayer({id:"zone-line", type:"line", source:"zone",
     paint:{"line-color":"#ff3b30","line-width":2,"line-dasharray":[3,2]}});
+
+  for (const [id, colour] of [["approved", "#29c76f"], ["rejected", "#ff3b30"]]){
+    map.addSource(id, {type:"geojson", data:empty()});
+    map.addLayer({id:`${id}-line`, type:"line", source:id,
+      layout:{"line-join":"round", "line-cap":"round"},
+      paint:{"line-color":colour, "line-width":3.5, "line-opacity":.95,
+        ...(id === "rejected" ? {"line-dasharray":[3,2]} : {})}});
+  }
+
+  map.addSource("depot", {type:"geojson", data:empty()});
+  map.addLayer({id:"depot-marker", type:"circle", source:"depot",
+    paint:{"circle-radius":8,"circle-color":"#eee7ce",
+      "circle-stroke-color":"#18232b","circle-stroke-width":3}});
+  map.addLayer({id:"depot-label", type:"symbol", source:"depot",
+    layout:{"text-field":"Delivery Warehouse", "text-size":13,
+      "text-font":["Noto Sans Regular"],"text-offset":[0,-2],
+      "text-allow-overlap":true},
+    paint:{"text-color":"#fff4d5","text-halo-color":"#18232b","text-halo-width":2}});
 
   map.addSource("pads", {type:"geojson", data: empty()});
   map.addLayer({id:"pads-ring", type:"circle", source:"pads",
@@ -236,7 +269,7 @@ map.on("load", () => {
       paint:{"text-color":colour,"text-halo-color":"#0a0e11","text-halo-width":1.4}});
   }
 
-  poll(); setInterval(poll, POLL_MS);
+  poll();
   requestAnimationFrame(draw);
 });
 
@@ -244,32 +277,64 @@ let latest = null, trails = {guarded:{}, direct:{}};
 
 function draw(){
   requestAnimationFrame(draw);
-  if (!latest) return;
   const now = performance.now();
+  expireDenials(now);
+  if (!latest) return;
+  const approved = [];
   for (const world of ["guarded","direct"]){
     const features = [];
     for (const v of Object.values(latest.worlds[world].assets)){
       const key = `${world}:${v.id}`;
       const m = motion.get(key);
       if (!m) continue;
-      const t = Math.min(1, (now - m.at) / POLL_MS);
+      const point = motionPoint(m, now, POLL_MS);
+      const ahead = motionPoint(m, now + 16, POLL_MS);
+      const heading = point[0] === ahead[0] && point[1] === ahead[1] ? v.heading ?? 0 :
+        Math.atan2((ahead[0] - point[0]) * Math.cos(point[1] * Math.PI / 180),
+          ahead[1] - point[1]) * 180 / Math.PI;
+      if (world === "guarded" && m.curve?.coordinates.length > 1 &&
+          (v.route?.length || now < m.at + POLL_MS))
+        approved.push(lineFeature(m.curve.coordinates, v.id));
       features.push({
         type:"Feature",
-        geometry:{type:"Point", coordinates:[
-          m.fromLon + (m.toLon - m.fromLon) * t,
-          m.fromLat + (m.toLat - m.fromLat) * t,
-        ]},
-        properties:{id:v.id, battery:Math.round(v.battery), heading:v.heading ?? 0},
+        geometry:{type:"Point", coordinates:point},
+        properties:{id:v.id, battery:Math.round(v.battery), heading},
       });
     }
     map.getSource(world)?.setData({type:"FeatureCollection", features});
   }
+  map.getSource("approved")?.setData({type:"FeatureCollection", features:approved});
+}
+
+async function getJSON(url){
+  const response = await fetch(url, {signal:AbortSignal.timeout(3000)});
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
 }
 
 async function poll(){
-  let data, runtime = null;
-  try { data = await fetch(`${SIM}/compare`).then(r => r.json()); } catch { return; }
-  try { runtime = await fetch(`${RT}/state`).then(r => r.json()); } catch {}
+  const started = performance.now();
+  try {
+    const [sim, rt] = await Promise.allSettled([
+      getJSON(`${SIM}/compare`), getJSON(`${RT}/state`),
+    ]);
+    if (sim.status === "fulfilled")
+      renderSnapshot(sim.value, rt.status === "fulfilled" ? rt.value : null);
+    else if (rt.status === "fulfilled") {
+      renderFeed(rt.value);
+      renderDenials(rt.value, performance.now());
+    }
+  } catch (error) { console.error("지도 갱신 실패", error); }
+  finally { setTimeout(poll, Math.max(0, POLL_MS - (performance.now() - started))); }
+}
+
+function renderSnapshot(data, runtime){
+  if (latest && (data.round !== latest.round || data.tick < latest.tick)){
+    motion.clear(); flights.clear(); rejected.clear(); seenDenials.clear();
+    trails = {guarded:{}, direct:{}};
+    denialUntil = 0; roundStartedAt = Date.now() / 1000;
+    map.getSource("rejected")?.setData(empty());
+  }
   latest = data;
   document.getElementById("tick").textContent = data.tick;
 
@@ -279,11 +344,25 @@ async function poll(){
     for (const v of Object.values(data.worlds[world].assets)){
       const key = `${world}:${v.id}`;
       const previous = motion.get(key);
-      motion.set(key, {
-        fromLat: previous ? previous.toLat : v.lat,
-        fromLon: previous ? previous.toLon : v.lon,
-        toLat: v.lat, toLon: v.lon, at: now,
-      });
+      const route = v.route || [];
+      let flight = flights.get(key);
+      if (route.length && (!flight || !isRemainingRoute(flight.remaining, route))){
+        flight = {curve:makeCurve(v, route), remaining:route, progress:0};
+        flights.set(key, flight);
+      }
+      if (flight){
+        const to = routeProgress(flight.curve, v, flight.progress);
+        const from = previous?.curve === flight.curve
+          ? previous.from + (previous.to - previous.from) * Math.min(1, (now - previous.at) / POLL_MS)
+          : to;
+        motion.set(key, {curve:flight.curve, from, to, at:now});
+        flight.progress = to;
+        flight.remaining = route;
+        if (!route.length) flights.delete(key);
+      } else {
+        motion.set(key, {start:previous ? motionPoint(previous, now, POLL_MS) : [v.lon,v.lat],
+          end:[v.lon,v.lat], at:now});
+      }
       const line = (trails[world][v.id] ||= []);
       line.push([v.lon, v.lat]);
       if (line.length > 90) line.shift();
@@ -294,8 +373,6 @@ async function poll(){
     map.getSource(`${world}-trail`)?.setData(
       {type:"FeatureCollection", features:trailFeatures});
   }
-
-  frameOn(data.worlds.guarded);
 
   // 실제 FAA 격자. 천장이 낮을수록 붉고, 금지 칸은 빗금 없이 진하게.
   // 같은 등급 칸을 합친 덩어리를 씁니다. 격자로 안 보이게.
@@ -311,9 +388,13 @@ async function poll(){
   })});
 
   const zone = data.worlds.guarded.zone;
-  if (zone && zone.active)
-    map.getSource("zone")?.setData(
-      {type:"FeatureCollection", features:[ring(zone.lat, zone.lon, zone.radius_m)]});
+  map.getSource("zone")?.setData({type:"FeatureCollection",
+    features:zone?.active ? [ring(zone.lat, zone.lon, zone.radius_m)] : []});
+
+  const depot = data.worlds.guarded.depot_coords;
+  map.getSource("depot")?.setData({type:"FeatureCollection", features:depot ? [{
+    type:"Feature", geometry:{type:"Point", coordinates:[depot.lon,depot.lat]}, properties:{},
+  }] : []});
 
   const holders = {};
   for (const [resource, hold] of Object.entries(runtime?.locks || {}))
@@ -337,15 +418,55 @@ async function poll(){
          <td class="${g.over_fleet_limit_usd?'hit':'zero'}">$${g.spend_usd.toFixed(0)}</td>
          <td class="${d.over_fleet_limit_usd?'hit':'zero'}">$${d.spend_usd.toFixed(0)}</td></tr>`;
 
-  if (runtime) renderFeed(runtime);
+  if (runtime) { renderFeed(runtime); renderDenials(runtime, now); }
 
+  const banner = document.getElementById("banner");
+  banner.style.display = data.recall_tick == null ? "none" : "block";
   if (data.recall_tick != null){
-    const banner = document.getElementById("banner");
-    banner.style.display = "block";
     banner.innerHTML = `<b>리콜 공지</b> (tick ${data.recall_tick}) — dv-x500 급속충전 금지.<br>
       파란 쪽은 공지가 들어온 순간부터 거부됩니다.
       주황 쪽은 기체마다 따로 확인할 때까지 계속합니다.`;
   }
+}
+
+function lineFeature(coordinates, asset){
+  return {type:"Feature", geometry:{type:"LineString", coordinates}, properties:{asset}};
+}
+
+function renderDenials(runtime, now){
+  const closed = runtime.ledger.filter(e => e.outcome !== "pending");
+  const fresh = closed.filter(e => e.decision.verdict === "denied" &&
+    !seenDenials.has(e.id) && e.at >= roundStartedAt && Date.now() - e.at * 1000 < DENIAL_MS);
+  // Keep the current ledger window plus visible rejections, without unbounded history.
+  seenDenials = new Set([...closed.map(e => e.id), ...rejected.keys()]);
+  for (const e of fresh){
+    const legs = e.proposal.params?.legs;
+    if (["fly_route", "reserve_pad"].includes(e.proposal.action) && legs?.length > 1)
+      rejected.set(e.id, {until:now + DENIAL_MS,
+        feature:lineFeature(legs.map(p => [p.lon,p.lat]), e.proposal.asset_id)});
+  }
+  if (!fresh.length) return;
+  const e = fresh[0];
+  document.querySelector("#denial strong").textContent =
+    `${["fly_route", "reserve_pad"].includes(e.proposal.action) ? "경로" : "요청"} 거절 · 모니터링 필요`;
+  document.getElementById("denial-detail").textContent =
+    `${e.proposal.asset_id} · ${e.proposal.action} — ${e.decision.reason}` +
+    (fresh.length > 1 ? ` · 새 거절 ${fresh.length}건` : "");
+  document.getElementById("denial").hidden = false;
+  denialUntil = now + DENIAL_MS;
+  updateRejected();
+}
+
+function updateRejected(){
+  map.getSource("rejected")?.setData({type:"FeatureCollection",
+    features:[...rejected.values()].map(r => r.feature)});
+}
+
+function expireDenials(now){
+  let changed = false;
+  for (const [id, r] of rejected) if (r.until <= now){rejected.delete(id); changed = true;}
+  if (changed) updateRejected();
+  if (now >= denialUntil) document.getElementById("denial").hidden = true;
 }
 
 const TAG = {auto:["t-auto","실행"], denied:["t-deny","거부"], human:["t-human","사람에게"]};

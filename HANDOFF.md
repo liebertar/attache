@@ -1,6 +1,8 @@
 # 인수인계 — Attaché
 
-작성 2026-09-09. 마지막 커밋 `86bf27c`. 테스트 54개 통과(4개는 pymavlink 없으면 건너뜀).
+작성 2026-09-09. 지도 작업 전 기준 커밋 `424a0a6`.
+Python 테스트 54개 실행, 오류 없음(4개는 pymavlink 없어 건너뜀).
+지도 상태·곡선 테스트: `node --test tests/test_map.mjs` 8개 통과.
 
 ---
 
@@ -79,24 +81,27 @@ scripts/          fetch_airspace.py · what_if.py(반사실 재생) · px4_check
 
 우선순위 순.
 
-### A. 지도 화면 (제일 밀린 부분)
-1. **물류 창고 표시가 없다.** `/compare` 의 `worlds.guarded.depot_coords` 로 좌표는 나가는데
-   `ui/map.html` 이 안 그린다. "delivery warehouse" 라고 라벨을 붙여야 함.
-2. **초기 확대 수준.** 지금은 기체·패드 bounds 로 `fitBounds` 하는데, 사용자는 맨해튼이
-   한 화면에 적당히 차는 고정 확대를 원함.
-3. **요청 경로 vs 승인 경로를 색으로 구분.** 사용자 요구 원문:
-   "approve일때는 초록색으로 드론이 그 길을 따라서 실제 운행하게하고,
-   disapprove면 선을 실시간으로 다시 우회해서 그리도록."
-   지금은 `/compare` 의 기체마다 `route` 필드로 승인 경로가 나가지만 지도가 안 그린다.
-   거절된 직선도 잠깐 보여줘야 대비가 산다.
-4. **거절 시 알림.** 사용자 요구: "disapprove되면 뭔가 alert 발생시키면 안됨? monitor 필요 이런식으로."
-   지금은 원장에만 남는다. 화면 상단에 경고 배너나 토스트가 필요.
-5. **곡선 경로.** 지금은 꺾인 직선. 실제 드론은 곡선으로 돈다. 렌더링만 부드럽게 하면 됨
-   (경유점에 Catmull-Rom 이나 베지어). 판정은 직선 구간 기준을 유지해야 함 — 곡선으로
-   판정하면 `first_breach` 를 다시 써야 하고 그러면 불변식 3이 깨진다.
+### A. 지도 화면 (1~5 구현 완료, 실제 화면 검증은 남음)
+1. **물류 창고 표시.** `worlds.guarded.depot_coords` 에 마커와
+   "Delivery Warehouse" 라벨을 붙임. 문서 좌표를 하드코딩하지 않고 응답을 따름.
+2. **초기 확대 수준.** `fitBounds` 를 제거하고 중심 `[-73.975, 40.758]`,
+   zoom 11.3, pitch 45, bearing -28로 고정. 폴링과 라운드 변경도 사용자 시야를 옮기지 않음.
+3. **요청 경로 vs 승인 경로.** guarded 기체의 `route` 를 초록 실선으로 그림.
+   기체 마커도 같은 곡선 위에서 진행하고, 통과한 경유점이 응답에서 빠져도 곡선을 유지함.
+   최종 거절 원장의 `proposal.params.legs` 는 붉은 점선으로 8초간 표시.
+   우회로를 화면에서 만들지 않고 운영사가 재신청하여 실행된 `route` 를 표시함.
+4. **거절 시 알림.** 기체·행동·사유를 담은 "모니터링 필요" 경고를 8초간 표시.
+   같은 원장 항목은 반복 알리지 않고, pending·오래된 기록은 제외함.
+   경로가 없는 거절은 경고만 표시. 폴링 실패 중에도 만료되고 새 라운드에서 초기화됨.
+5. **곡선 경로.** `ui/map-route.mjs` 의 Catmull-Rom은 표시 전용.
+   시뮬레이터 이동, 승인 신청의 legs, `first_breach`, 원장·에이전트 구조는 변경 없음.
+   곡선은 경유점 사이에서 원래 직선과 다를 수 있으며 공역 판정에 사용하지 않음.
 6. 사용자가 "격자로 2d마냥 표현하지 말라"고 두 번 말함. 지금은 같은 등급끼리 합쳐
-   `fill-extrusion` 으로 세워놨는데(금지=250m 벽, 허용=천장 높이 판), **눈으로 확인 안 됨.**
-   Docker/브라우저로 실제로 보고 판단해야 함.
+   `fill-extrusion` 으로 세워놨는데(금지=200m 벽, 허용=천장 높이 판), **눈으로 확인 안 됨.**
+   초기 zoom에서도 입체 층이 나오도록 minzoom 제한을 제거했고, 지원하지 않는
+   feature별 opacity 표현식을 상수로 수정함.
+   [MapLibre 속성 명세](https://maplibre.org/maplibre-style-spec/layers/#fill-extrusion-opacity) 참고.
+   연결 가능한 브라우저가 없어 실제 배치·가독성·WebGL 렌더링 검증은 남음.
 
 ### B. 검증 못 한 것
 1. **Docker 를 한 번도 못 돌렸다.** 이 기계에서 데몬이 안 붙었음(`open -a Docker` 실패).
@@ -105,12 +110,24 @@ scripts/          fetch_airspace.py · what_if.py(반사실 재생) · px4_check
    - `compose.view.yaml` (Skybrush 3D) — **완전 미검증.** `npm run bundle` 이 될지 모름
    - `compose.sitl.yaml` (PX4 SITL 6대) — **완전 미검증**
    - `compose.gpu.yaml`, `compose.edge.yaml`, `compose.mac.yaml` — 미검증
+   - 2026-09-09 재확인: 샌드박스 밖에서 `open -a Docker` 는 종료 코드 0이었으나,
+     이후 `docker info` 는 계속 `Cannot connect to the Docker daemon` 으로 실패.
+     따라서 이번에도 이미지 빌드·컨테이너 실행, Skybrush 번들, PX4 6대 연결은 검증 못 함.
+   - config 재검증 6조합 통과: 기본, 기본+view, 기본+sitl, 기본+sitl+gpu,
+     기본+edge, 기본+mac. GPU는 sitl 위에 얹어야 하며 기본+gpu만으로는 fleet 정의가 없음.
+   - 기존 로컬 서버의 `/compare`, `/state`, `/map.html`, `/map-route.mjs` 응답 확인.
+     지도 파일은 수정본과 동일. 기존 API 응답은 양쪽 기단 3대씩이며 확인 시점에는
+     route가 모두 비어 있었음. 실제 비행 중 화면 검증을 대체하지 않음.
+   - `scripts/dev.sh` 가 직접 기단에도 `attache.agent.loop` 를 띄우던 오래된 배선을
+     `direct_agent.loop` / `TRANSPORT=http` 로 수정함. 기존 서버와 포트가 겹쳐
+     새로 시작한 개발 프로세스는 종료했고, 수정한 스택의 완전한 기동 검증은 남음.
 2. **Nemotron 을 한 번도 호출 안 했다.** `NEBIUS_API_KEY` 가 없어서 전부 규칙 기반으로 돌았음.
    `attache/llm/client.py` 는 스텁 없이 단위 시험만 됨.
 3. **Tavily 미연동.** 대회 상 하나가 걸려 있음(Best Use of Tavily $3,000).
 
 ### C. 설계상 남은 구멍
-1. **드론이 곡선으로 못 난다** (위 A-5).
+1. **물리 이동은 직선 구간 기준이다.** 지도 곡선 렌더링은 완료(위 A-5).
+   실제 곡선 비행을 도입하려면 별도 설계가 필요하며 이번 작업 범위는 표시뿐임.
 2. **배달 반려율이 84%** (78 반려 / 14 완료). 실제 FAA 데이터로는 브루클린 기지에서
    맨해튼 대부분이 도달 불가. 이건 진짜 발견이지만 데모로는 기단이 무능해 보인다.
    기지를 옮기거나(퀸스/저지시티), 배달지를 도달 가능 구역으로 좁히거나,
