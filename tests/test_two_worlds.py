@@ -15,6 +15,7 @@ from attache.agent.planner import OperatorPlanner
 from attache.agent.propose import COSTS, by_rule
 from attache.core.config import load as config_load
 from attache.core.models import Proposal, Verdict
+from attache.core.route import Router
 from attache.runtime.service import Runtime
 from sim.world import RECALL, RECALL_TICK, ZONE, ZONE_TICK, Simulation
 
@@ -45,7 +46,7 @@ class GuardedSide:
     def __init__(self, runtime):
         self.runtime = runtime
         self.planner = OperatorPlanner(runtime.airspace)
-        self.preferred_alt_m = 110.0
+        self.preferred_alt_m = Router.cruise_alt_default()
         self.pad_index = {}
         self.banned = {}
         self.cooldown = {}
@@ -158,7 +159,8 @@ class DirectSide:
                     goal = (telemetry["job_lat"], telemetry["job_lon"])
                 if goal:
                     proposal.params = {**proposal.params, "legs": OperatorPlanner.straight(
-                        (telemetry["lat"], telemetry["lon"]), goal, 110.0)}
+                        (telemetry["lat"], telemetry["lon"]), goal,
+                        Router.cruise_alt_default())}
             result = self.world.act(asset_id, proposal.action, proposal.params, None,
                                     proposal.blast_radius, None, tick)
             if result.get("ok"):
@@ -195,7 +197,7 @@ def run(tmp_ledger: str):
 
     from attache.core.geo import Volume
 
-    for raw in guarded_world.snapshot(0)["volumes"]:
+    for raw in guarded_world.snapshot(0, volumes=True)["volumes"]:
         runtime.airspace.add(Volume.from_dict(raw))
     runtime.pad_coords = {
         name: (at["lat"], at["lon"])

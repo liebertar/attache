@@ -10,7 +10,11 @@ above sea level. Converting between them needs terrain, which is why a volume sa
 one it means instead of pretending they are the same.
 """
 
+import math
 from dataclasses import dataclass, field
+
+INDEX_CELL_DEG = 0.002   # 색인 격자 한 칸. 위도로 약 220m
+EMPTY: list = []
 
 
 @dataclass
@@ -120,6 +124,9 @@ class Airspace:
         # 구역이 하나 열리고 하나 닫히면 개수는 그대로입니다. 캐시를 개수로 무효화하면
         # 그 순간을 놓칩니다. 그래서 바뀔 때마다 올라가는 번호를 둡니다.
         self.revision = 0
+        self._grid: dict[tuple[int, int], list[Volume]] = {}
+        self._everywhere: list[Volume] = []
+        self._index_for = -1
 
     def add(self, volume: Volume) -> None:
         self._volumes[volume.id] = volume
@@ -132,11 +139,41 @@ class Airspace:
     def all(self) -> list[Volume]:
         return list(self._volumes.values())
 
+    def near(self, lat: float, lon: float) -> list[Volume]:
+        """이 좌표에 걸릴 수 있는 구역만. 나머지는 볼 필요가 없습니다.
+
+        격자 한 칸(0.002도, 약 220m)에 걸치는 구역을 미리 담아둡니다. 건물을 넣으면
+        구역이 200개에서 3천 개가 넘어가는데, 표본마다 전부 훑으면 경로 하나 검사에
+        수십만 번 폴리곤 판정이 들어갑니다. 답은 그대로이고 보는 개수만 줄입니다.
+        """
+        if self._index_for != self.revision:
+            self._rebuild_index()
+        cell = (int(math.floor(lat / INDEX_CELL_DEG)), int(math.floor(lon / INDEX_CELL_DEG)))
+        return self._grid.get(cell, EMPTY) + self._everywhere
+
+    def _rebuild_index(self) -> None:
+        grid: dict[tuple[int, int], list[Volume]] = {}
+        everywhere: list[Volume] = []
+        for volume in self._volumes.values():
+            if not volume.polygon:
+                everywhere.append(volume)   # 폴리곤 없는 규칙은 어디에나 걸립니다
+                continue
+            lats = [point[0] for point in volume.polygon]
+            lons = [point[1] for point in volume.polygon]
+            for row in range(int(math.floor(min(lats) / INDEX_CELL_DEG)),
+                             int(math.floor(max(lats) / INDEX_CELL_DEG)) + 1):
+                for col in range(int(math.floor(min(lons) / INDEX_CELL_DEG)),
+                                 int(math.floor(max(lons) / INDEX_CELL_DEG)) + 1):
+                    grid.setdefault((row, col), []).append(volume)
+        self._grid = grid
+        self._everywhere = everywhere
+        self._index_for = self.revision
+
     def breach(self, lat: float | None, lon: float | None, alt_m: float) -> Volume | None:
         """어기는 구역 중 첫 번째. 금지가 고도 제한보다 먼저입니다."""
         if lat is None or lon is None:
             return None
-        ordered = sorted(self._volumes.values(), key=lambda v: v.rule != "forbidden")
+        ordered = sorted(self.near(lat, lon), key=lambda v: v.rule != "forbidden")
         for volume in ordered:
             if volume.breach(lat, lon, alt_m):
                 return volume
@@ -151,7 +188,7 @@ class Airspace:
     def ceiling_at(self, lat: float, lon: float) -> float | None:
         """여기서 올라갈 수 있는 최대 고도. 겹치면 제일 낮은 천장을 따릅니다."""
         ceilings = [
-            v.ceiling_m for v in self._volumes.values()
+            v.ceiling_m for v in self.near(lat, lon)
             if v.rule == "ceiling" and v.covers(lat, lon) and v.ceiling_m is not None
         ]
         if self.default_ceiling_m is not None:
@@ -159,7 +196,24 @@ class Airspace:
         return min(ceilings) if ceilings else None
 
 
-def first_breach(airspace: "Airspace", legs: list[dict], samples: int = 40):
+SAMPLE_EVERY_M = 8.0     # 표본 간격. 가장 작은 건물(약 20m)보다 촘촘해야 합니다
+MAX_SAMPLES = 4000
+
+
+def _leg_samples(here: dict, nxt: dict) -> int:
+    """구간 길이에 맞춰 표본 수를 정합니다.
+
+    길이와 무관하게 40개만 찍으면, 2km 구간은 50m마다 보게 됩니다. FAA 격자(약 900m)
+    에는 충분했지만 건물은 30~60m 라 통째로 건너뜁니다. 판정자가 못 본 것은 아무도
+    못 봅니다 — 계획기도 이 함수를 쓰기 때문입니다.
+    """
+    north = (nxt["lat"] - here["lat"]) * 110_570.0
+    east = (nxt["lon"] - here["lon"]) * 84_400.0
+    metres = (north * north + east * east) ** 0.5
+    return max(40, min(MAX_SAMPLES, int(metres / SAMPLE_EVERY_M) + 1))
+
+
+def first_breach(airspace: "Airspace", legs: list[dict], samples: int | None = None):
     """경로에서 처음으로 규정을 어기는 지점. 런타임과 계획기가 같은 함수를 씁니다.
 
     같은 판정을 두 곳에 따로 적으면 반드시 갈라집니다. 계획기는 통과라고 보고 런타임은
@@ -168,8 +222,9 @@ def first_breach(airspace: "Airspace", legs: list[dict], samples: int = 40):
     for index in range(len(legs) - 1):
         here, nxt = legs[index], legs[index + 1]
         altitude = float(nxt.get("alt_m") or here.get("alt_m") or 0.0)
-        for step in range(samples + 1):
-            fraction = step / samples
+        steps = samples if samples is not None else _leg_samples(here, nxt)
+        for step in range(steps + 1):
+            fraction = step / steps
             lat = here["lat"] + (nxt["lat"] - here["lat"]) * fraction
             lon = here["lon"] + (nxt["lon"] - here["lon"]) * fraction
             volume = airspace.breach(lat, lon, altitude)

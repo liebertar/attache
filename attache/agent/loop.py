@@ -15,6 +15,7 @@ from attache.agent.detect import detect
 from attache.agent.planner import OperatorPlanner
 from attache.agent.propose import Proposer
 from attache.core.http import get_json, post_json
+from attache.core.route import Router
 from attache.llm.client import TieredLlm
 
 FALLBACK_PADS = ["bay:A", "bay:B"]
@@ -34,7 +35,9 @@ class GuardedAgent:
         self.repeat_s = float(os.getenv("REPEAT_COOLDOWN_S", "2"))
         self.denial_s = float(os.getenv("DENIAL_COOLDOWN_S", "6"))
         self.planner = OperatorPlanner()
-        self.preferred_alt_m = float(os.getenv("CRUISE_ALT_M", "110"))
+        # 우리 기체가 다니고 싶은 높이. 허용 천장이 더 낮으면 런타임이 거절하고,
+        # 그때 계획기가 구간마다 낮춰서 다시 그립니다.
+        self.preferred_alt_m = float(os.getenv("CRUISE_ALT_M", str(Router.cruise_alt_default())))
 
     def _open_pad(self) -> str:
         names = sorted(self.pads) or FALLBACK_PADS

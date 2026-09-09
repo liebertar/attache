@@ -13,7 +13,12 @@ import heapq
 import math
 from dataclasses import dataclass
 
-from attache.core.geo import Airspace, first_breach
+from attache.core.geo import Airspace, _leg_samples, first_breach
+
+# 실제 배달 드론이 다니는 높이입니다. Wing 이 약 45m 로 납니다.
+# 허용 천장까지 최대한 올라가면 도시의 건물이 전부 그 아래에 깔려서,
+# 경로가 건물을 아예 안 보게 됩니다.
+CRUISE_ALT_M = 55.0
 
 
 @dataclass
@@ -47,13 +52,22 @@ class Route:
 
 class Router:
     def __init__(self, airspace: Airspace, cell_deg: float = 0.0018,
-                 min_alt_m: float = 20.0):
-        """cell_deg 0.0018 은 위도로 약 200 m. FAA 격자(약 0.008°)보다 촘촘합니다."""
+                 min_alt_m: float = 20.0, cruise_alt_m: float = 0.0):
+        """cell_deg 0.0018 은 위도로 약 200 m. FAA 격자(약 0.008°)보다 촘촘합니다.
+
+        cruise_alt_m 은 허용 천장이 아니라 이 기체가 다니고 싶은 높이입니다. 실제
+        배달 드론은 40~60m 로 납니다(Wing 이 약 45m). 천장까지 최대한 올라가면
+        도시의 건물은 대부분 그 아래에 깔려서, 경로가 건물을 아예 안 봅니다.
+        """
         self.airspace = airspace
         self.cell = cell_deg
         self.min_alt_m = min_alt_m
-        self._forbidden_boxes: list = []
-        self._forbidden_for = -1
+        self.cruise_alt_m = cruise_alt_m or CRUISE_ALT_M
+
+    @staticmethod
+    def cruise_alt_default() -> float:
+        """기체가 다니고 싶은 기본 높이. 이 숫자를 두 곳에 적으면 반드시 갈라집니다."""
+        return CRUISE_ALT_M
 
     # ---------- 격자 ----------
 
@@ -63,31 +77,17 @@ class Router:
     def _coords(self, node: tuple[int, int]) -> tuple[float, float]:
         return (node[0] * self.cell, node[1] * self.cell)
 
-    def _forbidden(self) -> list:
-        """금지 구역과 그 바깥 상자. 상자를 먼저 보면 대부분은 거기서 걸러집니다."""
-        volumes = self.airspace.all()
-        if self._forbidden_for != self.airspace.revision:
-            self._forbidden_boxes = [
-                (volume,
-                 min(point[0] for point in volume.polygon),
-                 max(point[0] for point in volume.polygon),
-                 min(point[1] for point in volume.polygon),
-                 max(point[1] for point in volume.polygon))
-                for volume in volumes if volume.rule == "forbidden" and volume.polygon
-            ]
-            self._forbidden_for = self.airspace.revision
-        return self._forbidden_boxes
-
     def _forbidden_at(self, lat: float, lon: float) -> bool:
-        for volume, south, north, west, east in self._forbidden():
-            if south <= lat <= north and west <= lon <= east and volume.covers(lat, lon):
-                return True
-        return False
+        """공역의 색인을 그대로 씁니다. 여기에 따로 색인을 두면 또 갈라집니다."""
+        return any(
+            volume.rule == "forbidden" and volume.covers(lat, lon)
+            for volume in self.airspace.near(lat, lon)
+        )
 
     def _blocked(self, node: tuple[int, int]) -> bool:
         return self._forbidden_at(*self._coords(node))
 
-    def _crosses(self, a: tuple[int, int], b: tuple[int, int], samples: int = 6) -> bool:
+    def _crosses(self, a: tuple[int, int], b: tuple[int, int], samples: int = 0) -> bool:
         """두 격자점을 잇는 선분이 금지 구역을 지나는가.
 
         격자점만 보면 모서리를 잘라먹습니다. 대각선 한 칸이 폴리곤 귀퉁이를 관통해도
@@ -96,6 +96,9 @@ class Router:
         """
         lat_a, lon_a = self._coords(a)
         lat_b, lon_b = self._coords(b)
+        if not samples:
+            # 판정자와 같은 간격으로 봅니다. 성기게 보면 건물 사이로 빠져나갑니다.
+            samples = _leg_samples({"lat": lat_a, "lon": lon_a}, {"lat": lat_b, "lon": lon_b})
         for step in range(1, samples):
             fraction = step / samples
             if self._forbidden_at(lat_a + (lat_b - lat_a) * fraction,
@@ -126,7 +129,7 @@ class Router:
 
         direct = self._straight(start_node, goal_node)
         if direct is not None:
-            legs = self._to_legs([start_node, goal_node])
+            legs = self._pin(self._to_legs([start_node, goal_node]), start, goal)
             if first_breach(self.airspace, [leg.to_dict() for leg in legs]) is None:
                 return Route(legs, detoured=False)
 
@@ -139,16 +142,31 @@ class Router:
         for nodes in (self._simplify(path), path):
             if not self._legal_chain(nodes):
                 continue
-            legs = self._to_legs(nodes)
+            legs = self._pin(self._to_legs(nodes), start, goal)
             if first_breach(self.airspace, [leg.to_dict() for leg in legs]) is None:
                 return Route(legs, detoured=True, reason="금지 구역을 피해 우회")
         return None
+
+    @staticmethod
+    def _pin(legs: list[Leg], start: tuple[float, float],
+             goal: tuple[float, float]) -> list[Leg]:
+        """경로의 양 끝을 실제 지점에 맞춥니다.
+
+        탐색은 격자점 위에서 하므로 마지막 구간이 목적지에서 최대 100m 떨어진 곳에서
+        끝납니다. 기체는 경유점을 다 쓰고 남은 100m 를 승인 없이 날아갑니다 —
+        그 구간이 어디를 지나는지는 아무도 판정한 적이 없습니다.
+        """
+        if not legs:
+            return legs
+        legs[0] = Leg(start[0], start[1], legs[0].alt_m)
+        legs[-1] = Leg(goal[0], goal[1], legs[-1].alt_m)
+        return legs
 
     def _legal_chain(self, nodes: list[tuple[int, int]]) -> bool:
         """이어 붙인 구간이 금지 구역을 안 지나는가. 격자점이 아니라 선분을 봅니다."""
         return all(
             not self._blocked(a) and not self._blocked(b)
-            and not self._crosses(a, b, samples=max(abs(b[0] - a[0]), abs(b[1] - a[1]), 1) * 3)
+            and not self._crosses(a, b)
             for a, b in zip(nodes, nodes[1:])
         )
 
@@ -214,6 +232,7 @@ class Router:
             lat, lon = self._coords(node)
             ceiling = (self.airspace.ceiling_at(lat, lon) if index == 0
                        else self._ceiling_between(nodes[index - 1], node))
-            altitude = ceiling if ceiling is not None else self.min_alt_m
-            legs.append(Leg(lat, lon, max(self.min_alt_m, altitude - 1.0)))
+            allowed = self.cruise_alt_m if ceiling is None else ceiling - 1.0
+            altitude = max(self.min_alt_m, min(self.cruise_alt_m, allowed))
+            legs.append(Leg(lat, lon, altitude))
         return legs

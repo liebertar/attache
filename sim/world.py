@@ -51,7 +51,7 @@ DESCENT_MPS = 1.75
 STEP_METRES = CRUISE_MPS * SIM_SECONDS_PER_TICK      # 틱당 17.6 m
 CLIMB_RATE_M = CLIMB_MPS * SIM_SECONDS_PER_TICK      # 틱당 상승
 DESCENT_RATE_M = DESCENT_MPS * SIM_SECONDS_PER_TICK  # 틱당 하강
-APPROACH_RADIUS = 6.0  # 이 안에 들어오면 내려가기 시작합니다
+ARRIVAL_RADIUS_M = 20.0  # 경유점에 이만큼 붙으면 다음 구간으로. 한 틱 이동이 17.6m
 
 
 def to_latlon(x: float, y: float) -> tuple[float, float]:
@@ -100,6 +100,27 @@ def load_volumes() -> list[dict]:
 
 STANDING_VOLUMES = load_volumes()
 AIRSPACE_BANDS = load_bands()
+
+# 건물. 규정이 아니라 물체지만, 판정에서는 같은 모양입니다 — 땅에서 옥상까지 금지이고
+# 그 위는 열려 있습니다. Volume 하나로 그게 그대로 표현되므로 새 판정 코드가 없습니다.
+# scripts/fetch_buildings.py 가 뉴욕시 공개 데이터에서 받아옵니다.
+BUILDING_FILE = os.getenv(
+    "BUILDING_FILE",
+    str(Path(__file__).resolve().parent.parent / "configs/airspace/nyc_buildings.json"),
+)
+
+
+def load_buildings() -> list[dict]:
+    """건물을 안 넣고 돌릴 수도 있어야 합니다 — 파일이 없으면 빈 목록입니다."""
+    if os.getenv("BUILDINGS", "1") == "0":
+        return []
+    try:
+        return json.loads(Path(BUILDING_FILE).read_text(encoding="utf-8"))["volumes"]
+    except (OSError, KeyError, json.JSONDecodeError):
+        return []
+
+
+BUILDINGS = load_buildings()
 
 ADDRESS_FILE = os.getenv(
     "ADDRESS_FILE",
@@ -271,7 +292,7 @@ class Scoreboard:
         return data
 
 
-for _raw in STANDING_VOLUMES:
+for _raw in STANDING_VOLUMES + BUILDINGS:
     AIRSPACE.add(Volume.from_dict(_raw))
 
 
@@ -456,6 +477,12 @@ class World:
             return
         if vehicle.waypoints:
             vehicle.cruise_alt = vehicle.waypoints[0][2]
+        # 멀티로터는 수직으로 올라간 다음 갑니다. 올라가면서 앞으로 나가면 승인받은
+        # 순항 고도보다 낮은 채로 건물 사이를 지나게 됩니다 — 경로는 통과인데 기체는
+        # 위반하는 상태가 됩니다. 실제 배달 드론도 뜨고 나서 이동합니다.
+        if not self._at_cruise(vehicle, target):
+            self._hold_altitude(vehicle, target)
+            return
         self._move_toward(vehicle, target)
         self._hold_altitude(vehicle, target)
         if vehicle.waypoints and self._at(vehicle, target):
@@ -512,18 +539,26 @@ class World:
         vehicle.heading = (math.degrees(math.atan2(dx_m, -dy_m))) % 360.0
 
     @staticmethod
+    def _at_cruise(vehicle: Vehicle, target: tuple[float, float]) -> bool:
+        """승인받은 고도에 올라왔는가. 도착점 위에서 내려가는 중이면 묻지 않습니다."""
+        if vehicle.state in ("landed", "charging"):
+            return True
+        if World._at(vehicle, target):
+            return True
+        return vehicle.alt >= vehicle.cruise_alt - CLIMB_RATE_M
+
+    @staticmethod
     def _hold_altitude(vehicle: Vehicle, target: tuple[float, float]) -> None:
-        """뜨고 내리는 구간을 실제로 그립니다. 3D 로 보면 이게 전부입니다."""
-        if vehicle.state == "landed":
+        """뜨고 내리는 구간을 실제로 그립니다. 3D 로 보면 이게 전부입니다.
+
+        멀티로터는 착륙점 위까지 순항 고도로 간 다음 수직으로 내려갑니다. 예전에는
+        1.5km 앞에서부터 비스듬히 활공했는데, 그 비탈이 건물 높이를 그대로 지나가서
+        승인된 경로를 날면서도 건물을 스쳤습니다.
+        """
+        if vehicle.state == "landed" or (
+            vehicle.state == "approaching" and World._at(vehicle, target)
+        ):
             vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
-            return
-        distance = (
-            (target[0] - vehicle.x) ** 2 + (target[1] - vehicle.y) ** 2
-        ) ** 0.5
-        if vehicle.state == "approaching" and distance < APPROACH_RADIUS:
-            glide = vehicle.cruise_alt * (distance / APPROACH_RADIUS)
-            vehicle.alt = max(0.0, min(vehicle.alt, glide), vehicle.alt - DESCENT_RATE_M)
-            vehicle.alt = min(vehicle.alt, glide)
             return
         ceiling = vehicle.cruise_alt
         if vehicle.alt > ceiling:
@@ -533,7 +568,15 @@ class World:
 
     @staticmethod
     def _at(vehicle: Vehicle, target: tuple[float, float]) -> bool:
-        return abs(vehicle.x - target[0]) < 0.6 and abs(vehicle.y - target[1]) < 0.6
+        """경유점에 닿았는가. 격자가 아니라 미터로 잽니다.
+
+        0.6칸으로 재던 시절에는 남북으로 155m 앞에서 이미 도달로 쳤습니다. 그만큼
+        일찍 다음 구간으로 넘어가며 모서리를 잘라먹었고, 승인된 경로에서 벗어난
+        그 자리에서 건물을 스쳤습니다.
+        """
+        north = (target[1] - vehicle.y) * METRES_PER_CELL_Y
+        east = (target[0] - vehicle.x) * METRES_PER_CELL_X
+        return (north * north + east * east) ** 0.5 < ARRIVAL_RADIUS_M
 
     def _detect_pad_conflicts(self, tick: int) -> None:
         occupants: dict[str, list[str]] = {}
@@ -594,7 +637,12 @@ class World:
         self.events.append({"tick": tick, "kind": kind, "text": text, "at": time.time()})
         del self.events[: max(0, len(self.events) - 40)]
 
-    def snapshot(self, tick: int) -> dict:
+    def snapshot(self, tick: int, volumes: bool = False) -> dict:
+        """volumes 는 달라고 해야 옵니다.
+
+        건물까지 넣으면 3천 개가 넘어서, 0.25초마다 도는 폴링에 매번 실으면
+        2MB 짜리 응답이 초당 몇 번씩 오갑니다. 공역은 한 번만 받으면 됩니다.
+        """
         return {
             "world": self.name,
             "tick": tick,
@@ -603,12 +651,12 @@ class World:
                   if k in ("id", "name", "polygon", "ceiling_m", "rule", "reason")}]
                 if ZONE_TICK <= tick <= ZONE_UNTIL else []
             ),
-            "volumes": [v.to_dict() for v in AIRSPACE.all()] + (
+            **({"volumes": [v.to_dict() for v in AIRSPACE.all()] + (
                 [{k: v for k, v in ZONE.items()
                   if k in ("id", "name", "polygon", "floor_m", "ceiling_m",
                            "reference", "rule", "reason", "source")}]
                 if ZONE_TICK <= tick <= ZONE_UNTIL else []
-            ),
+            )} if volumes else {}),
             "zone": {**ZONE, "active": tick >= ZONE_TICK},
             "pads": PADS,
             "pad_coords": {

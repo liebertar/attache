@@ -34,7 +34,10 @@ def main() -> None:
             return 404, {"error": f"unknown world {name}"}
         # 판 번호를 같이 보냅니다. 런타임이 한 판짜리 상태(예산·잠금)를 언제
         # 비워야 하는지 알 방법이 이것뿐입니다.
-        return 200, {**world.snapshot(simulation.tick_count), "round": simulation.rounds}
+        # 공역은 달라고 할 때만 싣습니다. 건물까지 3천 개가 넘어서 매번 보낼 수 없습니다.
+        wants_volumes = query.get("volumes") in ("1", "true", "yes")
+        return 200, {**world.snapshot(simulation.tick_count, volumes=wants_volumes),
+                     "round": simulation.rounds}
 
     def act(body, query):
         world = simulation.worlds.get(body.get("world", "guarded"))

@@ -200,7 +200,7 @@ class Runtime:
             self._follow_round(state.get("round"))
 
         if not self.airspace.all():
-            world = get_json(f"{self.sim_url}/state?world=guarded") or {}
+            world = get_json(f"{self.sim_url}/state?world=guarded&volumes=1") or {}
             for raw in world.get("volumes", []):
                 self.airspace.add(Volume.from_dict(raw))
             self.pad_coords = {
