@@ -96,6 +96,17 @@ def get_json(url: str, timeout: float = 5.0) -> dict | None:
 
 
 def post_json(url: str, payload: dict, timeout: float = 20.0, headers: dict | None = None):
+    return post_json_status(url, payload, timeout=timeout, headers=headers)[1]
+
+
+def post_json_status(url: str, payload: dict, timeout: float = 20.0,
+                     headers: dict | None = None) -> tuple[int, dict | None]:
+    """(HTTP 상태, 본문). 닿지 못했으면 (0, None).
+
+    모델 서버가 어떤 인자를 거절했는지(400)와 그냥 느린 것(타임아웃)은 다르게 다뤄야 합니다.
+    전자는 그 인자를 빼고 한 번 더 내면 되고, 후자는 다시 내봐야 또 기다리기만 합니다.
+    None 하나로 뭉치면 둘을 구분할 수 없어서 상태 코드를 같이 돌려줍니다.
+    """
     data = json.dumps(payload, ensure_ascii=False).encode()
     request = urllib.request.Request(url, data=data, method="POST")
     request.add_header("Content-Type", "application/json")
@@ -103,6 +114,8 @@ def post_json(url: str, payload: dict, timeout: float = 20.0, headers: dict | No
         request.add_header(key, value)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read())
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        return error.code, None
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
-        return None
+        return 0, None

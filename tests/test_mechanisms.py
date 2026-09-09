@@ -267,3 +267,174 @@ class RoundResetTest(unittest.TestCase):
         )
         runtime._follow_round(3)
         self.assertEqual(runtime.authority.fleet_spend, 22.0)
+
+
+class CountingAdapter:
+    """실행된 경로를 셉니다. 런타임의 보장은 여기 닿는 것으로 재야 합니다."""
+
+    def __init__(self):
+        self.routes = []
+
+    def execute(self, asset_id, action, params, ledger_id, blast="none", approved_by=None):
+        if params.get("legs"):
+            self.routes.append((asset_id, action, params["legs"]))
+        return {"ok": True}
+
+    def telemetry(self):
+        return {}
+
+
+def _runtime_with(volumes):
+    from attache.core.geo import Volume
+
+    with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
+        runtime = Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)
+    adapter = CountingAdapter()
+    runtime.adapter = adapter
+    runtime.committer.adapter = adapter
+    for raw in volumes:
+        runtime.airspace.add(raw if isinstance(raw, Volume) else Volume.from_dict(raw))
+    return runtime, adapter
+
+
+class RouteFormTest(unittest.TestCase):
+    """판정 이전의 양식. 유한한 숫자라고 다 경로가 아닙니다.
+
+    음수 고도는 모든 구역의 '아래' 로 빠져 건물 한가운데를 지나는 경로가 통과했고, 1e300 짜리
+    좌표는 색인 격자 1e600 칸을 돌며 판정이 영영 안 끝났습니다. 배송된 초안기는 둘 다
+    자기 검사에서 거르지만, 런타임의 보장은 초안기가 없어도 같아야 합니다.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from sim.world import seat_of, to_latlon
+
+        cls.volumes = Simulation(seed=7).worlds["guarded"].snapshot(0, volumes=True)["volumes"]
+        cls.start = tuple(round(v, 6) for v in to_latlon(*seat_of(0)))
+        # 출발점에서 가장 가까운, 옥상이 100m 를 넘는 건물. 그 한가운데를 지납니다.
+        tall = [v for v in cls.volumes if v["id"].startswith("bldg-")
+                and (v.get("ceiling_m") or 0) >= 100]
+        nearest = min(tall, key=lambda v: (v["polygon"][0][0] - cls.start[0]) ** 2
+                      + (v["polygon"][0][1] - cls.start[1]) ** 2)
+        cls.centre = (sum(p[0] for p in nearest["polygon"]) / len(nearest["polygon"]),
+                      sum(p[1] for p in nearest["polygon"]) / len(nearest["polygon"]))
+
+    def setUp(self):
+        self.runtime, self.adapter = _runtime_with(self.volumes)
+
+    def through_building(self, alt_m):
+        return [{"lat": self.start[0], "lon": self.start[1], "alt_m": alt_m},
+                {"lat": self.centre[0], "lon": self.centre[1], "alt_m": alt_m},
+                {"lat": self.start[0] + 0.001, "lon": self.start[1], "alt_m": alt_m}]
+
+    def file_route(self, legs):
+        return self.runtime.file(proposal(action="fly_route", cost_usd=40.0, blast_radius="cargo",
+                                          params={"legs": legs}).to_dict())
+
+    def test_a_route_below_ground_through_a_building_is_refused(self):
+        for alt_m in (-1.0, -0.001, -1e9):
+            with self.subTest(alt_m=alt_m):
+                decision = self.file_route(self.through_building(alt_m))
+                self.assertIs(decision.verdict, Verdict.DENIED)
+                self.assertEqual(decision.code, "airspace")
+                self.assertIn("양식", decision.reason)
+        self.assertEqual(self.adapter.routes, [])
+        # 같은 길을 60m 로 내면 양식이 아니라 판정이 막습니다 — 건물이 정말 거기 있다는 뜻입니다.
+        decision = self.file_route(self.through_building(60.0))
+        self.assertIs(decision.verdict, Verdict.DENIED)
+        self.assertNotIn("양식", decision.reason)
+
+    def test_the_judge_itself_treats_below_ground_as_ground(self):
+        """양식 검사를 지나쳐도(다른 진입점) 판정은 -1m 를 건물 안으로 봅니다."""
+        from attache.core.geo import first_breach
+
+        found = first_breach(self.runtime.airspace, self.through_building(-1.0))
+        self.assertIsNotNone(found)
+        self.assertTrue(found[1].id.startswith("bldg-"))
+
+    def test_coordinates_off_the_planet_are_refused_at_once(self):
+        import time
+
+        legs = [{"lat": 1e300, "lon": 1e300, "alt_m": 60},
+                {"lat": -1e300, "lon": 1e300, "alt_m": 60}]
+        started = time.monotonic()
+        decision = self.file_route(legs)
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertIs(decision.verdict, Verdict.DENIED)
+        self.assertIn("양식", decision.reason)
+
+    def test_a_leg_longer_than_the_runtime_maximum_is_refused(self):
+        from attache.runtime.service import MAX_LEG_M
+
+        legs = [{"lat": 40.70, "lon": -73.97, "alt_m": 60},
+                {"lat": 40.70 + (MAX_LEG_M + 1000) / 110_570.0, "lon": -73.97, "alt_m": 60}]
+        decision = self.file_route(legs)
+        self.assertIs(decision.verdict, Verdict.DENIED)
+        self.assertIn("너무 김", decision.reason)
+
+    def test_the_index_refuses_to_walk_a_planet_sized_leg(self):
+        """마지막 방어선. 양식 검사 없이 판정 함수에 바로 넣어도 돌지 않고 거부합니다."""
+        from attache.core.geo import Airspace, Volume, box, first_breach
+
+        airspace = Airspace([Volume("nofly", "x", box(40.72, -73.99, 40.73, -73.98))])
+        with self.assertRaises(ValueError):
+            first_breach(airspace, [{"lat": -90, "lon": -180, "alt_m": 60},
+                                    {"lat": 90, "lon": 180, "alt_m": 60}])
+
+
+class RejudgeBeforeCommitTest(unittest.TestCase):
+    """판정은 접수 때 한 번이 아니라 실행 직전에 다시 합니다.
+
+    사람 승인을 기다리거나 자원 줄에 서 있는 동안 구역이 닫히면, 그 경로는 옛 공역으로 판정된
+    것입니다. 실행 시점에 다시 보지 않으면 승인·배정이 닫힌 구역으로 기체를 내보냅니다.
+    """
+
+    def setUp(self):
+        from sim.world import ZONE
+
+        self.zone = {**ZONE, "published_tick": 560, "until_tick": 900}
+        # 구역 말고는 아무것도 없는 공역. 구역 한가운데를 지나는 길이 닫히기 전에는 통과합니다.
+        self.runtime, self.adapter = _runtime_with([])
+        centre = (sum(p[0] for p in ZONE["polygon"]) / 4, sum(p[1] for p in ZONE["polygon"]) / 4)
+        self.legs = [{"lat": 40.7100, "lon": -73.9855, "alt_m": 60},
+                     {"lat": centre[0], "lon": centre[1], "alt_m": 60},
+                     {"lat": 40.7350, "lon": -73.9855, "alt_m": 60}]
+
+    def test_a_human_approval_does_not_revive_a_route_the_zone_has_since_closed(self):
+        filed = self.runtime.file(proposal(action="fly_route", cost_usd=40.0,
+                                           blast_radius="passenger",
+                                           params={"legs": self.legs}).to_dict())
+        self.assertIs(filed.verdict, Verdict.HUMAN)
+        self.runtime.absorb([self.zone])
+        decision = self.runtime.approve(filed.proposal_id, "관제사", allow=True)
+        self.assertIs(decision.verdict, Verdict.DENIED)
+        self.assertEqual(decision.code, "airspace")
+        self.assertEqual(decision.forbids, self.zone["id"])
+        self.assertFalse(decision.committed)
+        self.assertEqual(self.adapter.routes, [])
+
+    def test_the_arbiter_does_not_hand_a_pad_to_a_route_the_zone_has_since_closed(self):
+        filed = self.runtime.file(proposal(action="reserve_pad", cost_usd=18.0,
+                                           blast_radius="schedule", resource="pad:launch",
+                                           params={"legs": self.legs}).to_dict())
+        self.assertIs(filed.verdict, Verdict.QUEUED)
+        self.runtime.absorb([self.zone])
+        self.runtime._settle_contended()
+        self.assertIs(filed.verdict, Verdict.DENIED)
+        self.assertEqual(filed.code, "airspace")
+        self.assertEqual(self.adapter.routes, [])
+        self.assertIsNone(self.runtime.locks.holder("pad:launch"))
+
+    def test_without_a_zone_change_the_same_paths_still_commit(self):
+        filed = self.runtime.file(proposal(action="fly_route", cost_usd=40.0,
+                                           blast_radius="passenger",
+                                           params={"legs": self.legs}).to_dict())
+        decision = self.runtime.approve(filed.proposal_id, "관제사", allow=True)
+        self.assertTrue(decision.committed)
+        queued = self.runtime.file(proposal(asset_id="drone-02", action="reserve_pad",
+                                            cost_usd=18.0, blast_radius="schedule",
+                                            resource="pad:launch",
+                                            params={"legs": self.legs}).to_dict())
+        self.runtime._settle_contended()
+        self.assertTrue(queued.committed)
+        self.assertEqual(len(self.adapter.routes), 2)

@@ -1,15 +1,23 @@
 """The runtime process. Holds locks, limits, the arbiter, the single commit path, the ledger."""
 
+import math
 import os
 import threading
 import time
 
 from attache.adapters import build as build_adapter
 from attache.core import config as config_module
-from attache.core.geo import Airspace, Volume, first_breach, nearest_exit
-from attache.core.route import Router
+from attache.core.geo import (
+    METRES_PER_DEG_LAT,
+    METRES_PER_DEG_LON,
+    Airspace,
+    Volume,
+    first_breach,
+    nearest_exit,
+)
 from attache.core.http import JsonServer, get_json
 from attache.core.models import Decision, Proposal, Verdict
+from attache.core.route import Router
 from attache.llm.client import TieredLlm
 from attache.runtime.arbiter import Arbiter
 from attache.runtime.authority import AuthorityCheck
@@ -17,6 +25,11 @@ from attache.runtime.commit import Committer
 from attache.runtime.ledger import Ledger
 from attache.runtime.locks import LockTable
 from attache.runtime.policy import PolicyBook
+
+# 한 구간의 최대 길이. 서비스 반경이 11km 라 그 안의 어떤 경로도 이보다 긴 구간은 없습니다.
+# 유한하기만 한 좌표로 지구 반 바퀴짜리 구간을 내면 판정이 색인 격자 1e10 칸을 돌며 영영 안
+# 끝났고, 그동안 런타임 스레드가 GIL 을 쥐어 세계·중재가 멈췄습니다. 판정 이전의 양식 문제입니다.
+MAX_LEG_M = 50_000.0
 
 
 class Runtime:
@@ -35,6 +48,7 @@ class Runtime:
 
         self.sim_url = sim_url
         self.pad_coords: dict[str, tuple[float, float]] = {}
+        self.landing_areas: list[dict] = []   # 운영사에게 그대로 넘겨주는 배달 착륙장 목록
         self.window_s = window_s
         self.tick = 0
         self.telemetry: dict = {}
@@ -110,6 +124,11 @@ class Runtime:
         legs = proposal.params.get("legs")
         if not legs:
             return None if not self.airspace.all() else "경로를 같이 내야 합니다"
+        malformed = _form_problem(legs)
+        if malformed:
+            # 판정 이전의 양식 문제입니다. 숫자가 아닌 좌표를 판정 함수에 넣으면 요청 하나가
+            # 500 으로 죽고, 운영사는 왜 거절됐는지 모릅니다. 양식이 아니면 양식이 아니라고 합니다.
+            return f"경로 양식이 아닙니다 ({malformed})"
 
         found = first_breach(self.airspace, legs)
         if found is not None:
@@ -147,6 +166,25 @@ class Runtime:
             return f"착륙 지점 둘레에 {volume.name} ({gap:.0f}m) — 내려앉을 수 없습니다"
         return None
 
+    def _rejudge(self, proposal: Proposal, decision: Decision) -> str | None:
+        """실행 직전에 지금의 공역으로 다시 판정합니다. 막히면 거절로 닫고 이유를 돌려줍니다.
+
+        판정은 접수(file) 때 한 번 합니다. 사람 승인을 기다리거나 자원 줄에 서 있는 동안 구역
+        공지가 오면, 나중의 실행은 옛 공역으로 판정한 경로를 닫힌 구역으로 내보냈습니다.
+        '실행된 경로는 전부 런타임의 공역으로 판정을 지났다' 는 실행 시점의 말이어야 합니다.
+        판정은 밀리초라 공역 판본을 기억해 두고 바뀐 때만 다시 보는 것보다 매번 보는 게 쌉니다.
+        """
+        blocked = self.check_route(proposal)
+        if blocked is None:
+            return None
+        decision.verdict = Verdict.DENIED
+        decision.reason = blocked
+        decision.policy_hit = "airspace"
+        decision.forbids = proposal.params.get("blocked_volume")
+        decision.code = "airspace"
+        self.ledger.close_entry(self.ledger.open_entry(proposal, decision), "denied")
+        return blocked
+
     def _queue_or_commit(self, proposal: Proposal, decision: Decision) -> Decision:
         if not proposal.resource:
             committed = self.committer.commit(proposal, decision)
@@ -182,6 +220,8 @@ class Runtime:
             return decision
         decision.verdict = Verdict.AUTO
         decision.reason = f"{actor} 가 승인했습니다"
+        if self._rejudge(proposal, decision):
+            return decision   # 기다리는 사이 공역이 바뀌었습니다. 승인은 옛 경로를 살리지 못합니다
         return self._queue_or_commit(proposal, decision)
 
     # ---------- 자원 중재 ----------
@@ -197,6 +237,10 @@ class Runtime:
             batches = {resource: self._contended.pop(resource) for resource in ready}
 
         for resource, waiting in batches.items():
+            # 줄 서 있는 동안 공역이 바뀌었을 수 있습니다. 막힌 경로는 중재에 들어가지 않습니다.
+            waiting = [item for item in waiting if self._rejudge(item[0], item[1]) is None]
+            if not waiting:
+                continue
             held = self.locks.holder(resource)
             candidates = [item[0] for item in waiting]
             if held and held.asset_id not in {p.asset_id for p in candidates}:
@@ -208,14 +252,20 @@ class Runtime:
                     self.ledger.close_entry(self.ledger.open_entry(proposal, decision), "denied")
                 continue
 
-            winner, how = self.arbiter.choose(candidates, self.telemetry)
+            choice = self.arbiter.pick(candidates, self.telemetry)
+            winner, how = choice.proposal, choice.how
+            # 모델이 고른 이유는 기록에 남습니다. 고른 것은 번호 하나고, 그 번호가 범위 밖이면
+            # 규칙이 골랐습니다 — 이유는 설명이지 결정이 아닙니다.
+            detail = {"resource": resource}
+            if choice.reason:
+                detail["arbiter_reason"] = choice.reason
             for proposal, decision, _ in waiting:
                 if proposal.id == winner.id:
                     decision.arbiter = how if len(candidates) > 1 else None
                     decision.verdict = Verdict.AUTO
                     decision.reason = f"{resource} 배정됨"
                     decision.code = "resource_granted"
-                    decision.detail = {"resource": resource}
+                    decision.detail = dict(detail)
                     self.committer.commit(proposal, decision)
                     if decision.committed:
                         self._recent_commits[(proposal.asset_id, proposal.action)] = self.tick
@@ -223,6 +273,7 @@ class Runtime:
                     decision.verdict = Verdict.DENIED
                     decision.arbiter = how
                     decision.reason = f"{winner.asset_id} 가 {resource} 를 받았습니다"
+                    decision.detail = dict(detail)
                     self.ledger.close_entry(self.ledger.open_entry(proposal, decision), "denied")
 
     # ---------- 바깥에서 오는 소식 ----------
@@ -242,6 +293,7 @@ class Runtime:
                 name: (at["lat"], at["lon"])
                 for name, at in (world.get("pad_coords") or {}).items()
             }
+            self.landing_areas = list(world.get("landing_areas") or [])
 
         bulletins = get_json(f"{self.sim_url}/bulletins?world=guarded") or {}
         self.absorb(bulletins.get("bulletins", []))
@@ -298,15 +350,36 @@ class Runtime:
             self.zone_volumes.discard(expired)
 
     def background(self) -> None:
+        """세계를 받아오는 쪽. 중재와 같은 스레드에 두면 안 됩니다(아래 settle_forever)."""
         while True:
             # 한 번 실패해도 다음 주기에 다시 봅니다. 이 스레드가 죽으면 런타임은 옛 세계를
             # 보면서 판정하게 되고, 그건 조용히 틀리는 최악의 상태입니다.
             try:
                 self._pull_world()
-                self._settle_contended()
             except Exception as error:  # noqa: BLE001 — 살아남는 것이 먼저입니다
                 print(f"runtime background: {error!r}", flush=True)
             time.sleep(0.25)
+
+    def settle_forever(self) -> None:
+        """자원 중재만 하는 스레드. 모델이 느려도 세계의 시계는 멈추지 않습니다.
+
+        중재가 세계 갱신과 한 스레드에 있으면 Ultra 가 3초 생각하는 동안 틱·위치·공지가
+        3초 낡습니다. 그동안 들어온 신청은 옛 위치로 판정됩니다. 중재는 어차피
+        window_s 만큼 기다렸다 하는 일이라 따로 돌아도 늦어지는 것은 중재뿐입니다.
+        """
+        while True:
+            try:
+                self._settle_contended()
+            except Exception as error:  # noqa: BLE001
+                print(f"runtime arbiter: {error!r}", flush=True)
+            time.sleep(0.25)
+
+    def start_background(self) -> list[threading.Thread]:
+        threads = [threading.Thread(target=self.background, daemon=True, name="world"),
+                   threading.Thread(target=self.settle_forever, daemon=True, name="arbiter")]
+        for thread in threads:
+            thread.start()
+        return threads
 
     def recall_flights(self, volume) -> list[Decision]:
         """이미 승인해서 날고 있는 경로를 새 구역으로 다시 판정합니다.
@@ -393,7 +466,10 @@ class Runtime:
         return {
             "tick": self.tick,
             "config": self.config.name,
-            "llm": {"enabled": self.llm.enabled, "models": self.llm.models},
+            # 모델은 보이되 결정권이 없습니다. 어느 서버에 몇 번 물었고 몇 번 규칙이 대신했는지.
+            # 여기 세는 것은 런타임 자신의 호출(중재)뿐이고, 기체 쪽 호출은 기체 프로세스가 압니다.
+            "llm": {"enabled": self.llm.enabled, "models": self.llm.models,
+                    "host": self.llm.host, "calls": self.llm.stats_dict()},
             "locks": self.locks.snapshot(),
             "contended": waiting,
             "awaiting_human": pending,
@@ -410,6 +486,39 @@ class Runtime:
         }
 
 
+def _form_problem(legs) -> str | None:
+    """legs 가 판정에 넣을 양식인가, 아니면 무엇이 아닌지. 판정이 아니라 양식 검사입니다.
+
+    좌표는 지구 위(|lat| ≤ 90, |lon| ≤ 180), 고도는 땅 위(≥ 0), 구간은 MAX_LEG_M 이하여야 합니다.
+    유한하기만 한 값은 양식이 아닙니다 — 음수 고도는 모든 구역의 '아래' 로 빠져 건물을 관통했고,
+    1e300 짜리 좌표는 판정을 영영 끝나지 않게 했습니다.
+    """
+    if not isinstance(legs, list) or len(legs) < 2:
+        return "legs 는 둘 이상의 점 목록"
+    previous = None
+    for index, leg in enumerate(legs, start=1):
+        if not isinstance(leg, dict):
+            return f"{index}번 점이 객체가 아님"
+        try:
+            lat, lon, alt = float(leg["lat"]), float(leg["lon"]), float(leg.get("alt_m", 0.0))
+        except (KeyError, TypeError, ValueError):
+            return f"{index}번 점에 숫자 lat/lon/alt_m 가 없음"
+        if not all(math.isfinite(value) for value in (lat, lon, alt)):
+            return f"{index}번 점이 유한한 수가 아님"
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            return f"{index}번 점이 지구 위 좌표가 아님"
+        if alt < 0.0:
+            return f"{index}번 점의 고도가 땅 밑 ({alt:.0f}m)"
+        if previous is not None:
+            length = math.hypot((lat - previous[0]) * METRES_PER_DEG_LAT,
+                                (lon - previous[1]) * METRES_PER_DEG_LON)
+            if length > MAX_LEG_M:
+                return (f"{index - 1}번 구간이 너무 김 "
+                        f"({length / 1000:.0f}km > {MAX_LEG_M / 1000:.0f}km)")
+        previous = (lat, lon)
+    return None
+
+
 def main() -> None:
     runtime = Runtime(
         config_path=os.getenv("CONFIG", "configs/fleet.yaml"),
@@ -417,7 +526,7 @@ def main() -> None:
         ledger_path=os.getenv("LEDGER_PATH", "ledger.jsonl"),
         window_s=float(os.getenv("ARBITRATION_WINDOW_S", "1.5")),
     )
-    threading.Thread(target=runtime.background, daemon=True).start()
+    runtime.start_background()
 
     server = JsonServer(int(os.getenv("PORT", "8000")))
     server.add("POST", "/proposals", lambda body, query: (200, runtime.file(body).to_dict()))
@@ -437,9 +546,12 @@ def main() -> None:
                                           "airspace_revision": runtime.airspace.revision}
                                     if asset in runtime.telemetry else {}),
     )
+    # 착륙장 목록도 같이 줍니다. 운영사가 서비스 영역(모델 초안이 나가면 안 되는 상자)을
+    # 여기서 셈합니다. 판정과는 무관한, 이륙장 좌표와 같은 종류의 자료입니다.
     server.add("GET", "/airspace", lambda body, query: (200, {
         "volumes": [v.to_dict() for v in runtime.airspace.all()],
         "pads": {n: {"lat": a[0], "lon": a[1]} for n, a in runtime.pad_coords.items()},
+        "landing_areas": runtime.landing_areas,
     }))
     server.add("GET", "/health", lambda body, query: (200, {"ok": True, "tick": runtime.tick}))
     print(f"runtime listening on :{os.getenv('PORT', '8000')}", flush=True)

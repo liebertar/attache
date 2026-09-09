@@ -29,10 +29,26 @@ VERTICAL_CLEARANCE_M = 50.0
 # 있어도 90m 를 수직으로 내려오기에는 탑 사이 골짜기입니다. 착륙 지점은 경로의 끝점이고, 런타임이
 # 경로를 판정할 때 끝점도 같이 봅니다.
 LANDING_SEPARATION_M = 50.0
+# 색인 격자에서 선분 하나가 걸칠 수 있는 최대 칸 수. 50km 대각선이 13만 칸쯤이라 넉넉합니다.
+# 유한하기만 한 좌표(1e300)로 온 선분은 칸이 1e600 개라 판정이 영영 안 끝났습니다 — 그 사이
+# 런타임 스레드가 GIL 을 잡고 있어 세계·중재 스레드가 굶습니다. 셀 수 없이 긴 선분은 판정을
+# 거부합니다. 양식 검사(runtime.service)가 먼저 거르고, 여기는 마지막 방어선입니다.
+MAX_LEG_CELLS = 1_000_000
 
 
 def separation_for(volume: "Volume") -> float:
     return SEPARATION_M if volume.id.startswith("bldg-") else ZONE_SEPARATION_M
+
+
+def ground_clamped(alt_m: float) -> float:
+    """땅 밑은 땅입니다. 건물은 바닥이 0m 라 -1m 는 '건물 아래'가 아니라 건물 안입니다.
+
+    바닥과 천장을 구간으로만 보면 음수 고도가 모든 구역의 바깥이 되어, -1m 로 건물 한가운데를
+    지나는 경로가 판정을 통과했습니다.
+    """
+    return alt_m if alt_m > 0.0 else 0.0
+
+
 METRES_PER_DEG_LAT = 110_570.0
 METRES_PER_DEG_LON = 84_400.0    # 위도 40.7도 기준
 
@@ -62,12 +78,14 @@ class Volume:
     def contains(self, lat: float, lon: float, alt_m: float) -> bool:
         if not self.covers(lat, lon):
             return False
+        alt_m = ground_clamped(alt_m)
         if alt_m < self.floor_m:
             return False
         return self.top_m is None or alt_m <= self.top_m
 
     def breach(self, lat: float, lon: float, alt_m: float) -> str | None:
         """이 좌표·고도가 이 구역의 규칙을 어기는가. 어기면 왜인지 한 줄로."""
+        alt_m = ground_clamped(alt_m)
         if self.polygon and not self.covers(lat, lon):
             return None
         if not self.polygon:
@@ -203,6 +221,7 @@ class Airspace:
         """이 점이 금지 구역 안이거나 이격 거리 안인가. first_breach 와 같은 기준입니다."""
         if self.forbidden_at(lat, lon, alt_m):
             return True
+        alt_m = ground_clamped(alt_m)
         point = {"lat": lat, "lon": lon}
         for volume in self.near(lat, lon):
             if (volume.rule != "forbidden" or not volume.polygon or alt_m < volume.floor_m
@@ -221,6 +240,7 @@ class Airspace:
         """
         if self._index_for != self.revision:
             self._rebuild_index()
+        alt_m = ground_clamped(alt_m)
         cell = (int(math.floor(lat / INDEX_CELL_DEG)), int(math.floor(lon / INDEX_CELL_DEG)))
         for volume, south, north, west, east in self._grid.get(cell, EMPTY):
             if (volume.rule == "forbidden" and south <= lat <= north
@@ -292,9 +312,13 @@ def _leg_volumes(airspace: Airspace, here: dict, nxt: dict):
     north += widest / METRES_PER_DEG_LAT
     west -= widest / METRES_PER_DEG_LON
     east += widest / METRES_PER_DEG_LON
+    rows = range(math.floor(south / INDEX_CELL_DEG), math.floor(north / INDEX_CELL_DEG) + 1)
+    cols = range(math.floor(west / INDEX_CELL_DEG), math.floor(east / INDEX_CELL_DEG) + 1)
+    if len(rows) * len(cols) > MAX_LEG_CELLS:
+        raise ValueError(f"선분이 너무 길어 판정할 수 없습니다 ({len(rows)}x{len(cols)} 칸)")
     candidates = {v.id: v for v in airspace._everywhere}
-    for row in range(math.floor(south / INDEX_CELL_DEG), math.floor(north / INDEX_CELL_DEG) + 1):
-        for col in range(math.floor(west / INDEX_CELL_DEG), math.floor(east / INDEX_CELL_DEG) + 1):
+    for row in rows:
+        for col in cols:
             for volume, lo_lat, hi_lat, lo_lon, hi_lon in airspace._grid.get((row, col), EMPTY):
                 if lo_lat <= north and hi_lat >= south and lo_lon <= east and hi_lon >= west:
                     candidates[volume.id] = volume
@@ -415,7 +439,7 @@ def first_breach(airspace: "Airspace", legs: list[dict], samples: int | None = N
     """
     for index in range(len(legs) - 1):
         here, nxt = legs[index], legs[index + 1]
-        altitude = float(nxt.get("alt_m", here.get("alt_m", 0.0)))
+        altitude = ground_clamped(float(nxt.get("alt_m", here.get("alt_m", 0.0))))
         first = None
         for volume in _leg_volumes(airspace, here, nxt):
             cuts = _crossing_fractions(here, nxt, volume.polygon)
