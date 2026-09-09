@@ -15,9 +15,9 @@ def main() -> None:
         tick_seconds=float(os.getenv("TICK_SECONDS", "0.2")),
         lock_actuator=os.getenv("LOCK_ACTUATOR", "0") == "1",
         # 화면을 켜두면 계속 돌아야 합니다. 한 판이 끝나면 알아서 다시 시작합니다.
-        max_ticks=int(os.getenv("ROUND_TICKS", "1800")),
-        # 22 m/s 로 날면 브루클린에서 맨해튼 한 건이 300틱 안팎입니다.
-        # 420틱이던 시절은 격자 단위로 움직여 남북이 8배 빨랐을 때의 값입니다.
+        # 서비스 반경 11km 라 편도가 570틱까지 갑니다. 배달지 두 곳을 돌고 창고까지 오려면
+        # 한 바퀴가 2천 틱 안팎이고, 한 판에 두 바퀴는 돌아야 순환이 보입니다.
+        max_ticks=int(os.getenv("ROUND_TICKS", "4000")),
     )
 
     def clock() -> None:
@@ -70,6 +70,10 @@ def main() -> None:
             "recall_tick": simulation.bulletins()[0]["published_tick"]
             if simulation.bulletins()
             else None,
+            # 지금 걸려 있는 공지 전부. 화면이 무슨 규칙이 도착했는지 그대로 씁니다.
+            "bulletins": [{k: b.get(k) for k in ("id", "kind", "name", "reason", "published_tick",
+                                                  "until_tick", "forbid_action", "applies_to")}
+                          for b in simulation.bulletins()],
             "worlds": {
                 name: world.snapshot(simulation.tick_count)
                 for name, world in simulation.worlds.items()

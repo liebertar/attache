@@ -84,6 +84,18 @@ services:
     networks: [fleet]
     depends_on: [runtime]
 
+  guarded-drone-03:
+    <<: *build-agent
+    environment: { <<: *llm, ASSET_ID: drone-03, RUNTIME_URL: "http://runtime:8000" }
+    networks: [fleet]
+    depends_on: [runtime]
+
+  guarded-drone-04:
+    <<: *build-agent
+    environment: { <<: *llm, ASSET_ID: drone-04, RUNTIME_URL: "http://runtime:8000" }
+    networks: [fleet]
+    depends_on: [runtime]
+
 
   # --- 조종장치를 직접 만지는 세계 (지금 대부분의 배선) ---------------------
   direct-drone-01:
@@ -95,6 +107,18 @@ services:
   direct-drone-02:
     <<: *build-direct
     environment: { <<: *llm, ASSET_ID: drone-02, TRANSPORT: http, SIM_URL: "http://sim:8100" }
+    networks: [world]
+    depends_on: [sim]
+
+  direct-drone-03:
+    <<: *build-direct
+    environment: { <<: *llm, ASSET_ID: drone-03, TRANSPORT: http, SIM_URL: "http://sim:8100" }
+    networks: [world]
+    depends_on: [sim]
+
+  direct-drone-04:
+    <<: *build-direct
+    environment: { <<: *llm, ASSET_ID: drone-04, TRANSPORT: http, SIM_URL: "http://sim:8100" }
     networks: [world]
     depends_on: [sim]
 

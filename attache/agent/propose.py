@@ -36,11 +36,11 @@ def by_rule(
     asset_id = telemetry.get("id", "?")
     if concern.kind == "needs_route":
         action, chosen_pad = "fly_route", None
-    elif concern.kind == "charged":
+    elif concern.kind in ("charged", "needs_reload"):
         action, chosen_pad = "depart", None
     elif concern.kind == "autonomy_fault":
         action, chosen_pad = "disengage_autonomy", None
-    elif concern.kind == "motor_fault":
+    elif concern.kind in ("motor_fault", "needs_pad"):
         action, chosen_pad = "reserve_pad", pad
     elif concern.kind == "needs_charge":
         wants_fast = concern.urgency == "high" and "fast_charge" not in banned

@@ -19,6 +19,11 @@ from attache.core.route import Router
 from attache.llm.client import TieredLlm
 
 FALLBACK_PADS = ["pad:launch"]
+# 거절당한 뒤 다시 그리기까지. 화면이 거절을 보여주는 시간(ui/map-route.mjs stageLife('rejected'):
+# 그리기 2.4 + 판정 0.6 + 붉게 1.6 + 흐려짐 1.0 = 5.6초)과 같습니다. 운영사가 거절 사유를
+# 읽고 나서 다시 그리는 시간이고, 이게 있어야 거절 표시와 승인 표시가 실제 시간에서 겹치지
+# 않아 시뮬레이터가 승인 하나만큼만(CLEARANCE_TICKS) 기다리면 됩니다.
+REDRAW_DELAY_S = 5.6
 
 
 class GuardedAgent:
@@ -34,7 +39,10 @@ class GuardedAgent:
         self.cooldown: dict[str, float] = {}
         self.repeat_s = float(os.getenv("REPEAT_COOLDOWN_S", "2"))
         self.denial_s = float(os.getenv("DENIAL_COOLDOWN_S", "6"))
+        self.redraw_s = float(os.getenv("REDRAW_DELAY_S", str(REDRAW_DELAY_S)))
+        self.banned_retry_s = float(os.getenv("BANNED_RETRY_S", "20"))
         self.planner = OperatorPlanner()
+        self.airspace_revision = None
         # 우리 기체가 다니고 싶은 높이. 허용 천장이 더 낮으면 런타임이 거절하고,
         # 그때 계획기가 구간마다 낮춰서 다시 그립니다.
         self.preferred_alt_m = float(os.getenv("CRUISE_ALT_M", str(Router.cruise_alt_default())))
@@ -64,19 +72,27 @@ class GuardedAgent:
         if here[0] is None or goal is None:
             return post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
 
-        proposal.params = {**proposal.params,
-                           "legs": self.planner.straight(here, goal, self.preferred_alt_m)}
-        decision = post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
-        if not decision or decision.get("policy_hit") != "airspace":
-            return decision
-
-        # 다시 그리라고 했습니다. 우리 공역 사본으로 우회로를 그립니다.
-        self.planner.note_refusal(decision.get("forbids"))
+        airborne = float(telemetry.get("alt_m") or 0.0) > 1.0
+        if airborne:
+            # 나는 중에 경로를 잃었습니다(회수). 떠 있는 시간이 곧 잡음이라 직선 의식 없이
+            # 우리 공역 사본으로 바로 우회로를 그려 냅니다.
+            decision = None
+        else:
+            proposal.params = {**proposal.params,
+                               "legs": self.planner.straight(here, goal, self.preferred_alt_m)}
+            decision = post_json(f"{self.runtime_url}/proposals", proposal.to_dict())
+            if not decision or decision.get("policy_hit") != "airspace":
+                return decision
+            # 다시 그리라고 했습니다. 거절 사유를 읽는 동안(화면이 거절을 보여주는 동안)
+            # 기다렸다가 우회로를 그립니다. 기체는 지상에서 일하는 중이라 그대로 있습니다.
+            self.planner.note_refusal(decision.get("forbids"))
+            time.sleep(self.redraw_s)
         legs = self.planner.draw(here, goal)
         if not legs:
-            if proposal.action != "fly_route":
+            if proposal.action != "fly_route" or self.planner.start_blocked(here, telemetry):
                 # 이륙장에 갈 길이 없는 것과 주문을 못 받는 것은 다른 일입니다.
                 # 예전에는 충전대가 막혔다고 배달을 반려하고 있었습니다.
+                # 출발점이 막힌 것(닫힌 구역 안)도 주문의 문제가 아닙니다 — 나갈 때까지 기다립니다.
                 return decision
             # 규정을 지키면서 갈 수 있는 길이 없습니다. 이 주문은 드론이 못 합니다.
             return post_json(f"{self.runtime_url}/proposals",
@@ -92,10 +108,13 @@ class GuardedAgent:
         telemetry = self.telemetry()
         if not telemetry:
             return
-        if not self.planner.airspace.all():
+        if telemetry.get("airspace_revision") != self.airspace_revision:
+            # 우리 공역 사본이 낡았습니다. 구역이 닫히거나 풀렸으니 새로 받아 그립니다.
             world = get_json(f"{self.runtime_url}/airspace") or {}
+            self.planner = OperatorPlanner()
             self.planner.load(world.get("volumes", []))
             self.pads = world.get("pads", {})
+            self.airspace_revision = telemetry.get("airspace_revision")
         concern = detect(telemetry)
         if concern is None:
             return
@@ -109,6 +128,11 @@ class GuardedAgent:
         decision = self._file_with_route(proposal, telemetry)
         if decision and decision.get("verdict") in ("denied", "human", "queued"):
             self.cooldown[proposal.action] = time.time() + self.denial_s
+        if decision and decision.get("verdict") == "denied" and decision.get("policy_hit") \
+                and decision.get("policy_hit") != "airspace":
+            # 지시(감항성 지시 등)로 막힌 행동입니다. 지시가 풀렸는지는 다시 내봐야 알지만,
+            # 매번 내면 화면이 거절 표시로 도배됩니다. 가끔만 다시 냅니다.
+            self.cooldown[proposal.action] = time.time() + self.banned_retry_s
         if decision and decision.get("verdict") == "denied":
             if decision.get("policy_hit"):
                 # 강제점이 있으면 무엇이 금지됐는지 그 자리에서 알게 됩니다.

@@ -37,6 +37,11 @@ class OperatorPlanner:
             return None
         return [leg.to_dict() for leg in route.legs]
 
+    def start_blocked(self, start: tuple[float, float], telemetry: dict | None = None) -> bool:
+        """출발점 자체가 금지 구역 안(또는 이격 거리 안)인가. 그러면 목적지 문제가 아닙니다."""
+        altitude = float((telemetry or {}).get("alt_m") or self.router.cruise_alt_m)
+        return self.airspace.too_close(start[0], start[1], altitude)
+
     @staticmethod
     def straight(start: tuple[float, float], goal: tuple[float, float],
                  alt_m: float) -> list[dict]:

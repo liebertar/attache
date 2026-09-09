@@ -8,6 +8,7 @@ FAST_CHARGE_BELOW = 25.0  # 회전율 때문에 이 아래면 급속을 원합�
 VIBRATION_ALERT = 0.55
 AUTONOMY_ALERT = 0.35
 BATTERY_FULL = 60.0  # 기단은 만충까지 안 채웁니다. 회전이 중요합니다
+CHARGE_BELOW = 40.0  # 마당에 돌아왔을 때 이 아래면 충전대로. 아니면 바로 다음 짐
 
 
 @dataclass
@@ -40,23 +41,29 @@ def detect(telemetry: dict) -> Concern | None:
         return None
 
     battery = telemetry.get("battery", 100.0)
+    idle = not telemetry.get("assigned_pad") and not telemetry.get("route")
 
-    # 배달 주문이 있고 배터리가 되는데 아직 못 가고 있으면, 갈 수 있게 해달라는 신청.
+    # 배달 주문이 있고 배터리가 되는데 아직 승인된 경로가 없으면, 갈 수 있게 해달라는 신청.
+    # 싣거나 내리는 중에도 냅니다 — 그래야 일이 끝난 자리에서 승인을 기다리며 서 있지 않습니다.
     if (
         telemetry.get("job")
         and battery > BATTERY_LOW
-        and state in ("cruising", "landed")
-        and not telemetry.get("assigned_pad")
-        and not telemetry.get("route")
+        and state in ("loading", "dropping", "picking", "ready", "cruising", "landed")
+        and idle
     ):
         return Concern("needs_route", "normal",
                        f"배달지 {telemetry['job']}, 배터리 {battery:.0f}%")
 
+    # 창고 마당의 제 자리(갈 곳 없음, 땅). 배터리가 모자라면 충전대(자원이라 예약)를,
+    # 아니면 그 자리에서 바로 다음 짐을 싣습니다.
+    if not telemetry.get("job") and state == "ready" and idle:
+        if battery < CHARGE_BELOW:
+            return Concern("needs_pad", "normal", f"배터리 {battery:.0f}%, 충전대로")
+        return Concern("needs_reload", "normal", f"배터리 {battery:.0f}%, 다음 짐을 싣습니다")
+
     if state == "landed":
         return Concern("needs_charge", "high" if battery < FAST_CHARGE_BELOW else "normal",
                        f"패드 위, 배터리 {battery:.0f}%")
-    if battery <= BATTERY_CRITICAL:
-        return Concern("battery_critical", "high", f"배터리 {battery:.0f}%")
-    if battery <= BATTERY_LOW and not telemetry.get("assigned_pad"):
-        return Concern("battery_low", "normal", f"배터리 {battery:.0f}%")
+    # 배달 도중 배터리 때문에 되돌아오는 규칙은 없습니다. 운영사는 한 바퀴를 항속 안에서
+    # 짜고, 마당에 돌아왔을 때(위) 채웁니다. 가다가 돌아서는 기체는 이 데모가 보여줄 것이 아닙니다.
     return None

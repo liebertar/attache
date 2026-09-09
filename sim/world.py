@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from dataclasses import asdict, dataclass, field
 
-from attache.core.geo import Airspace, Volume
+from attache.core.geo import VERTICAL_CLEARANCE_M, Airspace, Volume
 
 # 물류 기지는 브루클린 네이비야드. 배달지는 이스트강 건너 맨해튼입니다.
 # 실제 배송 기업이 도심 배달 거점을 두는 자리이고, 강을 건너야 해서 헬리포트 주변
@@ -23,6 +23,17 @@ DEPOT = (47.8, 54.9)                       # 브루클린 네이비야드 40.702
 # 이륙장 하나. 창고 바로 옆입니다. 두 자리를 350m 떨어뜨려 놨더니 한 거점으로
 # 안 읽혔고, 자리가 남으면 두 기체가 다툴 일도 없어 잠금표와 중재가 놀았습니다.
 PADS = {"pad:launch": (47.4, 54.9)}
+# 창고 마당의 자리. 기체마다 제 자리가 있고, 한 줄로 24m 씩 떨어져 있습니다.
+# 여기서 하루를 시작하고(싣는 중), 배달을 마치면 여기로 돌아와 땅에서 다음 차례를 기다립니다.
+# 이륙장(충전대)은 하나뿐이라 자원이고, 마당 자리는 자원이 아니라 잠금이 없습니다.
+# 이륙장을 돌아오는 비행 내내 잡고 있으면 나머지 기체가 배달지에서 몇 분씩 서 있었고,
+# 한 점에 겹쳐 내리면 네 대가 한 대로 보였습니다.
+SEAT_FIRST = (48.1, 54.95)                 # 첫 자리. 창고 표지 동쪽 29m
+SEAT_SPACING = 0.42                        # 동서 약 41m. 24m 로는 이름표가 서로 덮였습니다
+
+
+def seat_of(index: int) -> tuple[float, float]:
+    return (SEAT_FIRST[0] + SEAT_SPACING * index, SEAT_FIRST[1])
 
 # 맨해튼. 배터리파크에서 센트럴파크 북단까지, 이스트강 건너 롱아일랜드시티까지.
 # 여기를 고른 이유는 FAA 가 격자마다 허용 고도를 공개하기 때문입니다.
@@ -47,15 +58,32 @@ CRUISE_MPS = 22.0             # 배달용 멀티로터 순항 속도
 # 항속. 배터리 관리는 런타임이 아니라 운영사의 몫이라, 여기서는 '충전을 신청할 이유'만
 # 있으면 됩니다 — 충전대 경쟁과 리콜 공지가 물 자리가 그것뿐입니다. 기체가 떨어지는 건
 # 보여줄 것이 아니라 잡음이라, 한 판 안에 소진되지 않을 만큼 넉넉하게 둡니다.
-ENDURANCE_MIN = 35.0
+# 11km 반경에서 한 바퀴(배달 두 곳 + 창고)가 2천 틱 = 시뮬레이션 27분입니다. 한 바퀴에
+# 절반 안쪽만 쓰고 마당에서 채우도록 넉넉히 둡니다. 배터리 때문에 배달을 중단하고
+# 돌아오는 장면은 이 데모가 보여줄 것이 아닙니다.
+ENDURANCE_MIN = 60.0
 CLIMB_MPS = 2.0
-DROP_TICKS = 18          # 내려놓는 데 걸리는 시간(약 14 시뮬레이션 초)
-LOAD_TICKS = 22          # 이륙장에서 싣는 시간
-# 승인을 확인하고 출발하기까지. 화면이 신청·거절·재신청·승인을 순서대로 다 보여줄
-# 만큼 잡아둬야 '승인 전에 날아간다'로 보이지 않습니다.
-# UI 기준: 거절 한 구간 8.8초 + 승인 한 구간 6.8초 = 15.6초. 틱 0.2초이므로 78틱.
-CLEARANCE_TICKS = 78
+# 짐. 창고에서 여섯 상자를 싣고 나가 착륙장 두 곳에서 세 상자씩 내리고, 그 자리에서 돌아갈
+# 상자를 두 개씩 받아 창고로 가져옵니다. 창고에서 그것을 내리고 다시 여섯 개를 싣습니다.
+# 상자는 그렇게 계속 쌓이고 내려집니다 — 기체가 앉아만 있는 순간은 없습니다.
+PARCELS_PER_TRIP = 6
+PARCELS_PER_STOP = 3
+PICKUP_PER_STOP = 2
+STOPS_PER_TRIP = 2
+# 상자 하나를 싣거나 내리는 시간. 화면(틱 0.2초)에서 1.2초 — 상자가 하나씩 늘고 줄어드는 게
+# 보여야 멈춰서 싣고 내리는 중이라는 것이 읽힙니다. 1초보다 짧으면 한꺼번에 사라져 보입니다.
+BOX_TICKS = 5
+LOAD_TICKS = PARCELS_PER_TRIP * BOX_TICKS   # 창고에서 싣는 시간(36틱, 7.2초)
+DROP_TICKS = PARCELS_PER_STOP * BOX_TICKS   # 배달지에서 내리는 시간(18틱, 3.6초)
+# 승인을 확인하고 출발하기까지. 화면의 승인 표시(노란 선 2.4초 + 판정 0.6초 + 초록 깜빡임
+# 1.4초 = 4.4초, 22틱)가 끝난 다음 떠야 '승인 전에 날아간다'로 보이지 않습니다.
+# 폴링 0.5초 여유를 더합니다. ui/map-route.mjs 의 GROW/CHECK/APPROVED_HOLD 와 같이 바꿀 것.
+# 거절은 여기서 세지 않습니다 — 운영사가 화면의 거절 표시가 끝난 뒤에 다시 그리므로
+# (attache/agent/loop.py REDRAW_DELAY_S) 거절과 승인은 실제 시간에서 이미 떨어져 있습니다.
+CLEARANCE_TICKS = 25
 DESCENT_MPS = 1.75
+# 지상에서 일하는 상태. 이 동안 들어온 승인은 상태를 바꾸지 않고 기다렸다가 ready 에서 띄웁니다.
+GROUND_WORK = ("loading", "dropping", "picking", "ready")
 
 STEP_METRES = CRUISE_MPS * SIM_SECONDS_PER_TICK      # 틱당 17.6 m
 BATTERY_PER_TICK = 100.0 / (ENDURANCE_MIN * 60.0) * SIM_SECONDS_PER_TICK
@@ -151,6 +179,30 @@ def load_addresses() -> list[dict]:
 
 ADDRESSES = load_addresses()
 
+# 착륙장. 배달은 아무 주소가 아니라 지정된 드론 착륙장으로만 갑니다. 맨해튼 11곳 + 브루클린 3곳 +
+# 퀸스 2곳. 좌표는 공원·부두의 열린 자리이고, 착륙 지점 둘레 LANDING_SEPARATION_M 안에 건물이
+# 없고 순항 90m 로 이륙장과 왕복 길이 나는지 tests/test_cycle.py 가 봅니다.
+# 센트럴파크·미드타운 동쪽·칼슈어츠파크는 KLGA 0ft 격자 안이라(FAA 데이터) 착륙장이 될 수 없고,
+# 브라이언트파크·매디슨스퀘어는 둘레에 건물 없는 자리가 없거나 길이 안 났습니다.
+LANDING_AREAS = [
+    {"id": "la-battery", "name": "Battery Park", "lat": 40.70335, "lon": -74.01565},
+    {"id": "la-seaport", "name": "Seaport Pier 17", "lat": 40.70620, "lon": -74.00110},
+    {"id": "la-eastriver", "name": "East River Park", "lat": 40.71819, "lon": -73.97575},
+    {"id": "la-stuyvesant", "name": "Stuyvesant Cove", "lat": 40.73300, "lon": -73.97400},
+    {"id": "la-stuytown", "name": "Stuy Town Oval", "lat": 40.73180, "lon": -73.97777},
+    {"id": "la-tompkins", "name": "Tompkins Square", "lat": 40.72650, "lon": -73.98170},
+    {"id": "la-washington", "name": "Washington Square", "lat": 40.73080, "lon": -73.99730},
+    {"id": "la-union", "name": "Union Square", "lat": 40.73590, "lon": -73.99063},
+    {"id": "la-chelsea", "name": "Hudson River Park Chelsea", "lat": 40.74687, "lon": -74.00880},
+    {"id": "la-abzug", "name": "Bella Abzug Park", "lat": 40.75603, "lon": -74.00160},
+    {"id": "la-pier84", "name": "Pier 84 Hudson", "lat": 40.76284, "lon": -74.00069},
+    {"id": "la-hunters", "name": "Hunters Point South", "lat": 40.74250, "lon": -73.96050},
+    {"id": "la-gantry", "name": "Gantry Plaza", "lat": 40.74584, "lon": -73.95862},
+    {"id": "la-bbp", "name": "Brooklyn Bridge Park", "lat": 40.70200, "lon": -73.99650},
+    {"id": "la-mccarren", "name": "McCarren Park", "lat": 40.72060, "lon": -73.95200},
+    {"id": "la-bushwick", "name": "Bushwick Inlet Park", "lat": 40.72150, "lon": -73.96050},
+]
+
 
 def to_grid(lat: float, lon: float) -> tuple[float, float]:
     """위경도를 격자로. to_latlon 의 역입니다."""
@@ -158,10 +210,11 @@ def to_grid(lat: float, lon: float) -> tuple[float, float]:
             (1.0 - (lat - ORIGIN_LAT) / SPAN_LAT) * 60.0)
 
 
-# 배달 서비스 반경. 22 m/s 로 왕복 6분, 항속 24분이면 한 번 충전에 서너 건입니다.
-# 실제 드론 배달도 이렇게 운영합니다 — 기지 하나가 도시 전체를 맡지 않습니다.
-# 이 반경을 늘리면 왕복이 배터리를 넘어서고, 기단이 기지에 못 돌아옵니다.
-SERVICE_RADIUS_M = 4000.0
+# 배달 서비스 반경. 4km 로는 배달지가 전부 로어맨해튼이라 FAA 0ft 격자(맨해튼 한가운데를
+# 지나는 붉은 띠)에 걸리는 경로가 안 나왔습니다. 11km 면 어퍼웨스트사이드까지 들어가고,
+# 그리로 가는 직선은 그 띠를 관통해 거절되고 우회로가 나옵니다 — 이 데모의 핵심 장면입니다.
+# 편도 10km 는 570틱이라 한 판(ROUND_TICKS)도 같이 늘렸습니다.
+SERVICE_RADIUS_M = 11_000.0
 
 
 _SERVICE_AREA: list[dict] | None = None
@@ -182,8 +235,9 @@ def _within_service_area() -> list[dict]:
     depot_lat, depot_lon = to_latlon(*DEPOT)
     open_ones = []
     for address in ADDRESSES:
-        if any(v.rule == "forbidden" and v.covers(address["lat"], address["lon"])
-               for v in AIRSPACE.all()):
+        # 금지 구역 안이거나 건물에 붙은 주소는 뺍니다. 마지막 구간이 이격 거리를 못 지켜
+        # 어떤 경로도 승인이 안 나고, 그러면 그 주문은 반려만 됩니다.
+        if AIRSPACE.too_close(address["lat"], address["lon"], 0.0):
             continue
         north = (address["lat"] - depot_lat) * 110_570.0
         east = (address["lon"] - depot_lon) * 84_400.0   # 위도 40.7 도 기준
@@ -256,8 +310,11 @@ class Vehicle:
     job_x: float | None = None
     job_y: float | None = None
     hold_ticks: int = 0             # 승인 확인 후 출발까지. 즉시 튀어나가지 않습니다
-    work_ticks: int = 0             # 내려놓는 데 걸리는 시간
-    delivered: int = 0
+    work_ticks: int = 0             # 싣거나 내리는 데 남은 시간
+    load: int = 0                   # 실린 상자 수. 화면에 그대로 쌓입니다
+    stops_left: int = 0             # 이번에 나가서 들를 착륙장 수
+    pickup: int = 0                 # 이 착륙장에서 받아 갈 상자 수
+    delivered: int = 0              # 다녀온 배달지 수
     waypoints: list = field(default_factory=list)   # 승인된 경로. 없으면 못 움직입니다
 
     def public(self) -> dict:
@@ -311,24 +368,33 @@ class Scoreboard:
         return data
 
 
-for _raw in STANDING_VOLUMES + BUILDINGS:
+for _raw in STANDING_VOLUMES:
     AIRSPACE.add(Volume.from_dict(_raw))
+# 건물은 옥상 위 이격까지 막습니다(VERTICAL_CLEARANCE_M). 데이터 파일에는 옥상 높이만 있고,
+# 규격은 여기서 붙입니다 — 런타임은 이 목록을 그대로 받아 같은 기준으로 판정합니다.
+for _raw in BUILDINGS:
+    AIRSPACE.add(Volume.from_dict({**_raw, "clearance_m": VERTICAL_CLEARANCE_M}))
 
 
 def fresh_fleet(seed: int) -> list[Vehicle]:
-    """양쪽 세계가 똑같은 상태에서 출발합니다. 다른 건 배선뿐입니다."""
+    """양쪽 세계가 똑같은 상태에서 출발합니다. 다른 건 배선뿐입니다.
+
+    네 대가 이륙장에서 상자를 싣는 장면이 첫 화면입니다. 기종은 반반 — 감항성 지시가
+    한 기종에만 걸리므로 '같은 기단인데 절반만 멈춘다'가 보입니다. 이륙장이 하나라
+    돌아올 때 경쟁이 생기고, 잠금표와 중재가 걸리는 자리가 그것입니다.
+    """
     rng = random.Random(seed)
-    return [
-        # 같은 기종은 같은 속도로 닳습니다. 그래서 같은 순간에 같은 패드를 원합니다.
-        # 배달 기단은 창고에 삽니다. 기지(47.8, 54.9) 바로 위에서 하루를 시작합니다.
-        # 예전 좌표는 어퍼 맨해튼이었는데, 그때는 남북 이동이 8배 빨라서 기지까지
-        # 몇십 틱이면 갔습니다. 실제 속도로는 그 자리에서 배터리가 먼저 끝납니다.
-        # 두 대면 충분합니다. 세 대일 때는 화면에 여섯 대(두 세계)가 겹쳐서
-        # 무엇이 무엇인지 안 읽혔습니다. 충전대가 둘이라 평소에는 다투지 않고,
-        # 구역이 닫혀 하나가 막힐 때만 경쟁이 생깁니다 — 중재가 걸리는 자리도 거기입니다.
-        Vehicle("drone-01", "dv-x500", "delivery", 44.0, 52.0, 62.0, cargo=True),
-        Vehicle("drone-02", "dv-hexa", "drone", 50.0, 51.0, 70.0 + rng.random(), cargo=True),
-    ]
+    fleet = []
+    for index, (name, model, kind, battery) in enumerate([
+        ("drone-01", "dv-x500", "delivery", 62.0),
+        ("drone-02", "dv-hexa", "drone", 70.0 + rng.random()),
+        ("drone-03", "dv-x500", "delivery", 66.0),
+        ("drone-04", "dv-hexa", "drone", 58.0 + rng.random()),
+    ]):
+        seat_x, seat_y = seat_of(index)
+        fleet.append(Vehicle(name, model, kind, seat_x, seat_y, battery, cargo=True,
+                             state="loading", work_ticks=LOAD_TICKS, stops_left=STOPS_PER_TRIP))
+    return fleet
 
 
 class World:
@@ -394,43 +460,63 @@ class World:
             self.score.declined += 1
             self._log(tick, "배달 불가", f"{vehicle.job_label} — 규정상 경로 없음")
             vehicle.waypoints = []
-            vehicle.state = "cruising"
-            self._assign_job(vehicle)
+            if vehicle.state not in GROUND_WORK:
+                vehicle.state = "cruising"
+            # 들를 곳이 남았으면 다른 착륙장을, 아니면 다시 창고입니다. 예전에는 여기서
+            # 새 주문을 받아 빈 채로 배달지로 날아갔습니다.
+            if vehicle.stops_left > 0:
+                self._assign_job(vehicle)
+            else:
+                self._send_home(vehicle)
         elif action == "fly_route":
             # 승인된 경로. 경유점이 있으면 그대로 따라갑니다.
             # 없으면 목적지까지 직선입니다 — 그게 오른쪽 세계가 하는 일입니다.
             vehicle.waypoints = self._to_waypoints(params.get("legs"), vehicle)
             vehicle.assigned_pad = None
-            vehicle.state = "delivering"
             vehicle.hold_ticks = CLEARANCE_TICKS
             if not vehicle.waypoints:
                 vehicle.cruise_alt = float(params.get("alt_m") or CRUISE_ALT_M)
+            # 지상에서 싣거나 내리는 중이면 상태는 그대로입니다. 일이 끝나고 승인 확인이
+            # 끝나면 ready 가 띄웁니다. 그래서 출발은 언제나 지상에서, 일하던 자리에서 일어납니다.
+            if vehicle.state not in GROUND_WORK:
+                vehicle.state = "returning" if vehicle.stops_left <= 0 else "delivering"
         elif action == "reserve_pad":
             vehicle.assigned_pad = params["pad"]
-            vehicle.state = "approaching"
             vehicle.hold_ticks = CLEARANCE_TICKS
             vehicle.waypoints = self._to_waypoints(params.get("legs"), vehicle)
             # 승인된 순항 고도. 안 주면 기본값으로 납니다 — 그게 규정 위반일 수 있습니다.
             vehicle.cruise_alt = float(params.get("alt_m") or CRUISE_ALT_M)
+            if vehicle.state not in GROUND_WORK:
+                vehicle.state = "approaching"
         elif action in ("charge", "fast_charge"):
             vehicle.state = "charging"
             vehicle.charge_mode = "fast" if action == "fast_charge" else "normal"
         elif action == "depart":
-            # 뜨기 전에 싣습니다. 이륙장을 붙잡고 있는 시간이라 다른 기체는 기다립니다.
+            # 뜨기 전에 싣습니다. 남아 있던 상자 위에 여섯 개까지 채웁니다.
+            # 새 주문도 여기서 받습니다 — 안 받으면 다 싣고도 갈 곳이 없어 다시 싣기만 반복합니다.
             vehicle.assigned_pad = None
             vehicle.state = "loading"
-            vehicle.work_ticks = LOAD_TICKS
+            vehicle.stops_left = STOPS_PER_TRIP
+            if vehicle.job_x is None:
+                self._assign_job(vehicle)
+            vehicle.load = min(PARCELS_PER_TRIP, max(0, vehicle.load))
+            vehicle.work_ticks = (PARCELS_PER_TRIP - vehicle.load) * BOX_TICKS
             vehicle.cruise_alt = LOITER_ALT_M
             vehicle.waypoints = []   # 다 쓴 경로입니다
             vehicle.vibration = 0.0  # 패드에 있는 동안 정비를 받았습니다
         elif action == "divert_ground":
-            # 접근을 끊고 대기로 돌아갑니다. 착륙이 아니라 회항입니다.
-            # 경유점을 남겨두면 회수 명령을 받고도 원래 목적지로 계속 날아갑니다 —
-            # 구역이 닫혔는데 그 안으로 들어가던 게 그래서였습니다.
+            # 승인됐던 경로를 회수합니다. 경유점을 남겨두면 회수 명령을 받고도 원래 목적지로
+            # 계속 날아갑니다 — 구역이 닫혔는데 그 안으로 들어가던 게 그래서였습니다.
+            # 닫힌 구역 안에 있었으면 런타임이 준 가장 가까운 바깥 자리까지만 나가서 기다립니다.
             vehicle.assigned_pad = None
-            vehicle.state = "cruising"
             vehicle.waypoints = []
             vehicle.vibration = 0.0
+            door = params.get("exit") or {}
+            if door.get("lat") is not None and vehicle.alt > 1.0:
+                gx, gy = to_grid(door["lat"], door["lon"])
+                vehicle.waypoints = [(gx, gy, vehicle.alt)]
+            if vehicle.state not in GROUND_WORK:
+                vehicle.state = "cruising"
         elif action == "disengage_autonomy":
             vehicle.autonomy_health = 0.0
             vehicle.state = "stranded"
@@ -453,6 +539,8 @@ class World:
         """물리적으로 불가능한 명령. 돈도 안 나가고 세지도 않습니다."""
         if action == "reserve_pad" and params.get("pad") not in PADS:
             return {"ok": False, "error": f"unknown pad {params.get('pad')}"}
+        if action == "depart" and vehicle.alt > 1.0:
+            return {"ok": False, "error": "not on the ground"}
         if action in ("charge", "fast_charge") and vehicle.state not in ("landed", "charging"):
             return {"ok": False, "error": "not on a pad"}
         if action == "fly_route" and vehicle.job_x is None:
@@ -471,15 +559,39 @@ class World:
         self._detect_ceiling_breaches(tick)
 
     def _advance(self, vehicle: Vehicle, tick: int) -> None:
-        if vehicle.state in ("dropping", "loading"):
-            vehicle.battery -= BATTERY_PER_TICK
+        if vehicle.state in ("dropping", "loading", "picking"):
+            # 지상. 상자가 BOX_TICKS 마다 하나씩 실리거나 내려집니다. 땅에서는 배터리가 안 닳습니다.
             vehicle.work_ticks -= 1
-            if vehicle.work_ticks > 0:
+            if vehicle.state == "loading":
+                # 남은 시간을 상자 단위로 올림해서 뺍니다. 첫 상자는 BOX_TICKS 가 지나야 실립니다.
+                remaining_boxes = -(-max(0, vehicle.work_ticks) // BOX_TICKS)
+                vehicle.load = max(vehicle.load, PARCELS_PER_TRIP - remaining_boxes)
+            elif vehicle.work_ticks % BOX_TICKS == 0:
+                vehicle.load = (max(0, vehicle.load - 1) if vehicle.state == "dropping"
+                                else min(PARCELS_PER_TRIP, vehicle.load + 1))
+            # 승인 확인은 일하는 동안 같이 흐릅니다. 일이 끝나고 다시 세면 그만큼 더 서 있습니다.
+            if vehicle.hold_ticks > 0:
+                vehicle.hold_ticks -= 1
+            if vehicle.work_ticks <= 0:
+                if vehicle.state == "dropping" and vehicle.pickup > 0:
+                    # 내린 자리에서 돌아갈 상자를 받습니다.
+                    vehicle.state = "picking"
+                    vehicle.work_ticks = vehicle.pickup * BOX_TICKS
+                    vehicle.pickup = 0
+                else:
+                    vehicle.state = "ready"
+            return
+        if vehicle.state == "ready":
+            # 지상. 다 실었거나 다 내렸습니다. 갈 곳이 승인되고 확인이 끝나야 뜹니다 —
+            # 그 전까지는 자리에서 기다리고, 화면에는 무엇을 기다리는지 씁니다.
+            if vehicle.hold_ticks > 0:
+                vehicle.hold_ticks -= 1
                 return
-            if vehicle.state == "dropping":
-                self._deliver(vehicle, tick)
-            else:
-                vehicle.state = "cruising"
+            if vehicle.assigned_pad:
+                vehicle.state = "approaching"
+            elif vehicle.waypoints:
+                # 들를 곳이 없으면 창고로 돌아가는 비행입니다. 받아 온 상자만 싣고 갑니다.
+                vehicle.state = "returning" if vehicle.stops_left <= 0 else "delivering"
             return
         if vehicle.hold_ticks > 0:
             # 승인 확인은 지상에서만 합니다. 공중에서 멈춰 서면 그 자리에 붙박이가 되고,
@@ -488,7 +600,6 @@ class World:
                 vehicle.hold_ticks = 0
             else:
                 vehicle.hold_ticks -= 1
-                vehicle.battery -= BATTERY_PER_TICK
                 return
         if vehicle.state == "charging":
             gain = 2.4 if vehicle.charge_mode == "fast" else 1.0
@@ -499,29 +610,23 @@ class World:
             vehicle.battery -= BATTERY_PER_TICK
             self._hold_altitude(vehicle, (vehicle.x, vehicle.y))
             if vehicle.alt <= 1.0:
-                vehicle.state = "landed"
+                if vehicle.assigned_pad:
+                    vehicle.state = "landed"      # 이륙장. 충전하고 다시 싣습니다
+                else:
+                    self._touch_down(vehicle, tick)   # 배달지. 상자를 내립니다
             return
         if vehicle.state in ("stranded", "diverted", "grounded"):
             vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
             return
+        # 나는 동안만 닳습니다. 방전으로 멈추는 줄거리는 뺐습니다 — 항속 35분에 한 판 6분이라
+        # 실제로는 안 일어나고, 일어나면 그건 보여줄 것이 아니라 잡음입니다.
         if vehicle.state == "landed" and not vehicle.waypoints:
             vehicle.alt = max(0.0, vehicle.alt - DESCENT_RATE_M)
-
-        vehicle.battery -= BATTERY_PER_TICK
-        if vehicle.kind == "drone" and tick >= 60:
-            vehicle.vibration = min(1.0, vehicle.vibration + 0.006)
-        # 자율주행 이상은 배달이 몇 건 돌아간 뒤에 옵니다. 초반에 세워버리면
-        # 기단의 3분의 1이 판 내내 멈춰 있습니다.
-        if vehicle.id == "drone-02" and tick >= 900:
-            vehicle.autonomy_health = max(0.0, vehicle.autonomy_health - 0.01)
-
-        if vehicle.battery <= 0.0:
-            vehicle.battery = 0.0
-            if vehicle.state != "grounded":
-                vehicle.state = "grounded"
-                self.score.batteries_dead += 1
-                self._log(tick, "배터리 소진", f"{vehicle.id} 가 멈췄습니다")
             return
+        vehicle.battery = max(1.0, vehicle.battery - BATTERY_PER_TICK)
+        # 모터 진동·자율주행 고장 줄거리도 뺐습니다. 배달 가던 기체가 정비하러 되돌아오거나
+        # 공중에서 멈춰 서는 장면이 됐고, 그건 런타임이 아니라 운영사 정비의 몫입니다.
+        # 사람 승인 경로(disengage_autonomy)는 tests/test_mechanisms.py 가 따로 봅니다.
 
         # 승인된 목적지가 없으면 제자리에 뜬 채 기다립니다.
         # 어디로 가는 것도 행동이고, 행동은 승인을 받아야 합니다.
@@ -542,15 +647,11 @@ class World:
         if vehicle.waypoints and self._at(vehicle, target):
             vehicle.waypoints.pop(0)   # 이 구간 끝. 다음 구간으로
             return
-        if vehicle.state == "delivering" and not vehicle.waypoints and self._at(vehicle, target):
-            # 도착했다고 물건이 사라지지 않습니다. 내려놓는 동안 그 자리에 머뭅니다.
-            vehicle.state = "dropping"
-            vehicle.work_ticks = DROP_TICKS
-        if vehicle.state == "approaching" and vehicle.assigned_pad and self._at(vehicle, target):
-            # 이륙장 위에 왔습니다. 여기서부터는 내려앉는 중입니다.
+        flying_in = vehicle.state in ("delivering", "returning", "approaching")
+        if flying_in and self._at(vehicle, target):
+            # 도착점 위에 왔습니다. 여기서부터 수직으로 내려앉습니다 — 배달지든 이륙장이든.
+            # 공중에서 내려놓지 않습니다. 착륙하고, 내리고, 다시 뜹니다.
             vehicle.state = "landing"
-        if vehicle.state == "landing" and vehicle.alt <= 1.0:
-            vehicle.state = "landed"
 
     @staticmethod
     def _current_target(vehicle: Vehicle) -> tuple[float, float] | None:
@@ -558,28 +659,58 @@ class World:
             return (vehicle.waypoints[0][0], vehicle.waypoints[0][1])
         if vehicle.assigned_pad:
             return PADS[vehicle.assigned_pad]
-        if vehicle.state == "delivering" and vehicle.job_x is not None:
+        if vehicle.state in ("delivering", "returning") and vehicle.job_x is not None:
             # 경유점 없이 목적지로 직행하는 배선. 조종장치는 승인을 안 봅니다 —
             # 그래서 직결 쪽은 이렇게 날고, 그게 두 세계가 갈리는 자리입니다.
             return (vehicle.job_x, vehicle.job_y)
         return None
 
-    def _deliver(self, vehicle: Vehicle, tick: int) -> None:
+    def _touch_down(self, vehicle: Vehicle, tick: int) -> None:
+        """내려앉았습니다. 착륙장이면 상자를 내리고 돌아갈 상자를 받고, 창고면 가져온 것을 내립니다.
+
+        다음 갈 곳은 내리기 전에 정해 둡니다. 그래야 운영사가 내리는 동안 다음 경로를
+        신청하고, 일이 끝난 기체가 그 자리에서 승인을 기다리며 서 있지 않습니다.
+        마지막 착륙장을 들른 기체의 다음 갈 곳은 창고 마당이고, 마당에 닿으면 갈 곳이
+        없어지는데 — 그때 운영사가 다음 짐(depart)이나 충전대를 신청합니다.
+        """
+        if vehicle.job_label == "Warehouse" or vehicle.stops_left <= 0:
+            self._log(tick, "창고 도착", f"{vehicle.id} 가져온 상자 {vehicle.load}개")
+            vehicle.job_x = vehicle.job_y = None
+            vehicle.job_label = ""
+            vehicle.pickup = 0
+            if vehicle.load > 0:
+                vehicle.state = "dropping"          # 착륙장에서 받아 온 상자를 내립니다
+                vehicle.work_ticks = vehicle.load * BOX_TICKS
+            else:
+                vehicle.state = "ready"
+            return
         vehicle.delivered += 1
+        vehicle.stops_left -= 1
         self.score.deliveries += 1
         self._log(tick, "배달 완료", f"{vehicle.id} → {vehicle.job_label}")
-        self._assign_job(vehicle)
-        vehicle.state = "cruising"
+        vehicle.state = "dropping"
+        vehicle.work_ticks = min(vehicle.load, PARCELS_PER_STOP) * BOX_TICKS
+        vehicle.pickup = PICKUP_PER_STOP
+        if vehicle.stops_left > 0:
+            self._assign_job(vehicle)
+        else:
+            self._send_home(vehicle)
+
+    def _send_home(self, vehicle: Vehicle) -> None:
+        """창고 마당의 제 자리로. 운영사는 이것도 배달지처럼 경로를 신청합니다."""
+        vehicle.job_x, vehicle.job_y = seat_of(sorted(self.vehicles).index(vehicle.id))
+        vehicle.job_label = "Warehouse"
 
     def _assign_job(self, vehicle: Vehicle) -> None:
-        pool = pickable_addresses()
+        """다음 배달지. 지정된 착륙장 중 지금 있는 곳이 아닌 데를 무작위로 고릅니다."""
+        pool = [area for area in LANDING_AREAS if area["name"] != vehicle.job_label]
         if not pool:
             vehicle.job_x = vehicle.job_y = None
             vehicle.job_label = ""
             return
-        address = self._rng.choice(pool)
-        vehicle.job_label = address["label"]
-        vehicle.job_x, vehicle.job_y = address["gx"], address["gy"]
+        area = self._rng.choice(pool)
+        vehicle.job_label = area["name"]
+        vehicle.job_x, vehicle.job_y = to_grid(area["lat"], area["lon"])
 
     def _move_toward(self, vehicle: Vehicle, target: tuple[float, float]) -> None:
         # 격자가 아니라 미터로 잽니다. 그래야 동서와 남북의 속도가 같습니다.
@@ -670,7 +801,7 @@ class World:
     def _detect_ceiling_breaches(self, tick: int) -> None:
         """실제 FAA 격자를 어겼나. 금지 칸 진입과 천장 초과는 다른 위반입니다."""
         for vehicle in self.vehicles.values():
-            if vehicle.state in ("grounded", "landed", "charging"):
+            if vehicle.state in ("grounded", "landed", "charging") or vehicle.state in GROUND_WORK:
                 vehicle.over_ceiling = False
                 continue
             latitude, longitude = to_latlon(vehicle.x, vehicle.y)
@@ -727,6 +858,7 @@ class World:
                 "lat": round(to_latlon(*DEPOT)[0], 6),
                 "lon": round(to_latlon(*DEPOT)[1], 6),
             },
+            "landing_areas": LANDING_AREAS,
             "assets": {vid: v.public() for vid, v in self.vehicles.items()},
             "scoreboard": self.score.public(),
             "fleet_limit": self.fleet_limit,

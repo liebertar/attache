@@ -21,7 +21,9 @@ from sim.world import RECALL, RECALL_TICK, ZONE, ZONE_TICK, Simulation
 
 # 22 m/s 로 날면 브루클린-맨해튼 한 번 왕복이 1100틱 안팎입니다.
 # 구역 폐쇄(560~900틱) 이후까지 봐야 두 세계가 갈리는 지점이 나옵니다.
-TICKS = 1500
+# 서비스 반경 11km. 한 바퀴(적재 → 배달 두 곳 → 창고)가 2천 틱 안팎이라 한 바퀴는 보려면
+# 이만큼 돌려야 합니다. 구역 폐쇄(560~900틱)와 감항성 지시(1050~1350틱)는 그 안에 듭니다.
+TICKS = 3200
 PADS = ["pad:launch"]
 
 
@@ -99,8 +101,8 @@ class GuardedSide:
         # 다시 그리라고 했습니다.
         legs = self.planner.draw(here, goal)
         if not legs:
-            if proposal.action != "fly_route":
-                return decision   # 이륙장을 못 간다고 주문을 반려하지는 않습니다
+            if proposal.action != "fly_route" or self.planner.start_blocked(here, telemetry):
+                return decision   # 이륙장을 못 간다고, 출발점이 막혔다고 주문을 반려하지는 않습니다
             declined = Proposal.from_dict({**proposal.to_dict(), "action": "decline_job",
                                            "cost_usd": 0.0, "blast_radius": "none",
                                            "params": {}, "resource": None})
@@ -207,10 +209,27 @@ def run(tmp_ledger: str):
     }
     guarded = GuardedSide(runtime)
     direct = DirectSide(simulation.worlds["direct"])
+    # 기체가 판 동안 무엇을 했는지. 점수판은 규칙 위반을 세고, 이건 순환이 실제로 도는지 봅니다.
+    trace = {vid: {"states": set(), "delivered": 0, "hovering": 0, "max_load": 0, "home": 0}
+             for vid in guarded_world.vehicles}
+    at_home = dict.fromkeys(guarded_world.vehicles, True)
 
     for _ in range(TICKS):
         simulation.step()
         tick = simulation.tick_count
+        for vid, vehicle in guarded_world.vehicles.items():
+            row = trace[vid]
+            row["states"].add(vehicle.state)
+            row["delivered"] = vehicle.delivered
+            row["max_load"] = max(row["max_load"], vehicle.load)
+            # 공중에 떠서 승인된 갈 곳 없이 기다린 틱. 0에 가까워야 합니다(E0-4).
+            if vehicle.state == "cruising" and vehicle.alt > 1.0 and not vehicle.waypoints:
+                row["hovering"] += 1
+            # 배달을 마치고 창고 마당의 제 자리에 돌아온 횟수
+            home = vehicle.state == "ready" and vehicle.load == 0 and vehicle.job_x is None
+            if home and not at_home[vid]:
+                row["home"] += 1
+            at_home[vid] = home or vehicle.state in ("loading", "landed", "charging")
 
         # 제한하는 공지는 런타임이 도착 즉시 겁니다. 푸는 정책만 사람이 풉니다.
         # 실서비스와 같은 코드로 받습니다 — 두 벌로 적으면 갈라집니다.
@@ -226,6 +245,7 @@ def run(tmp_ledger: str):
     return (
         guarded_world.snapshot(TICKS)["scoreboard"],
         simulation.worlds["direct"].snapshot(TICKS)["scoreboard"],
+        trace,
     )
 
 
@@ -242,7 +262,7 @@ class TwoWorldsTest(unittest.TestCase):
         import tempfile
 
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
-            cls.guarded, cls.direct = run(handle.name)
+            cls.guarded, cls.direct, cls.trace = run(handle.name)
 
     # ---------- 런타임 쪽에서 반드시 참이어야 하는 것 ----------
 
@@ -275,6 +295,24 @@ class TwoWorldsTest(unittest.TestCase):
         self.assertLessEqual(self.guarded["zone_dwell_ticks"],
                              self.direct["zone_dwell_ticks"])
 
+    # ---------- 적재 순환이 실제로 도는가 ----------
+
+    def test_every_aircraft_loads_delivers_twice_and_comes_home(self):
+        """창고에서 여섯 상자 → 배달지 두 곳에서 세 상자씩 → 이륙장. 한 판에 최소 한 바퀴."""
+        for asset, row in self.trace.items():
+            with self.subTest(asset=asset):
+                self.assertEqual(row["max_load"], 6, "여섯 상자를 다 싣지 못했습니다")
+                self.assertGreaterEqual(row["delivered"], 2, "배달지 두 곳을 못 돌았습니다")
+                self.assertGreaterEqual(row["home"], 1, "창고 마당으로 돌아오지 못했습니다")
+                self.assertLessEqual({"loading", "ready", "delivering", "landing", "dropping"},
+                                     row["states"])
+
+    def test_nothing_hovers_in_the_air_waiting_for_a_route(self):
+        """멈추는 것은 지상에서 일할 때뿐입니다. 공중 대기는 회수당했을 때 정도만 남습니다."""
+        for asset, row in self.trace.items():
+            with self.subTest(asset=asset):
+                self.assertLessEqual(row["hovering"], 60)   # 12초. 회수 뒤 재신청 한 번 분량
+
     # ---------- 직결 쪽에서 반드시 참이어야 하는 것 ----------
 
     def test_nothing_the_direct_side_does_is_recorded(self):
@@ -303,5 +341,7 @@ if __name__ == "__main__":
     import tempfile
 
     with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
-        guarded, direct = run(handle.name)
-    print(json.dumps({"guarded": guarded, "direct": direct}, indent=2, ensure_ascii=False))
+        guarded, direct, trace = run(handle.name)
+    print(json.dumps({"guarded": guarded, "direct": direct,
+                      "trace": {k: {**v, "states": sorted(v["states"])} for k, v in trace.items()}},
+                     indent=2, ensure_ascii=False))
