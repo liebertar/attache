@@ -172,7 +172,6 @@ test('warehouse, curved green path and drone update from snapshots and clear on 
   assert.ok(ui.source('guarded').features[0].geometry.coordinates[1] > 40.70);
   ui.run('renderSnapshot',snapshot(1,2,[]),null); ui.run('draw');
   assert.equal(ui.source('approved').features.length,0);
-  assert.equal(ui.source('guarded-trail').features.length,0);
 });
 
 test('final denials alert once, grow the submitted legs, and expire without polling', () => {

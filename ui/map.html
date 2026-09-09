@@ -378,7 +378,10 @@ map.on("load", () => {
         "line-width": id === "pending"
           ? ["interpolate",["linear"],["zoom"], 11,3, 16,2]
           : ["interpolate",["linear"],["zoom"], 11,7, 14,7, 16,3],
-        "line-opacity": id === "approved" ? APPROVED_ZOOM_ALPHA : .9,
+        // 가까이 가면 고도에 뜬 회랑이 같은 경로를 그리므로 지면 선은 사라집니다.
+        // 두 벌이 같이 보이면 어느 것이 진행 경로인지 알 수 없습니다.
+        "line-opacity": id === "approved" ? APPROVED_ZOOM_ALPHA
+          : ["interpolate",["linear"],["zoom"], 14.5,.9, 15.5,0],
         ...(id === "approved" ? {}
             : {"line-dasharray": id === "pending" ? [.4, 2.4] : [2.2, 1.4]})}});
   }
@@ -390,7 +393,8 @@ map.on("load", () => {
   map.addLayer({id:"flightpath", type:"fill-extrusion", source:"flightpath",
     paint:{"fill-extrusion-color":"#29c76f",
       "fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"],
-      "fill-extrusion-opacity":.75}});
+      // 멀리서는 화소 이하라 안 보이고, 그때는 지면 선이 대신합니다.
+      "fill-extrusion-opacity":["interpolate",["linear"],["zoom"], 14.5,0, 15.5,.8]}});
 
   // 무엇이 막았는지. 그 구역·건물만 따로 붉게 세웁니다.
   map.addSource("blocker", {type:"geojson", data:empty()});
@@ -440,9 +444,6 @@ map.on("load", () => {
 
   for (const [id, colour] of [["guarded","#3d8bff"], ["direct","#ff7a3d"]]){
     map.addImage(`drone-${id}`, droneIcon(colour), {pixelRatio:2});
-    map.addSource(`${id}-trail`, {type:"geojson", data: empty()});
-    map.addLayer({id:`${id}-trail-line`, type:"line", source:`${id}-trail`,
-      paint:{"line-color":colour,"line-width":2,"line-opacity":.45}});
     map.addSource(id, {type:"geojson", data: empty()});
     map.addLayer({id:`${id}-icon`, type:"symbol", source:id,
       layout:{"icon-image":`drone-${id}`,
@@ -498,7 +499,7 @@ function assetCard(world, v){
       `<dt>${safe(key)}</dt><dd>${safe(value)}</dd>`).join("")}</dl></div>`;
 }
 
-let latest = null, lastRuntime = null, trails = {guarded:{}, direct:{}};
+let latest = null, lastRuntime = null;
 
 function applyLanguage(){
   for (const element of (document.querySelectorAll?.("[data-t]") || []))
@@ -619,7 +620,6 @@ async function poll(){
 function renderSnapshot(data, runtime){
   if (latest && (data.round !== latest.round || data.tick < latest.tick)){
     motion.clear(); flights.clear(); stages = []; queued.clear(); seenDenials.clear();
-    trails = {guarded:{}, direct:{}};
     denialUntil = 0; roundStartedAt = Date.now() / 1000;
     map.getSource("rejected")?.setData(empty());
     map.getSource("pending")?.setData(empty());
@@ -629,7 +629,6 @@ function renderSnapshot(data, runtime){
 
   const now = performance.now();
   for (const world of ["guarded","direct"]){
-    const trailFeatures = [];
     for (const v of Object.values(data.worlds[world].assets)){
       const key = `${world}:${v.id}`;
       const previous = motion.get(key);
@@ -652,15 +651,7 @@ function renderSnapshot(data, runtime){
         motion.set(key, {start:previous ? motionPoint(previous, now, POLL_MS) : [v.lon,v.lat],
           end:[v.lon,v.lat], at:now});
       }
-      const line = (trails[world][v.id] ||= []);
-      line.push([v.lon, v.lat]);
-      if (line.length > 90) line.shift();
-      if (line.length > 1)
-        trailFeatures.push({type:"Feature", geometry:{type:"LineString", coordinates:[...line]},
-                            properties:{}});
     }
-    map.getSource(`${world}-trail`)?.setData(
-      {type:"FeatureCollection", features: visible(world) ? trailFeatures : []});
   }
 
   // 실제 FAA 격자. 천장이 낮을수록 붉고, 금지 칸은 빗금 없이 진하게.
@@ -890,7 +881,7 @@ function drawStages(now){
 
 const alphas = {};
 let flashed = false;
-const APPROVED_ZOOM_ALPHA = ["interpolate",["linear"],["zoom"], 14,.95, 16,.45];
+const APPROVED_ZOOM_ALPHA = ["interpolate",["linear"],["zoom"], 14.5,.95, 15.5,0];
 
 /** 승인 직후에만 깜빡이고, 끝나면 평소의 줌 표현식으로 돌아갑니다. */
 function flashApproved(pulse){
