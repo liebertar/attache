@@ -6,7 +6,7 @@ import time
 
 from attache.adapters import build as build_adapter
 from attache.core import config as config_module
-from attache.core.geo import Airspace, Volume, first_breach
+from attache.core.geo import Airspace, Volume, first_breach, nearest_exit
 from attache.core.route import Router
 from attache.core.http import JsonServer, get_json
 from attache.core.models import Decision, Proposal, Verdict
@@ -128,6 +128,23 @@ class Runtime:
                 "blocked_ceiling_m": volume.ceiling_m,
             }
             return f"{segment}번 구간이 규정을 어깁니다 — {why}"
+        # 경로의 끝은 내려앉는 자리입니다. 옆으로 지나갈 수 있는 길과 수직으로 내려올 수 있는 자리는
+        # 다른 기준이라, 끝점 둘레(LANDING_SEPARATION_M)에 건물·금지 구역이 없는지 따로 봅니다.
+        last = legs[-1]
+        landing = self.airspace.landing_breach(float(last["lat"]), float(last["lon"]))
+        if landing is not None:
+            volume, gap = landing
+            proposal.params = {
+                **proposal.params,
+                "blocked_volume": volume.id, "blocked_leg": len(legs) - 1,
+                "blocked_name": volume.name, "blocked_floor_m": volume.floor_m,
+                "blocked_kind": "landing",
+                "blocked_at": {"lat": round(float(last["lat"]), 6),
+                               "lon": round(float(last["lon"]), 6)},
+                "blocked_polygon": [[lat, lon] for lat, lon in volume.polygon],
+                "blocked_ceiling_m": volume.ceiling_m,
+            }
+            return f"착륙 지점 둘레에 {volume.name} ({gap:.0f}m) — 내려앉을 수 없습니다"
         return None
 
     def _queue_or_commit(self, proposal: Proposal, decision: Decision) -> Decision:
@@ -282,8 +299,13 @@ class Runtime:
 
     def background(self) -> None:
         while True:
-            self._pull_world()
-            self._settle_contended()
+            # 한 번 실패해도 다음 주기에 다시 봅니다. 이 스레드가 죽으면 런타임은 옛 세계를
+            # 보면서 판정하게 되고, 그건 조용히 틀리는 최악의 상태입니다.
+            try:
+                self._pull_world()
+                self._settle_contended()
+            except Exception as error:  # noqa: BLE001 — 살아남는 것이 먼저입니다
+                print(f"runtime background: {error!r}", flush=True)
             time.sleep(0.25)
 
     def recall_flights(self, volume) -> list[Decision]:
@@ -302,10 +324,15 @@ class Runtime:
                 continue
             if first_breach(Airspace([volume], default_ceiling_m=None), legs) is None:
                 continue
+            # 안에 있던 기체는 가장 가까운 바깥으로 내보냅니다. 제자리에 세워두면 닫힌 구역
+            # 안에 머무는 것이고, 거기서는 어떤 경로도 출발점부터 금지라 다시 그릴 수 없습니다.
+            exit_point = nearest_exit(volume, legs[0]["lat"], legs[0]["lon"])
+            params = ({"exit": {"lat": exit_point[0], "lon": exit_point[1]}, "volume": volume.id}
+                      if exit_point else {"volume": volume.id})
             retreat = Proposal(
                 asset_id=asset_id, action="divert_ground", cost_usd=35.0,
                 blast_radius="cargo", rationale=f"{volume.name} ({volume.id})",
-                author="runtime",
+                author="runtime", params=params,
             )
             decision = Decision(
                 retreat.id, Verdict.AUTO,
@@ -313,10 +340,17 @@ class Runtime:
                 policy_hit=volume.id, code="recalled",
                 detail={"resource": asset_id, "policy": volume.id},
             )
+            # 조종장치에는 원장 번호(문자열)가 갑니다. 원장 항목 객체를 그대로 넘겼더니 HTTP
+            # 어댑터가 JSON 으로 못 만들어 배경 스레드가 죽었고, 그 뒤로 런타임이 옛 위치를
+            # 계속 내보내서 모든 신청이 엉뚱한 자리에서 시작됐습니다. 로컬 어댑터만 쓰는
+            # 시험은 못 잡았습니다.
             entry = self.ledger.open_entry(retreat, decision)
-            decision.ledger_id = entry
-            self.adapter.execute(asset_id, "divert_ground", {}, entry)
-            self.ledger.close_entry(entry, "done")
+            decision.ledger_id = entry.id
+            result = self.adapter.execute(asset_id, "divert_ground", params, entry.id,
+                                          blast=retreat.blast_radius)
+            ok = bool(result.get("ok"))
+            self.ledger.close_entry(entry, "done" if ok else f"failed: {result.get('error')}",
+                                    decision)
             pulled.append(decision)
         return pulled
 
@@ -394,10 +428,14 @@ def main() -> None:
     )
     server.add("POST", "/deny", lambda body, query: _approval(runtime, body, allow=False))
     server.add("GET", "/state", lambda body, query: (200, runtime.snapshot()))
+    # 공역 판본을 같이 보냅니다. 구역이 새로 닫히면 운영사가 사본을 갱신하고 처음부터
+    # 피해서 그리게 — 안 그러면 닫힌 구역으로 직선을 내고 거절당한 뒤에야 압니다.
     server.add(
         "GET",
         "/telemetry/{asset}",
-        lambda body, query, asset: (200, runtime.telemetry.get(asset, {})),
+        lambda body, query, asset: (200, {**runtime.telemetry.get(asset, {}),
+                                          "airspace_revision": runtime.airspace.revision}
+                                    if asset in runtime.telemetry else {}),
     )
     server.add("GET", "/airspace", lambda body, query: (200, {
         "volumes": [v.to_dict() for v in runtime.airspace.all()],

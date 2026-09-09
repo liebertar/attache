@@ -10,7 +10,9 @@ from attache.runtime.authority import AuthorityCheck
 from attache.runtime.ledger import Ledger
 from attache.runtime.locks import LockTable
 
-RELEASING_ACTIONS = {"depart", "divert_ground"}
+# 잡은 자원은 기체가 실제로 떠날 때 풉니다. 싣기 시작할 때(depart) 풀었더니 다음 기체가
+# 아직 이륙장에 있는 기체 위로 내려앉을 수 있었습니다.
+RELEASING_ACTIONS = {"fly_route", "divert_ground"}
 
 
 class Committer:

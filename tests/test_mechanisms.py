@@ -123,6 +123,47 @@ class RevocationTest(unittest.TestCase):
         self.assertIsNone(runtime.locks.holder("pad:P1"))
         self.assertEqual(decision.policy_hit, "nofly-x")
 
+    def test_a_closing_zone_pulls_a_crossing_flight_back_through_a_json_adapter(self):
+        """회수 명령은 HTTP 어댑터를 지나갑니다. 원장 항목 객체가 아니라 번호가 가야 합니다.
+
+        로컬 어댑터만 쓰는 시험은 이걸 못 잡았고, 실제 스택에서는 이 한 줄이 배경 스레드를
+        죽여 런타임이 옛 위치를 계속 내보냈습니다.
+        """
+        import json
+
+        from attache.core.geo import Volume, box
+
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
+            runtime = Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)
+
+        class JsonAdapter:
+            def __init__(self):
+                self.sent = []
+
+            def execute(self, asset_id, action, params, ledger_id,
+                        blast="none", approved_by=None):
+                # FleetSimAdapter 가 하는 그대로 — JSON 으로 만들 수 없으면 여기서 터집니다.
+                json.dumps({"asset": asset_id, "action": action, "params": params,
+                            "ledger_id": ledger_id, "blast": blast, "approved_by": approved_by})
+                self.sent.append((asset_id, action, ledger_id))
+                return {"ok": True}
+
+            def telemetry(self):
+                return {}
+
+        adapter = JsonAdapter()
+        runtime.adapter = adapter
+        runtime.committer.adapter = adapter
+        runtime.telemetry = {"drone-01": {"lat": 40.7200, "lon": -73.9850, "alt_m": 55.0,
+                                          "route": [{"lat": 40.7300, "lon": -73.9850,
+                                                     "alt_m": 55.0}]}}
+        zone = Volume("nofly-t", "시험 구역", box(40.7230, -73.9900, 40.7260, -73.9800))
+        pulled = runtime.recall_flights(zone)
+        self.assertEqual(len(pulled), 1)
+        self.assertEqual(adapter.sent[0][:2], ("drone-01", "divert_ground"))
+        self.assertIsInstance(adapter.sent[0][2], str)
+        self.assertEqual(pulled[0].ledger_id, adapter.sent[0][2])
+
     def test_it_does_nothing_when_nobody_holds_it(self):
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             runtime = Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)
