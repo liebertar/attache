@@ -33,7 +33,7 @@ x-llm: &llm
   MODEL_SUPER: ${MODEL_SUPER:-nvidia/nemotron-3-super-120b-a12b}
   MODEL_ULTRA: ${MODEL_ULTRA:-nvidia/Nemotron-3-Ultra-550b-a55b}
   LLM_REQUEST_EXTRA: ${LLM_REQUEST_EXTRA:-}
-  LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-}
+  LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-6}
   LLM_RECORD_DIR: ${LLM_RECORD_DIR:-}
 
 # 드론 에이전트 공통. 드론마다 다른 서버(로컬 함대: scripts/ollama_fleet.sh, 11435..11438)를 쓰려면
@@ -43,7 +43,7 @@ x-agent-llm: &agent-llm
   NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
   MODEL_NANO: ${MODEL_NANO:-nvidia/Nemotron-3_5-Lightning}
   LLM_REQUEST_EXTRA: ${LLM_REQUEST_EXTRA:-}
-  LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-}
+  LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-6}
   LLM_RECORD_DIR: ${LLM_RECORD_DIR:-}
 
 services:

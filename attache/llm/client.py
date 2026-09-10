@@ -99,7 +99,8 @@ class TieredLlm:
         self.base_url = (base_url or os.getenv("LLM_BASE_URL", "")).rstrip("/")
         self.api_key = api_key or os.getenv("NEBIUS_API_KEY", "")
         self.models = models or {}
-        self.timeout_s = float(os.getenv("LLM_TIMEOUT_S", str(DEFAULT_TIMEOUT_S))
+        # compose 는 값이 없어도 빈 문자열을 넘깁니다. 빈 값은 없는 값입니다.
+        self.timeout_s = float(os.getenv("LLM_TIMEOUT_S") or str(DEFAULT_TIMEOUT_S)
                                if timeout_s is None else timeout_s)
         self.request_extra = _extra_from_env() if request_extra is None else dict(request_extra)
         self.record_dir = os.getenv("LLM_RECORD_DIR", "") if record_dir is None else record_dir

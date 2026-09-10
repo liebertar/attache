@@ -363,7 +363,7 @@ def build_llm() -> TieredLlm:
         "nano": os.getenv("MODEL_NANO", ""),
         "super": os.getenv("MODEL_SUPER", ""),
         "ultra": os.getenv("MODEL_ULTRA", ""),
-    }, timeout_s=float(os.getenv("LLM_TIMEOUT_S", "6")))
+    }, timeout_s=float(os.getenv("LLM_TIMEOUT_S") or "6"))
 
 
 def main() -> None:
