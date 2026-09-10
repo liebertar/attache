@@ -10,6 +10,10 @@ class PolicyBook:
     def add(self, policy: Policy) -> None:
         self._policies = [p for p in self._policies if p.id != policy.id] + [policy]
 
+    def remove(self, policy_id: str) -> None:
+        """푸는 쪽. 부르는 곳은 사람의 답과 창의 끝뿐입니다 — 코드가 스스로 풀지 않습니다."""
+        self._policies = [p for p in self._policies if p.id != policy_id]
+
     def all(self) -> list[Policy]:
         return list(self._policies)
 

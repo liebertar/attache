@@ -129,6 +129,14 @@ class NoticeBook:
             return None, "; ".join(problems)
         return self._record(notice_id, name, item, compiled, f"model:{model}", held=True), ""
 
+    def adopt(self, notice_id: str, name: str, item: dict, notice: Notice, source: str,
+              held: bool = False) -> NoticeRecord:
+        """다른 책(정보 수집)이 읽어 낸 공지를 이 책에 올립니다. 그 뒤는 같은 길입니다 —
+        due/lapsed/held, 회수와 거절, 화면 채색."""
+        record = self._record(notice_id, name, item, notice, source, held=held)
+        self.records[notice_id] = record
+        return record
+
     def settle(self, item: dict, result: tuple[NoticeRecord | None, str]) -> NoticeRecord | None:
         """compile_item 의 결과를 적습니다. 못 읽은 것은 이유와 함께(매 폴링마다 다시 묻지 않게)."""
         notice_id = str(item.get("id") or "")

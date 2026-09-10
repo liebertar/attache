@@ -22,11 +22,16 @@ class Policy:
     applies_to: dict = field(default_factory=dict)
     active_from_tick: int = 0
     active_until_tick: int | None = None   # ED-269 구역도 유효기간을 갖습니다
+    # 땅에 있는 기체에만 거는 금지. 기상 대기(WEATHER HOLD)는 이륙을 막는 것이지 떠 있는 기체를
+    # 세우는 것이 아닙니다 — 떠 있는 기체의 재신청(회수 뒤 내려올 길)은 그대로 판정받아야 합니다.
+    ground_only: bool = False
 
     def matches(self, action: str, resource: str | None, asset: dict, tick: int) -> bool:
         if tick < self.active_from_tick:
             return False
         if self.active_until_tick is not None and tick > self.active_until_tick:
+            return False
+        if self.ground_only and float(asset.get("alt_m") or 0.0) > 1.0:
             return False
         if self.forbid_action and action != self.forbid_action:
             return False
@@ -77,6 +82,35 @@ class Performance:
 
 
 @dataclass
+class WeatherLimits:
+    """이 기단이 뜰 수 있는 날씨. 보고서의 숫자가 이 밖이면 런타임이 이륙을 세웁니다(WEATHER HOLD).
+
+    숫자는 운영사 규격입니다 — 소형 배달 멀티로터의 제조사 한계(돌풍 12 m/s 안팎)에 맞춘 값이고,
+    Part 107 는 시정 3 SM(약 4.8 km)을 요구하지만 도심 저고도 BVLOS 운항 규격은 대개 더 짧은
+    거리를 씁니다. 창이 없는 보고서는 hold_default_ticks 만큼 세웁니다.
+    """
+
+    max_wind_mps: float = 10.0
+    max_gust_mps: float = 12.0
+    min_visibility_m: float = 1500.0
+    hold_default_ticks: int = 500
+
+
+@dataclass
+class IntakeConfig:
+    """정보 수집. Tavily 로 물을 질문 목록(키가 있을 때만 돕니다)."""
+
+    queries: list[str] = field(default_factory=lambda: list(DEFAULT_INTAKE_QUERIES))
+
+
+DEFAULT_INTAKE_QUERIES = (
+    "New York City wind gust forecast today",
+    "NYC temporary flight restriction drones today",
+    "Manhattan building fire today",
+)
+
+
+@dataclass
 class FleetConfig:
     name: str
     resources: list[str]
@@ -84,6 +118,8 @@ class FleetConfig:
     escalation: Escalation
     policies: list[Policy] = field(default_factory=list)
     performance: Performance = field(default_factory=Performance)
+    weather: WeatherLimits = field(default_factory=WeatherLimits)
+    intake: IntakeConfig = field(default_factory=IntakeConfig)
 
 
 def load(path: str | Path) -> FleetConfig:
@@ -100,4 +136,6 @@ def load(path: str | Path) -> FleetConfig:
         ),
         policies=[Policy(**p) for p in raw.get("policies", [])],
         performance=Performance(**(raw.get("performance") or {})),
+        weather=WeatherLimits(**(raw.get("weather") or {})),
+        intake=IntakeConfig(**(raw.get("intake") or {})),
     )

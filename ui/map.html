@@ -298,6 +298,28 @@ const TEXT = {
     // 공지 원장 줄. 문장은 코드에서, 이유(why)는 런타임 값 그대로.
     publish_notice:"airspace notice", r_notice_unreadable:"not read by the runtime (%s)",
     r_notice_published:"confirmed by a person — now enforced", r_notice_refused:"refused by a person — not enforced",
+    // 정보 수집. 날씨는 이륙 정지(정책), 사고는 구역(공지). 누가 읽었는지가 배너에 같이 갑니다.
+    weather_hold_takeoffs:"Takeoffs during a weather hold", incident_incursions:"Flights into an incident scene",
+    b_weather:"<b>WEATHER HOLD</b> · %s · takeoffs held until tick %s — read by %s; aircraft in the air continue to land.",
+    b_weather_held:"<b>WEATHER</b> · %s — read by %s, waiting for a person before takeoffs are held.",
+    b_weather_raw:"<b>WEATHER</b> (tick %s–%s) · %s — not yet read by the runtime.",
+    b_incident:"<b>%s</b> · %s m keep-out until tick %s — read by %s; routes through it are pulled back, new ones refused, landing areas inside unusable.",
+    b_incident_held:"<b>%s</b> · %s m keep-out — read by %s, waiting for a person before it applies.",
+    b_incident_raw:"<b>INCIDENT</b> (tick %s–%s) · %s — not yet read by the runtime.",
+    b_intake_raw:"<b>INTAKE</b> · %s — not read by the runtime (%s).",
+    intake:"information intake", weather_hold:"weather hold", lift_weather_hold:"lift the weather hold",
+    publish_weather:"weather report", incident_keepout:"incident keep-out",
+    r_intake_received:"received from %s", r_intake_read:"read by %s · %s", r_intake_unreadable:"not read (%s)",
+    intake_source:"search source", r_intake_source_failed:"search source unreachable (%s)",
+    r_intake_source_recovered:"search source answering again", r_weather_hold_closed:"weather hold closed — round changed",
+    r_weather_hold:"WEATHER HOLD · %s · takeoffs held until tick %s",
+    r_weather_policy:"WEATHER HOLD · takeoffs held until tick %s",
+    r_weather_hold_expired:"weather hold expired at tick %s", r_weather_hold_lifted:"weather hold lifted by a person",
+    r_lift_refused:"a person kept the weather hold", r_human_lift:"lift the weather hold early? — a person decides",
+    r_human_weather:"weather read by the %s agent — a person confirms before takeoffs are held",
+    r_weather_confirmed:"confirmed by a person — takeoffs held", r_weather_refused:"refused by a person — no hold",
+    r_weather_lapsed:"window closed before a person looked", r_incident_keepout:"%s · %s m keep-out until tick %s",
+    k_weather:"weather", k_incident:"incident", k_notice:"restriction", k_none:"not fleet-relevant",
   },
   ko: {
     title:"같은 기단, 다른 배선",
@@ -374,6 +396,27 @@ const TEXT = {
     opt_decline:"주문 반려", opt_escalate:"사람에게 올림",
     publish_notice:"공역 공지", r_notice_unreadable:"런타임이 못 읽음 (%s)",
     r_notice_published:"사람이 확인 — 이제 걸림", r_notice_refused:"사람이 거부 — 안 걸림",
+    weather_hold_takeoffs:"기상 대기 중 이륙", incident_incursions:"사고 현장 진입",
+    b_weather:"<b>기상 대기</b> · %s · 틱 %s 까지 이륙 정지 — %s이 읽음. 떠 있는 기체는 그대로 내립니다.",
+    b_weather_held:"<b>날씨</b> · %s — %s이 읽음. 사람이 확인해야 이륙이 섭니다.",
+    b_weather_raw:"<b>날씨</b> (tick %s–%s) · %s — 런타임이 아직 못 읽음.",
+    b_incident:"<b>%s</b> · 반경 %s m 접근 금지, 틱 %s 까지 — %s이 읽음. 지나던 승인 경로는 회수되고 새 경로는 거절, 안의 착륙장은 못 씁니다.",
+    b_incident_held:"<b>%s</b> · 반경 %s m 접근 금지 — %s이 읽음. 사람이 확인해야 적용됩니다.",
+    b_incident_raw:"<b>사고</b> (tick %s–%s) · %s — 런타임이 아직 못 읽음.",
+    b_intake_raw:"<b>수집</b> · %s — 런타임이 못 읽음 (%s).",
+    intake:"정보 수집", weather_hold:"기상 대기", lift_weather_hold:"기상 대기 풀기",
+    publish_weather:"날씨 보고서", incident_keepout:"사고 접근 금지",
+    r_intake_received:"%s 에서 받음", r_intake_read:"%s이 읽음 · %s", r_intake_unreadable:"못 읽음 (%s)",
+    intake_source:"검색 출처", r_intake_source_failed:"검색 출처에 닿지 못함 (%s)",
+    r_intake_source_recovered:"검색 출처가 다시 답함", r_weather_hold_closed:"판이 바뀌어 기상 대기 닫힘",
+    r_weather_hold:"기상 대기 · %s · 틱 %s 까지 이륙 정지",
+    r_weather_policy:"기상 대기 · 틱 %s 까지 이륙 정지",
+    r_weather_hold_expired:"틱 %s 에 창이 닫혀 대기 해제", r_weather_hold_lifted:"사람이 기상 대기를 풀었음",
+    r_lift_refused:"사람이 대기를 그대로 둠", r_human_lift:"기상 대기를 일찍 풀까요 — 사람이 정합니다",
+    r_human_weather:"%s 에이전트가 읽은 날씨 — 사람이 확인해야 이륙이 섭니다",
+    r_weather_confirmed:"사람이 확인 — 이륙 정지", r_weather_refused:"사람이 거부 — 대기 없음",
+    r_weather_lapsed:"사람이 보기 전에 창이 닫힘", r_incident_keepout:"%s · 반경 %s m 접근 금지, 틱 %s 까지",
+    k_weather:"날씨", k_incident:"사고", k_notice:"제한", k_none:"기단과 무관",
   },
 };
 
@@ -393,8 +436,8 @@ const t = (key, ...args) => {
 
 // 착륙대 충돌 행은 뺐습니다. 충전대 순환이 없어져 두 세계 다 0이 되는 행은 뜻이 없습니다.
 const ROWS = ["separation_losses", "site_conflicts", "zone_incursions", "zone_dwell_ticks",
-              "post_recall_violations", "unapproved_passenger_actions",
-              "unrecorded_actions"];
+              "post_recall_violations", "weather_hold_takeoffs", "incident_incursions",
+              "unapproved_passenger_actions", "unrecorded_actions"];
 
 const map = new maplibregl.Map({
   container: "map",
@@ -596,6 +639,11 @@ function addAirspaceLayers(before){
     paint:{"fill-color":"#ff3b30","fill-opacity":.16}}, before);
   map.addLayer({id:"zone-line", type:"line", source:"zone",
     paint:{"line-color":"#ff3b30","line-width":2,"line-dasharray":[3,2]}}, before);
+  // 구역의 이름. 건물이 원을 가리면 배너 밖에서는 무엇이 닫혔는지 알 길이 없었습니다.
+  map.addLayer({id:"zone-label", type:"symbol", source:"zone",
+    layout:{"text-field":["get","name"], "text-size":11, "text-font":["Noto Sans Regular"],
+            "text-allow-overlap":true, "symbol-placement":"point"},
+    paint:{"text-color":"#ff3b30","text-halo-color":"#0a0e11","text-halo-width":1.4}});
 }
 
 const popup = new maplibregl.Popup({closeButton:true, closeOnClick:true, offset:14});
@@ -960,12 +1008,12 @@ function renderSnapshot(data, runtime){
   // 시뮬레이터가 아는 구역과 같은 id 면 한 번만.
   const zone = data.worlds.guarded.zone;
   const zoneFeatures = zone?.active && zone.polygon?.length
-    ? [{type:"Feature", properties:{id:zone.id},
+    ? [{type:"Feature", properties:{id:zone.id, name:zone.name || zone.id},
         geometry:{type:"Polygon", coordinates:[closedRing(zone.polygon)]}}]
     : [];
   for (const n of (runtime?.notices || [])){
     if (!n.applied || !(n.polygon?.length > 2) || (zone?.active && n.id === zone.id)) continue;
-    zoneFeatures.push({type:"Feature", properties:{id:n.id},
+    zoneFeatures.push({type:"Feature", properties:{id:n.id, name:n.name || n.id},
       geometry:{type:"Polygon", coordinates:[closedRing(n.polygon)]}});
   }
   map.getSource("zone")?.setData({type:"FeatureCollection", features: zoneFeatures});
@@ -1006,15 +1054,35 @@ function renderSnapshot(data, runtime){
   // 공지가 '아직 못 읽음' 으로 보입니다.
   const notices = (runtime?.notices || []).filter(n => n.applied || n.held || n.source === "human");
   const known = new Set(notices.map(n => n.id));
-  const lines = notices.map(noticeLine);
+  const lines = notices.map(n => noticeLine(n, runtime));
+  // 날씨. 걸린 대기는 정책이고(/state.weather.hold), 모델이 읽어 사람을 기다리는 보고서는 아직 아무것도 안 막습니다.
+  const weather = runtime?.weather || {};
+  if (weather.hold) lines.push(t("b_weather", safe(holdWhy(weather.hold.reason)), weather.hold.until_tick,
+                                noticeSource(weather.hold.source)));
+  for (const held of weather.held || [])
+    lines.push(t("b_weather_held", safe((held.breaches || []).join(" · ")), noticeSource(held.source)));
+  // 읽힌 접수 항목. 시뮬레이터의 날씨·사고 문장이 여기 없으면 아직 못 읽은 것이고, 못 읽은 것은 원문 그대로.
+  const intake = runtime?.intake?.items || [];
+  const read = new Set(intake.filter(i => i.kind).map(i => i.id));
+  if (weather.hold) read.add(weather.hold.id);
   for (const b of bulletins){
     if (b.kind === "zone") lines.push(t("b_zone", b.published_tick, b.until_tick, b.name || b.id));
     else if (b.kind === "notam"){
       if (!known.has(b.id)) lines.push(t("b_notam_raw", b.published_tick, b.until_tick, safe(b.text || b.id)));
+    } else if (b.kind === "weather" || b.kind === "incident"){
+      if (!read.has(b.id) && !known.has(b.id))
+        lines.push(t(b.kind === "weather" ? "b_weather_raw" : "b_incident_raw", b.published_tick, b.until_tick, safe(b.text || b.id)));
     } else lines.push(t("b_recall", b.published_tick, b.until_tick, b.applies_to?.model || b.id));
   }
+  for (const item of intake.filter(i => !i.kind && i.why).slice(-3))
+    lines.push(t("b_intake_raw", safe(item.text || item.id), safe(item.why)));
   banner.style.display = lines.length ? "block" : "none";
   banner.innerHTML = lines.join("<br>");
+}
+
+/** "WEATHER HOLD · gusts 14 m/s > 12" 에서 앞머리를 뗀 근거만. 배너가 제 말로 앞머리를 씁니다. */
+function holdWhy(reason){
+  return String(reason || "").replace(/^WEATHER HOLD\s*·\s*/, "");
 }
 
 /** 누가 공지를 읽었는가. 원장에는 model id 가 남고 화면에는 티어 한 단어만. */
@@ -1024,8 +1092,15 @@ function noticeSource(source){
   if (s === "human") return t("src_human");
   return t("src_grammar");
 }
-function noticeLine(n){
+function noticeLine(n, runtime){
   const name = safe(n.name || n.id);
+  if (n.kind === "incident"){
+    // 사고는 원입니다. 반경은 /state.incidents 가 들고 있습니다(공지 목록에는 폴리곤뿐).
+    const incident = (runtime?.incidents || []).find(i => i.id === n.id) || {};
+    const radius = Math.round(Number(incident.radius_m) || 0);
+    if (n.held) return t("b_incident_held", name, radius, noticeSource(n.source));
+    if (n.applied) return t("b_incident", name, radius, n.until_tick ?? "∞", noticeSource(n.source));
+  }
   if (n.held) return t("b_notam_held", name, noticeSource(n.source));
   if (!n.applied) return t("b_notam_confirmed", n.from_tick ?? "—", n.until_tick ?? "∞", name, noticeSource(n.source));
   return t("b_notam", n.from_tick ?? "—", n.until_tick ?? "∞", name, noticeSource(n.source));
@@ -1084,7 +1159,9 @@ function renderDenials(runtime, now){
   for (const e of [...recent].sort((a, b) => a.at - b.at)) stageRoute(e, now);
   // 거절만이 아니라 회수도 사람이 봐야 할 일입니다. 이미 승인해서 날고 있는 기체를
   // 규칙이 도착해서 되돌리는 것 — 화면에서 기체가 실제로 방향을 트는 그 순간입니다.
-  const recalled = e => e.proposal.author === "runtime" && e.decision.policy_hit;
+  // 런타임이 쓴 회수·물림만. 기상 대기·사고 구역이 열린 줄도 policy_hit 을 달고 있지만 그건 배너의 일입니다.
+  const recalled = e => e.proposal.author === "runtime" && e.decision.policy_hit
+    && ["recalled", "withdrawn"].includes(e.decision.code);
   // '직전에 같은 신청' 거절은 사람이 볼 일이 아닙니다. 원장에는 남고 카드에는 안 뜹니다.
   const fresh = recent.filter(e => (e.decision.verdict === "denied" && e.decision.code !== "duplicate")
                                    || recalled(e));
@@ -1235,12 +1312,23 @@ function workLabel(v){
 function reasonText(entry){
   const d = entry.decision, x = d.detail || {}, params = entry.proposal.params || {};
   switch (d.code || ""){          // 코드가 없는 결정은 런타임이 준 문장을 그대로 씁니다
-    case "airspace": return ENDPOINTS.has(params.blocked_kind)
+    case "airspace": return PLACES.has(params.blocked_kind)
       ? blockedLabel(params) : t("r_airspace", params.blocked_leg, blockedLabel(params));
     case "withdrawn": return t("r_withdrawn", x.for || params.withdrawn_for || "—");
     case "nonconforming": return t("r_nonconforming", params.actual_depart_tick ?? "—",
                                    x.planned_depart_tick ?? params.planned_depart_tick ?? "—");
-    case "policy": return t("r_policy", x.policy);
+    case "policy": return String(x.policy || "").startsWith("weather-hold")
+      ? t("r_weather_policy", x.until_tick ?? "—") : t("r_policy", x.policy);
+    case "intake_received": return t("r_intake_received", x.source || "—");
+    case "intake_read": return t("r_intake_read", noticeSource(x.read_by), t(`k_${x.kind}`));
+    case "intake_unreadable": return t("r_intake_unreadable", x.why || "");
+    case "intake_source_failed": return t("r_intake_source_failed", x.error || "");
+    case "intake_source_recovered": return t("r_intake_source_recovered");
+    case "weather_hold_closed": return t("r_weather_hold_closed");
+    case "weather_hold": return t("r_weather_hold", holdWhy(d.reason), x.until_tick ?? "—");
+    case "weather_hold_expired": return t("r_weather_hold_expired", x.until_tick ?? "—");
+    case "human_weather": return t("r_human_weather", tierOf(entry.proposal.author) || t("drafter_model"));
+    case "incident_keepout": return t("r_incident_keepout", safe(x.name || ""), Math.round(Number(x.radius_m) || 0), x.until_tick ?? "—");
     case "human_action": return t("r_human_action", t(x.action) || x.action);
     case "human_blast": return t("r_human_blast", x.blast);
     case "over_asset": return t("r_over_asset", x.spent, x.cap);
@@ -1260,6 +1348,8 @@ function reasonText(entry){
 
 /** 무엇이 막았는지를 화면 말로. 런타임은 값만 주고 문구는 여기서 만듭니다. */
 const ENDPOINTS = new Set(["origin", "destination"]);
+// 구간이 아니라 자리가 막힌 것. 이 라벨은 그 자체로 문장이라 "leg 3 enters" 를 앞에 붙이지 않습니다.
+const PLACES = new Set(["origin", "destination", "landing", "takeoff", "column"]);
 function blockedLabel(params){
   const id = params.blocked_volume || "";
   const height = Math.round(Number(params.blocked_ceiling_m) || 0);

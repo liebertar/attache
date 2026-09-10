@@ -392,6 +392,53 @@ RECALL = {
 }
 RECALL_UNTIL = 1350
 
+# 날씨. METAR 어투의 관측 한 줄 — 런타임의 문법이 읽고 한도(configs/fleet.yaml weather)와
+# 비교합니다. 돌풍 28 kt(14.4 m/s)가 12 m/s 를 넘어 이륙 정지(WEATHER HOLD)가 걸립니다. 바람
+# 18 kt(9.3 m/s)와 시정 2 SM(3.2 km)은 한도 안 — 넘는 것 하나로 충분합니다. 0929Z = 틱 2175,
+# 창은 0936Z = 틱 2700 까지. 직결 세계는 이 문장을 읽을 곳이 없어 그대로 뜹니다 — 점수판
+# weather_hold_takeoffs 가 그것을 셉니다.
+WEATHER_TEXT = "KNYC 0929Z WIND 240 AT 18 GUST 28 KT VIS 2SM RA"
+WEATHER_TICK = CLOCK.tick_of("0929")
+WEATHER_UNTIL = CLOCK.tick_of("0936")
+WEATHER = {
+    "id": "wx-2026-09-knyc-0929",
+    "kind": "weather",
+    "name": "KNYC 관측 0929Z",
+    "reason": "돌풍 28 kt — 소형 멀티로터 이륙 한도 밖",
+    "text": WEATHER_TEXT,
+}
+# 사고. 실제 주소(configs/airspace/nyc_addresses.json)로 옵니다 — 런타임이 지명 사전에서 자리를 찾아
+# 반경만큼 금지 구역(원)을 만들고, 그 안(둘레 50 m 까지)의 착륙장은 쓸 수 없게 됩니다. 센터 불러바드
+# 4705 번지(롱아일랜드시티 강변 고층)는 갠트리플라자 착륙장에서 156 m — 150 m 원의 가장자리라 착륙
+# 둘레 50 m 에 걸립니다. 씨앗 7 런타임 세계에서는 drone-02 가 창고에서 갠트리로 가는 승인 회랑을
+# 틱 3000 에 회수당하고(끝점이 원 안), 다시 낸 경로는 착륙 불가로 거절돼 주문을 반려합니다.
+# 직결 세계는 같은 창에 갠트리를 지나지 않아(drone-01 은 예산이 바닥나 창고에 서 있음) 이 장면의
+# 대조는 기상 대기 쪽(weather_hold_takeoffs)이 맡습니다.
+INCIDENT_ADDRESS = "4705 Center Boulevard"
+INCIDENT_RADIUS_M = 150.0
+INCIDENT_TEXT = (f"FDNY 3-ALARM FIRE AT {INCIDENT_ADDRESS.upper()}. "
+                 f"KEEP CLEAR {INCIDENT_RADIUS_M:.0f} M RADIUS")
+INCIDENT_TICK = 3000
+INCIDENT_UNTIL = 3600
+INCIDENT = {
+    "id": "fdny-2026-09-center-blvd",
+    "kind": "incident",
+    "name": "센터 불러바드 화재",
+    "reason": "FDNY 3-alarm fire — 상공 접근 금지",
+    "text": INCIDENT_TEXT,
+    "address": INCIDENT_ADDRESS,
+    "radius_m": INCIDENT_RADIUS_M,
+}
+
+
+def _address_coords(label: str) -> tuple[float, float]:
+    found = next((a for a in ADDRESSES if a["label"] == label), None)
+    assert found is not None, f"지명 사전에 없는 주소 {label!r}"
+    return float(found["lat"]), float(found["lon"])
+
+
+INCIDENT_CENTRE = _address_coords(INCIDENT_ADDRESS)
+
 
 AIRSPACE = Airspace()
 
@@ -415,6 +462,8 @@ class Vehicle:
     spend: float = 0.0
     in_zone: bool = False
     over_ceiling: bool = False
+    airborne: bool = False          # 지난 틱에 떠 있었나. 이륙(땅 → 공중)을 세는 데 씁니다
+    in_incident: bool = False
     heading: float = 0.0
     cruise_alt: float = LOITER_ALT_M
     job_label: str = ""            # 배달지 주소
@@ -479,6 +528,12 @@ class Scoreboard:
     separation_losses: int = 0
     # 떠 있는(내리는) 기체가 땅에 서 있는 기체의 30m·25m 안에 든 일. 착륙장 하나에 두 대.
     site_conflicts: int = 0
+    # 기상 대기(WEATHER 창) 중의 이륙. 런타임 세계는 0 — 땅에서 낸 신청이 전부 거절되고 아직 안 뜬
+    # 승인 경로는 물립니다. 창의 첫 틱은 세지 않습니다(그 틱에 게시된 문장을 같은 틱에 읽을 수는
+    # 없음).
+    weather_hold_takeoffs: int = 0
+    # 사고 원(INCIDENT 창) 안으로 떠서 들어간 일. 기체마다 들어갈 때 한 번.
+    incident_incursions: int = 0
 
     def public(self) -> dict:
         data = asdict(self)
@@ -733,6 +788,8 @@ class World:
         self._detect_zone_incursions(tick)
         self._detect_ceiling_breaches(tick)
         self._detect_separation_losses(tick)
+        self._detect_weather_takeoffs(tick)
+        self._detect_incident_incursions(tick)
 
     def _advance(self, vehicle: Vehicle, tick: int) -> None:
         if vehicle.state in ("dropping", "loading", "picking"):
@@ -1059,6 +1116,37 @@ class World:
         self._too_close = close_now
         self._site_close = site_now
 
+    def _detect_weather_takeoffs(self, tick: int) -> None:
+        """기상 대기 창 안의 이륙. 규칙이 아니라 사실 — 땅에 있던 기체가 떴는가.
+
+        창의 첫 틱은 세지 않습니다. 그 틱에 게시된 문장은 다음 폴링에야 읽히고, 그 사이 뜬 기체는
+        규칙이 도착하기 전에 뜬 것입니다.
+        """
+        for vehicle in self.vehicles.values():
+            airborne = vehicle.alt > 1.0
+            if airborne and not vehicle.airborne and WEATHER_TICK < tick <= WEATHER_UNTIL:
+                self.score.weather_hold_takeoffs += 1
+                self._log(tick, "기상 대기 중 이륙", f"{vehicle.id} 가 돌풍 경보 중에 뜸")
+            vehicle.airborne = airborne
+
+    def _detect_incident_incursions(self, tick: int) -> None:
+        """사고 원 안의 기체. 구역 침범과 같은 셈법 — 규칙이 도착한 순간 안에 있던 것은 안 셈."""
+        if not (INCIDENT_TICK <= tick <= INCIDENT_UNTIL):
+            return
+        for vehicle in self.vehicles.values():
+            latitude, longitude = to_latlon(vehicle.x, vehicle.y)
+            inside = (vehicle.alt > 1.0 and math.hypot(
+                (latitude - INCIDENT_CENTRE[0]) * 110_570.0,
+                (longitude - INCIDENT_CENTRE[1]) * 84_400.0) < INCIDENT_RADIUS_M)
+            if tick == INCIDENT_TICK:
+                vehicle.in_incident = inside
+                continue
+            if inside and not vehicle.in_incident:
+                self.score.incident_incursions += 1
+                self._log(tick, "사고 현장 진입",
+                          f"{vehicle.id} 가 화재 현장 {INCIDENT_RADIUS_M:.0f}m 안으로")
+            vehicle.in_incident = inside
+
     def _log(self, tick: int, kind: str, text: str) -> None:
         self.events.append({"tick": tick, "kind": kind, "text": text, "at": time.time()})
         del self.events[: max(0, len(self.events) - 40)]
@@ -1163,6 +1251,11 @@ class Simulation:
         if RECALL_TICK <= self.tick_count <= RECALL_UNTIL:
             out.append({**RECALL, "published_tick": RECALL_TICK,
                         "until_tick": RECALL_UNTIL})
+        # 날씨·사고는 문장입니다. 폴리곤도 한도도 없이 — 읽고 비교하는 것은 런타임의 일입니다.
+        if WEATHER_TICK <= self.tick_count <= WEATHER_UNTIL:
+            out.append({**WEATHER, "published_tick": WEATHER_TICK, "until_tick": WEATHER_UNTIL})
+        if INCIDENT_TICK <= self.tick_count <= INCIDENT_UNTIL:
+            out.append({**INCIDENT, "published_tick": INCIDENT_TICK, "until_tick": INCIDENT_UNTIL})
         return out
 
     def reset(self, keep_rounds: bool = False) -> None:

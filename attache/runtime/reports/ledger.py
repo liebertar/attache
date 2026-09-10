@@ -10,16 +10,21 @@ ledger, the ledger is not doing its job.
 
 ROUTED = ("reserve_pad", "fly_route")
 REFUSAL_KEYS = ("blocked_kind", "blocked_volume", "blocked_asset", "blocked_until_tick")
+# 기단 전체에 걸린 규칙. 기체가 아니라 관제탑의 줄이라 비행 밑이 아니라 fleet 절에 접습니다.
+HOLD_CODES = ("weather_hold", "weather_hold_lifted", "weather_hold_expired", "weather_hold_closed")
 
 
 def build_report(entries: list[dict], tick: int, airspace_revision: int,
                  asset: str | None = None) -> dict:
-    """원장 줄들 → {generated_tick, airspace_revision, assets:[{asset, flights, advisories}]}."""
+    """원장 줄들 → {generated_tick, airspace_revision, assets:[{asset, flights, advisories}],
+    fleet:{weather_holds, incidents}}."""
     closed = [e for e in entries if e.get("outcome") != "pending"]
     flights: dict[str, dict] = {}
     order: list[str] = []
     followups: dict[str, dict] = {}       # 의도 id → {conformance: [...], recalled, withdrawn}
     advisories: dict[str, list[dict]] = {}
+    holds: list[dict] = []
+    incidents: list[dict] = []
 
     for entry in closed:
         proposal = entry.get("proposal") or {}
@@ -27,6 +32,17 @@ def build_report(entries: list[dict], tick: int, airspace_revision: int,
         context = entry.get("context") or {}
         who = proposal.get("asset_id", "")
         action = proposal.get("action", "")
+        code = decision.get("code")
+        if code in HOLD_CODES:
+            _fold_hold(holds, entry, proposal, decision, context)
+            continue
+        if code == "incident_keepout":
+            detail = decision.get("detail") or {}
+            incidents.append({"id": detail.get("incident"), "name": detail.get("name"),
+                              "tick": context.get("tick"), "until_tick": detail.get("until_tick"),
+                              "radius_m": detail.get("radius_m"), "source": detail.get("source"),
+                              "ledger_id": entry.get("id")})
+            continue
         if action in ROUTED:
             key = proposal.get("id") or entry.get("id")
             if key not in flights:
@@ -77,7 +93,35 @@ def build_report(entries: list[dict], tick: int, airspace_revision: int,
                                       key=lambda f: (f["filed_tick"] or 0, f["filed_at"] or 0)),
                     "advisories": advisories.get(name, [])}
                    for name in names],
+        "fleet": {"weather_holds": holds, "incidents": incidents},
     }
+
+
+def _fold_hold(holds: list[dict], entry: dict, proposal: dict, decision: dict,
+               context: dict) -> None:
+    """기상 대기 한 건 = 연 줄 하나 + (풀린 줄 | 창이 닫힌 줄). 같은 hold id 로 접습니다."""
+    params = proposal.get("params") or {}
+    detail = decision.get("detail") or {}
+    hold = params.get("hold") if isinstance(params.get("hold"), dict) else {}
+    hold_id = hold.get("id") or params.get("hold") or detail.get("hold")
+    code = decision.get("code")
+    if code == "weather_hold":
+        holds.append({"id": hold_id, "opened_tick": context.get("tick"),
+                      "reason": hold.get("reason") or decision.get("reason"),
+                      "until_tick": detail.get("until_tick"), "source": detail.get("source"),
+                      "breaches": list(detail.get("breaches") or []), "lifted": None,
+                      "expired_tick": None, "ledger_id": entry.get("id")})
+        return
+    standing = next((h for h in reversed(holds) if h["id"] == hold_id), None)
+    if standing is None:
+        return
+    if code == "weather_hold_lifted":
+        standing["lifted"] = {"tick": context.get("tick"), "by": decision.get("approved_by"),
+                              "ledger_id": entry.get("id")}
+    else:
+        # 창이 닫혔거나 판이 바뀌었거나 — 사람 없이 끝난 대기는 둘 다 여기로.
+        standing["expired_tick"] = context.get("tick")
+        standing["closed_by"] = "round" if code == "weather_hold_closed" else "window"
 
 
 def _new_flight(asset: str, proposal: dict, context: dict) -> dict:
@@ -151,6 +195,19 @@ def to_markdown(report: dict) -> str:
                 f"| {f['duplicates'] or '—'} | {approved_word} "
                 f"| {resolution} | {len(f['conformance']) or '—'} "
                 f"| {_after_word(f['recalled'])} | {_after_word(f['withdrawn'])} |")
+    fleet = report.get("fleet") or {}
+    if fleet.get("weather_holds") or fleet.get("incidents"):
+        lines += ["", "## Fleet", ""]
+        for h in fleet.get("weather_holds") or []:
+            ended = (f"lifted tick {h['lifted']['tick']} by {h['lifted']['by']}" if h.get("lifted")
+                     else f"closed tick {h['expired_tick']} (round changed)"
+                     if h.get("closed_by") == "round"
+                     else f"expired tick {h['expired_tick']}" if h.get("expired_tick") else "open")
+            lines.append(f"- weather hold · tick {h['opened_tick']} · {_cell(h['reason'])} "
+                         f"· until tick {h['until_tick']} · {h['source']} · {ended}")
+        for i in fleet.get("incidents") or []:
+            lines.append(f"- incident · tick {i['tick']} · {_cell(i['name'])} · {i['radius_m']} m "
+                         f"· until tick {i['until_tick']} · {i['source']}")
     advisories = [(block["asset"], a) for block in report["assets"] for a in block["advisories"]]
     if advisories:
         lines += ["", "## Advisories", "", "| asset | tick | trigger | chosen | source | summary |",

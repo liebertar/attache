@@ -43,3 +43,21 @@ performance:
   clock_epoch_z: "0900"
   # 항법 오차. 회랑 반폭 = 분리 최소치 30m + 이 값. 시뮬레이터의 경유점 반경 6m 보다 커야 합니다.
   nav_tolerance_m: 10.0
+
+# 날씨 한도. 보고서(시뮬레이터 공지·Tavily 검색·수동 입력)의 숫자가 이 밖이면 런타임이 이륙을
+# 세웁니다(WEATHER HOLD: 땅에서 낸 fly_route·reserve_pad·depart 거절, 떠 있는 기체는 그대로 내림).
+# 한도 안의 보고서가 뒤에 와도 저절로 풀리지 않습니다 — 창이 닫히거나 사람이 풉니다(승인 화면).
+# 창이 없는 보고서는 hold_default_ticks(0.8 s/틱, 500틱 ≈ 6.7분) 만큼 세웁니다.
+weather:
+  max_wind_mps: 10
+  max_gust_mps: 12
+  min_visibility_m: 1500
+  hold_default_ticks: 500
+
+# 정보 수집. TAVILY_API_KEY 가 있을 때만 INTAKE_PERIOD_S 마다 아래 질문을 검색합니다. 결과는
+# 문법(METAR 어투·주소 있는 사고)이 먼저 읽고, 못 읽는 것만 Super 가 구조화해 사람 확인을 기다립니다.
+intake:
+  queries:
+    - "New York City wind gust forecast today"
+    - "NYC temporary flight restriction drones today"
+    - "Manhattan building fire today"

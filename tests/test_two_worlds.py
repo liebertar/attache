@@ -24,6 +24,7 @@ from attache.core.models import Proposal, Verdict
 from attache.core.route import Router
 from attache.llm.client import LlmReply, TieredLlm
 from attache.runtime.service import Runtime
+from sim import world as sim_world
 from sim.world import LANDING_AREAS, Simulation
 
 # 22 m/s 로 날면 브루클린-맨해튼 한 번 왕복이 1100틱 안팎입니다.
@@ -73,6 +74,9 @@ class JudgingAdapter(LocalAdapter):
 
 
 BUDGET_ESCALATIONS = {"per_asset_usd", "fleet_usd"}
+# 원격 관제사가 대신 누르지 않는 카드. 규칙을 푸는 쪽(기상 대기 해제)과 모델이 읽은 것(공지·날씨)은
+# 사람이 봐야 합니다 — 하네스가 자동 승인하면 대기가 열리자마자 풀려 장면이 없어집니다.
+PERSON_ONLY_CARDS = {"human_notice", "human_weather", "human_lift"}
 
 
 class GuardedSide:
@@ -210,8 +214,8 @@ class GuardedSide:
         """원격 관제사. 안전 때문에 올라온 건 승인하고, 예산 초과는 거부합니다."""
         for proposal_id in list(self.runtime._awaiting_human):
             decision = self.runtime._decisions[proposal_id]
-            if decision.code == "human_notice":
-                continue   # 모델이 읽은 공지는 여기 관제사가 대신 확인하지 않습니다(사람 몫)
+            if decision.code in PERSON_ONLY_CARDS:
+                continue   # 모델이 읽은 공지·날씨, 기상 대기 풀기는 사람 몫 — 여기서 대신 안 함
             allow = decision.authority_hit not in BUDGET_ESCALATIONS
             self.runtime.approve(proposal_id, "원격 관제사", allow=allow)
 
@@ -366,7 +370,11 @@ def ledger_stats(path: str) -> dict:
     """원장에서 교차 거절·해결·물림을 셉니다. 점수판이 아니라 기록으로 보는 런타임의 일."""
     stats = {"traffic_refusals": 0, "landing_site_refusals": 0, "column_refusals": 0,
              "resolutions": {"altitude": 0, "delay": 0}, "withdrawn": 0, "recalled": 0,
-             "notices_applied": 0, "duplicates": 0}
+             "notices_applied": 0, "duplicates": 0,
+             # 정보 수집이 만든 규칙에 걸린 것. 기상 대기의 거절·물림, 사고 원의 회수·거절.
+             "weather_refusals": 0, "weather_grounded": 0, "incident_recalls": 0,
+             "incident_refusals": 0, "weather_holds": 0, "incidents": 0}
+    incident_id = sim_world.INCIDENT["id"]
     seen = set()
     with open(path, encoding="utf-8") as handle:
         for line in handle:
@@ -376,7 +384,15 @@ def ledger_stats(path: str) -> dict:
             seen.add(entry["id"])
             proposal, decision = entry["proposal"], entry["decision"]
             params = proposal.get("params") or {}
+            if decision.get("code") == "weather_hold":
+                stats["weather_holds"] += 1
+            if decision.get("code") == "incident_keepout":
+                stats["incidents"] += 1
             if decision["verdict"] == "denied":
+                if str(decision.get("policy_hit") or "").startswith("weather-hold"):
+                    stats["weather_refusals"] += 1
+                if decision.get("forbids") == incident_id:
+                    stats["incident_refusals"] += 1
                 if decision.get("policy_hit") == "traffic":
                     if params.get("blocked_kind") == "landing":
                         stats["landing_site_refusals"] += 1
@@ -394,6 +410,10 @@ def ledger_stats(path: str) -> dict:
                 stats["withdrawn"] += 1
             if decision.get("code") == "recalled":
                 stats["recalled"] += 1
+                if decision.get("policy_hit") == "weather-hold":
+                    stats["weather_grounded"] += 1
+                if decision.get("policy_hit") == incident_id:
+                    stats["incident_recalls"] += 1
     return stats
 
 
@@ -682,6 +702,29 @@ class TwoWorldsTest(unittest.TestCase):
         self.assertLessEqual(self.guarded["zone_dwell_ticks"],
                              self.direct["zone_dwell_ticks"])
 
+    def test_takeoffs_are_held_by_the_weather_report_only_where_something_reads_it(self):
+        """돌풍 28 kt 관측이 문장으로 옵니다. 런타임은 읽고 한도와 비교해 이륙을 세웁니다 —
+        땅에서 낸 신청은 거절되고 아직 안 뜬 승인 경로는 물립니다. 직결 세계는 읽을 곳이 없어
+        그대로 뜹니다. 떠 있던 기체는 양쪽 다 내립니다.
+        """
+        self.assertEqual(self.guarded["weather_hold_takeoffs"], 0)
+        self.assertGreater(self.direct["weather_hold_takeoffs"], 0,
+                           "직결 세계가 대기 창 안에 한 번도 안 떴으면 대조가 아닙니다")
+        self.assertEqual(self.stats["weather_holds"], 1, self.stats)
+        self.assertGreater(self.stats["weather_refusals"], 0, "런타임 세계 운영사는 시도했습니다")
+
+    def test_the_incident_circle_pulls_or_refuses_a_guarded_corridor_and_nobody_flies_into_it(self):
+        """주소 하나로 온 화재. 런타임은 지명 사전에서 자리를 찾아 원을 닫고, 그리로 가던 승인
+        회랑을 회수하거나 새 경로를 거절합니다. 이 씨앗에서는 drone-02 의 갠트리행 회랑이 틱 3000
+        에 회수됩니다. 직결 세계의 대조는 기상 대기 쪽이 맡습니다(같은 창에 갠트리를 안 지남).
+        """
+        self.assertEqual(self.guarded["incident_incursions"], 0)
+        self.assertEqual(self.stats["incidents"], 1, self.stats)
+        self.assertGreater(self.stats["incident_recalls"] + self.stats["incident_refusals"], 0,
+                           self.stats)
+        self.assertTrue(self.direct["weather_hold_takeoffs"] > 0
+                        or self.direct["incident_incursions"] > 0)
+
     # ---------- 적재 순환이 실제로 도는가 ----------
 
     def test_every_aircraft_loads_delivers_twice_and_comes_home(self):
@@ -695,10 +738,17 @@ class TwoWorldsTest(unittest.TestCase):
                                      row["states"])
 
     def test_nothing_hovers_in_the_air_waiting_for_a_route(self):
-        """멈추는 것은 지상에서 일할 때뿐입니다. 공중 대기는 회수당했을 때 정도만 남습니다."""
+        """멈추는 것은 지상에서 일할 때뿐입니다. 공중 대기는 회수당했을 때 정도만 남습니다.
+
+        한 판에 회수가 둘입니다(구역 폐쇄, 사고 원). 사고 회수 뒤 새 목적지로 가는 길이 남의 회랑과
+        겹치면 그 회랑이 빌 때까지 떠서 기다립니다 — 씨앗 7 에서 drone-02 가 틱 3000 에 회수돼
+        drone-03 의 회랑(틱 3218 까지)이 빌 때까지 110틱. 그것도 판정이 시킨 대기라 여기서는 상한만
+        봅니다.
+        """
         for asset, row in self.trace.items():
             with self.subTest(asset=asset):
-                self.assertLessEqual(row["hovering"], 60)   # 12초. 회수 뒤 재신청 한 번 분량
+                # 30초. 회수 뒤 재신청 + 교차 대기 한 번
+                self.assertLessEqual(row["hovering"], 150)
 
     # ---------- 직결 쪽에서 반드시 참이어야 하는 것 ----------
 

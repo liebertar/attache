@@ -35,6 +35,20 @@ class AuthorityCheck:
         self._spent_by_asset[proposal.asset_id] += proposal.cost_usd
         self._spent_fleet += proposal.cost_usd
 
+    @staticmethod
+    def policy_denial(proposal: Proposal, banned: Policy) -> Decision:
+        """금지에 걸린 거절. 언제까지인지(until_tick)도 값으로 — 화면이 '틱 N 까지' 를 쓰고,
+        운영사가 그때 다시 냅니다."""
+        return Decision(
+            proposal.id,
+            Verdict.DENIED,
+            f"{banned.reason} ({banned.id})",
+            policy_hit=banned.id,
+            forbids=banned.forbid_resource or banned.forbid_action,
+            code="policy",
+            detail={"policy": banned.id, "until_tick": banned.active_until_tick},
+        )
+
     def evaluate(self, proposal: Proposal, asset: dict, tick: int) -> Decision:
         problems = proposal.validate()
         if problems:
@@ -44,14 +58,7 @@ class AuthorityCheck:
             proposal.action, proposal.resource, asset, tick
         )
         if banned:
-            return Decision(
-                proposal.id,
-                Verdict.DENIED,
-                f"{banned.reason} ({banned.id})",
-                policy_hit=banned.id,
-                forbids=banned.forbid_resource or banned.forbid_action,
-                code="policy", detail={"policy": banned.id},
-            )
+            return self.policy_denial(proposal, banned)
 
         if proposal.action in self.authority.human_required_actions:
             return Decision(

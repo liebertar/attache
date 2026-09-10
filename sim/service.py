@@ -64,18 +64,20 @@ def main() -> None:
         return 200, result
 
     def compare(body, query):
+        # 승인 화면의 리콜 줄은 리콜 공지에만. 첫 공지의 틱을 주면 날씨·사고 창에도 리콜이라고
+        # 뜹니다.
+        recall = next((b for b in simulation.bulletins() if b.get("kind") == "recall"), None)
         return 200, {
             "tick": simulation.tick_count,
             "round": simulation.rounds,
-            "recall_tick": simulation.bulletins()[0]["published_tick"]
-            if simulation.bulletins()
-            else None,
+            "recall_tick": recall["published_tick"] if recall else None,
             # 지금 걸려 있는 공지 전부. 화면이 무슨 규칙이 도착했는지 그대로 씁니다.
             # 구역 공지는 문장(text)뿐입니다. 화면 배너는 런타임 /state 의 notices 가 그리고,
             # 여기 것은 "무엇이 도착했나" 의 원문입니다.
             "bulletins": [{k: b.get(k) for k in ("id", "kind", "name", "reason", "text",
                                                   "published_tick", "until_tick",
-                                                  "forbid_action", "applies_to")}
+                                                  "forbid_action", "applies_to",
+                                                  "address", "radius_m", "building_id")}
                           for b in simulation.bulletins()],
             "worlds": {
                 name: world.snapshot(simulation.tick_count)

@@ -227,6 +227,9 @@ class Airspace:
     def all(self) -> list[Volume]:
         return list(self._volumes.values())
 
+    def get(self, volume_id: str) -> Volume | None:
+        return self._volumes.get(volume_id)
+
     def near(self, lat: float, lon: float) -> list[Volume]:
         """이 좌표에 걸릴 수 있는 구역만. 나머지는 볼 필요가 없습니다.
 

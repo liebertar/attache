@@ -52,9 +52,15 @@ fi
 cleanup() { pkill -P $$ || true; }
 trap cleanup EXIT INT TERM
 
-PORT=8100 TICK_SECONDS="${TICK_SECONDS:-0.2}" FLEET_LIMIT_USD=720 \
+# 프로세스끼리는 127.0.0.1 로 부릅니다. 이 Mac 에서 localhost 는 ::1 이 먼저이고, Docker 컨테이너가
+# 같은 포트를 [::1] 에 열면(dynamodb-local 8100, carter-agent 8000) 런타임이 시뮬레이터 대신 그것을
+# 폴링해 틱이 멈춥니다 — 실제로 틱 2618 에 얼어 있었습니다.
+LOOPBACK=127.0.0.1
+# 포트는 바꿀 수 있습니다(둘째 스택, 또는 기본 포트를 다른 것이 쥐고 있을 때): RT_PORT SIM_PORT UI_PORT.
+RT_PORT="${RT_PORT:-8000}" SIM_PORT="${SIM_PORT:-8100}" UI_PORT="${UI_PORT:-3100}"
+PORT=$SIM_PORT TICK_SECONDS="${TICK_SECONDS:-0.2}" FLEET_LIMIT_USD=720 \
   python3 -m sim.service & sleep 1
-PORT=8000 CONFIG=configs/fleet.yaml SIM_URL=http://localhost:8100 MODEL_SUPER="$RUNTIME_SUPER" \
+PORT=$RT_PORT CONFIG=configs/fleet.yaml SIM_URL=http://$LOOPBACK:$SIM_PORT MODEL_SUPER="$RUNTIME_SUPER" \
   LEDGER_PATH=.run/ledger.jsonl python3 -m attache.runtime.service & sleep 1
 
 # 직결 세계도 같은 신청서 작성기를 쓰지만, 로컬 Ollama 한 슬롯을 프로세스 8개가 나누면 런타임 쪽
@@ -69,19 +75,21 @@ for asset in drone-01 drone-02 drone-03 drone-04; do
   if [ -n "${PER_ASSET_URLS[$index]:-}" ] && [ -z "$agent_nano" ] && is_ollama_url "$agent_url"; then
     agent_nano="$LOCAL_NANO_DEFAULT"
   fi
-  ASSET_ID=$asset RUNTIME_URL=http://localhost:8000 LLM_BASE_URL="$agent_url" MODEL_NANO="$agent_nano" \
+  ASSET_ID=$asset RUNTIME_URL=http://$LOOPBACK:$RT_PORT LLM_BASE_URL="$agent_url" MODEL_NANO="$agent_nano" \
     MODEL_SUPER="$MODEL_SUPER" python3 -m attache.agent.loop &
-  ASSET_ID=$asset TRANSPORT=http SIM_URL=http://localhost:8100 LLM_BASE_URL="$DIRECT_LLM_URL" \
+  ASSET_ID=$asset TRANSPORT=http SIM_URL=http://$LOOPBACK:$SIM_PORT LLM_BASE_URL="$DIRECT_LLM_URL" \
     python3 -m direct_agent.loop &
   [ -n "${PER_ASSET_URLS[$index]:-}" ] && AGENT_LINES="${AGENT_LINES}    ${asset}: ${agent_url} (nano=${agent_nano} super=${MODEL_SUPER:-없음})
 "
   index=$((index + 1))
 done
 
-python3 scripts/serve_ui.py 3100 ui >/dev/null 2>&1 &
+python3 scripts/serve_ui.py "$UI_PORT" ui >/dev/null 2>&1 &
 echo
-echo "  화면: http://localhost:3100"
-echo "  런타임: http://localhost:8000/state   세계: http://localhost:8100/compare"
+UI_QUERY=""
+[ "$RT_PORT$SIM_PORT" = "80008100" ] || UI_QUERY="?rt=$RT_PORT&sim=$SIM_PORT"
+echo "  화면: http://$LOOPBACK:$UI_PORT/map.html$UI_QUERY   (localhost 는 ::1 이 먼저라 Docker 가 같은 포트를 열면 엉뚱한 곳)"
+echo "  런타임: http://$LOOPBACK:$RT_PORT/state   세계: http://$LOOPBACK:$SIM_PORT/compare"
 if [ -n "${LLM_BASE_URL}" ]; then
   echo "  모델: ${LLM_BASE_URL} (nano=${MODEL_NANO:-configs/fleet.yaml} super=${RUNTIME_SUPER:-configs/fleet.yaml}, 런타임)"
   [ -n "$AGENT_LINES" ] && printf '  기체별 모델 서버:\n%s' "$AGENT_LINES"

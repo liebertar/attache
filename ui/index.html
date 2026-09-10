@@ -83,10 +83,20 @@ const safe = value => String(value ?? "").replace(/[&<>"']/g,
 const ROWS = [
   ["pad_conflicts",               "착륙 패드 충돌"],
   ["post_recall_violations",      "리콜 이후 금지 행동"],
+  ["weather_hold_takeoffs",       "기상 대기 중 이륙"],
+  ["incident_incursions",         "사고 현장 진입"],
   ["unapproved_passenger_actions","승객 영향 무단 실행"],
   ["unrecorded_actions",          "기록 없는 실행"],
   ["batteries_dead",              "방전으로 멈춤"],
 ];
+
+// 카드에 오르는 행동 이름. 정보 수집이 올리는 카드 셋 — 사람이 무엇을 정하는지 한 줄로 보여야 합니다.
+// 관제탑 피드 밖에서 온 것(검색·수동 입력)과 모델이 읽은 것은 사람이 확인해야 규칙이 됩니다.
+const ACTIONS = {
+  publish_notice: "공역 공지 (사람이 확인해야 걸림)",
+  publish_weather: "날씨 보고서 (사람이 확인해야 이륙 정지)",
+  lift_weather_hold: "기상 대기 풀기 (승인하면 지금, 거부하면 창이 닫힐 때까지)",
+};
 
 function drawMap(canvas, snap){
   const ratio = window.devicePixelRatio || 1;
@@ -140,7 +150,7 @@ function inbox(pending){
   if (!pending.length){ el.innerHTML = '<div class="empty">없음</div>'; return; }
   el.innerHTML = pending.map(p => `
     <div class="card">
-      <div><b>${safe(p.asset_id)}</b> · ${safe(p.action)} · $${Number(p.cost_usd || 0).toFixed(0)} · 영향 ${safe(p.blast_radius)}</div>
+      <div><b>${safe(p.asset_id)}</b> · ${safe(ACTIONS[p.action] || p.action)} · $${Number(p.cost_usd || 0).toFixed(0)} · 영향 ${safe(p.blast_radius)}</div>
       <div class="why">${safe(p.rationale || "")}</div>
       <button class="ok" data-ok="${safe(p.id)}">승인</button>
       <button class="no" data-no="${safe(p.id)}">거부</button>
@@ -174,12 +184,19 @@ async function refresh(){
       : '<div class="empty">없음</div>';
 
     const banner = document.getElementById("recall");
-    if (cmp.recall_tick != null){
-      banner.style.display = "block";
-      banner.textContent =
-        `리콜 공지 (tick ${cmp.recall_tick}) — dv-x500 급속충전 금지. ` +
-        `왼쪽은 공지가 들어온 순간부터 거부되고, 오른쪽은 기체마다 따로 확인해서 따릅니다.`;
-    }
+    const notes = [];
+    if (cmp.recall_tick != null)
+      notes.push(`리콜 공지 (tick ${cmp.recall_tick}) — dv-x500 급속충전 금지. ` +
+        `왼쪽은 공지가 들어온 순간부터 거부되고, 오른쪽은 기체마다 따로 확인해서 따릅니다.`);
+    // 정보 수집이 만든 규칙. 기상 대기는 이륙을 세우고(떠 있는 기체는 내림), 사고는 반경 안을 닫습니다.
+    const hold = rt?.weather?.hold;
+    if (hold) notes.push(`${safe(hold.reason)} — 틱 ${safe(hold.until_tick)} 까지 이륙 정지 ` +
+      `(${hold.source === "human" ? "사람이 확인" : "규칙 문법이 읽음"}). 일찍 풀려면 아래 카드.`);
+    for (const inc of rt?.incidents || [])
+      notes.push(`${safe(inc.name)} — 반경 ${Math.round(Number(inc.radius_m) || 0)} m 접근 금지, ` +
+        `틱 ${safe(inc.until_tick)} 까지${inc.held ? " (사람 확인 대기)" : ""}.`);
+    banner.style.display = notes.length ? "block" : "none";
+    banner.innerHTML = notes.join("<br>");   // 조각마다 이미 safe() 를 지났습니다
 
     if (rt){
       document.getElementById("llm").textContent =

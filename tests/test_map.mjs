@@ -622,3 +622,115 @@ test('a backlog of refusals is collapsed so the replay never falls more than one
   ui.time(red + 300); ui.run('draw');
   assert.ok(ui.path('pending').length > 0, '첫 빨강 다음에 곧바로 승인이 옵니다, 밀린 거절 넷은 버려집니다');
 });
+
+// 정보 수집. 날씨는 정책(이륙 정지), 사고는 공지(구역) — /state 의 weather · incidents · intake 모양 그대로.
+test('the banner says a weather hold and who read it, a held report waits for a person, an unread bulletin shows raw', () => {
+  const ui = scene();
+  const bulletin = {id:'wx-1', kind:'weather', text:'KNYC 0929Z WIND 240 AT 18 GUST 28 KT VIS 2SM RA',
+                    published_tick:2175, until_tick:2700};
+  ui.run('renderSnapshot', {...snapshot(), bulletins:[bulletin]}, {ledger:[], notices:[], intake:{items:[]}, weather:{hold:null, held:[]}});
+  assert.match(ui.element('banner').innerHTML, /WEATHER.*not yet read/);
+  const hold = {id:'wx-1', reason:'WEATHER HOLD · gusts 14 m/s > 12', until_tick:2700, since_tick:2200, source:'grammar', report:{}};
+  ui.run('renderSnapshot', {...snapshot(), bulletins:[bulletin]}, {ledger:[], notices:[],
+    intake:{items:[{id:'wx-1', kind:'weather', read_by:'grammar'}]}, weather:{hold, held:[]}});
+  const banner = ui.element('banner').innerHTML;
+  assert.match(banner, /<b>WEATHER HOLD<\/b> · gusts 14 m\/s &gt; 12 · takeoffs held until tick 2700 — read by the rule grammar/);
+  assert.doesNotMatch(banner, /not yet read/);
+  assert.equal(ui.element('banner').style.display, 'block');
+  // 모델이 읽은 보고서는 사람을 기다립니다 — 아무것도 세우지 않고 그렇게 말합니다.
+  ui.run('renderSnapshot', {...snapshot(), bulletins:[]}, {ledger:[], notices:[], intake:{items:[]},
+    weather:{hold:null, held:[{id:'wx-2', breaches:['gusts 20 m/s > 12'], source:'model:nvidia/nemotron-3-super-120b-a12b'}]},
+    llm:{enabled:true, models:{super:'nvidia/nemotron-3-super-120b-a12b'}}});
+  assert.match(ui.element('banner').innerHTML, /gusts 20 m\/s &gt; 12 — read by the super agent, waiting for a person/);
+  // 못 읽은 것은 원문 그대로, 이유와 함께.
+  ui.run('renderSnapshot', {...snapshot(), bulletins:[]}, {ledger:[], notices:[],
+    intake:{items:[{id:'t1', kind:null, why:'no model', text:'Gusty afternoon <b>expected</b>'}]}, weather:{hold:null, held:[]}});
+  assert.match(ui.element('banner').innerHTML, /INTAKE<\/b> · Gusty afternoon &lt;b&gt;expected&lt;\/b&gt; — not read by the runtime \(no model\)/);
+});
+
+test('an incident is painted like a zone and named on the banner; held it is neither', () => {
+  const ui = scene();
+  const ring = [[40.705, -74.015], [40.705, -74.012], [40.703, -74.012], [40.703, -74.015]];
+  const notice = {id:'fdny-1', name:'FIRE · 1 Bowling Green', kind:'incident', applied:true, held:false,
+                  source:'grammar', until_tick:3600, polygon:ring};
+  const incident = {id:'fdny-1', name:'FIRE · 1 Bowling Green', kind:'fire', radius_m:200, until_tick:3600, applied:true, held:false};
+  ui.run('renderSnapshot', {...snapshot(), bulletins:[{id:'fdny-1', kind:'incident', text:'FDNY 3-ALARM FIRE AT 1 BOWLING GREEN', published_tick:3000, until_tick:3600}]},
+    {ledger:[], notices:[notice], incidents:[incident], intake:{items:[{id:'fdny-1', kind:'incident', read_by:'grammar'}]}, weather:{hold:null, held:[]}});
+  const banner = ui.element('banner').innerHTML;
+  assert.match(banner, /<b>FIRE · 1 Bowling Green<\/b> · 200 m keep-out until tick 3600 — read by the rule grammar/);
+  assert.match(banner, /landing areas inside unusable/);
+  assert.doesNotMatch(banner, /not yet read/);
+  assert.equal(ui.source('zone').features.length, 1);
+  assert.equal(ui.source('zone').features[0].properties.id, 'fdny-1');
+  assert.equal(ui.source('zone').features[0].properties.name, 'FIRE · 1 Bowling Green',
+               '원에 이름이 붙어야 건물이 가려도 무엇이 닫혔는지 보입니다');
+  const held = {...notice, applied:false, held:true, source:'model:x'};
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[held], incidents:[{...incident, applied:false, held:true}], intake:{items:[]}, weather:{hold:null, held:[]}});
+  assert.equal(ui.source('zone').features.length, 0, '보류 중인 사고는 아무것도 안 막습니다');
+  assert.match(ui.element('banner').innerHTML, /FIRE · 1 Bowling Green<\/b> · 200 m keep-out — read by the Agent agent, waiting for a person/);
+});
+
+test('a takeoff refused by the weather hold says WEATHER HOLD; a landing refused by the incident names it', () => {
+  const ui = scene();
+  const held = denial('wx-deny', {decision:{verdict:'denied', reason:'WEATHER HOLD · gusts 14 m/s > 12 (weather-hold:fly_route)',
+    code:'policy', policy_hit:'weather-hold:fly_route', detail:{policy:'weather-hold:fly_route', until_tick:2700}}});
+  ui.run('renderDenials', {ledger:[held]}, 0);
+  assert.equal(ui.element('denial-why').textContent, 'WEATHER HOLD · takeoffs held until tick 2700');
+  ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
+  assert.match(ui.source('stage-label').features[0].properties.label, /^REJECTED · WEATHER HOLD · takeoffs held until tick 2700/);
+  assert.equal(ui.source('blocker').features.length, 0, '대기는 다각형이 아닙니다');
+  // 사고 원 안의 착륙장. 런타임은 막은 구역의 이름(blocked_name)을 값으로 줍니다.
+  const fire = denial('fire-deny', {proposal:{asset_id:'drone-02', action:'fly_route',
+    params:{legs:[start, ...route], blocked_kind:'landing', blocked_volume:'fdny-1', blocked_name:'FIRE · 1 Bowling Green',
+            blocked_leg:3, blocked_at:{lat:route.at(-1).lat, lon:route.at(-1).lon},
+            blocked_polygon:[[40.705, -74.015], [40.705, -74.012], [40.703, -74.012]], blocked_floor_m:0, blocked_ceiling_m:null}},
+    decision:{verdict:'denied', reason:'착륙 지점 둘레에 FIRE · 1 Bowling Green', code:'airspace', policy_hit:'airspace', forbids:'fdny-1'}});
+  ui.run('renderDenials', {ledger:[fire]}, 0);
+  assert.equal(ui.element('denial-why').textContent, 'NO ROOM TO LAND · FIRE · 1 Bowling Green');
+  const depart = denial('dep-deny', {proposal:{asset_id:'drone-03', action:'depart', params:{}},
+    decision:{verdict:'denied', reason:'WEATHER HOLD · gusts 14 m/s > 12 (weather-hold:depart)', code:'policy',
+              policy_hit:'weather-hold:depart', detail:{policy:'weather-hold:depart', until_tick:2700}}});
+  ui.run('renderDenials', {ledger:[depart]}, 100);
+  assert.equal(ui.element('denial-what').textContent, 'depart');
+  assert.match(ui.element('denial-why').textContent, /^WEATHER HOLD/);
+});
+
+test('the scoreboard has rows for takeoffs during a hold and flights into an incident scene', () => {
+  const ui = scene();
+  const snap = snapshot();
+  snap.worlds.guarded.scoreboard = {weather_hold_takeoffs:0, incident_incursions:0};
+  snap.worlds.direct.scoreboard = {weather_hold_takeoffs:2, incident_incursions:1};
+  ui.run('renderSnapshot', snap, null);
+  const rows = ui.element('rows').innerHTML;
+  assert.match(rows, /Takeoffs during a weather hold<\/td>\s*<td class="zero">0<\/td>\s*<td class="hit">2<\/td>/);
+  assert.match(rows, /Flights into an incident scene<\/td>\s*<td class="zero">0<\/td>\s*<td class="hit">1<\/td>/);
+});
+
+test('intake and weather ledger lines read as words, and opening a hold raises no recall card', () => {
+  const ui = scene();
+  const line = (id, action, code, detail={}, extra={}) => ({id, at:Date.now()/1000, outcome:'noted',
+    proposal:{asset_id:'intake', action, author:'runtime', params:{}, ...extra},
+    decision:{verdict:'auto', reason:'WEATHER HOLD · gusts 14 m/s > 12', code, detail}});
+  const entries = [
+    line('i1', 'intake', 'intake_received', {source:'sim'}),
+    line('i2', 'intake', 'intake_read', {kind:'weather', read_by:'grammar'}),
+    line('i3', 'intake', 'intake_unreadable', {why:'no model'}),
+    line('w1', 'weather_hold', 'weather_hold', {until_tick:2700}, {asset_id:'fleet'}),
+    line('w2', 'weather_hold', 'weather_hold_expired', {until_tick:2700}, {asset_id:'fleet'}),
+    line('k1', 'incident_keepout', 'incident_keepout', {name:'FIRE · 1 Bowling Green', radius_m:200, until_tick:3600}, {asset_id:'fleet'}),
+    {...line('l1', 'lift_weather_hold', 'weather_hold_lifted', {}, {asset_id:'fleet'}), outcome:'done',
+     decision:{verdict:'auto', reason:'x', code:'weather_hold_lifted', approved_by:'관제사'}},
+  ];
+  ui.run('renderSnapshot', snapshot(), {ledger:entries, llm:{enabled:false, models:{}}, locks:{}, notices:[], intake:{items:[]}, weather:{hold:null, held:[]}});
+  const feed = ui.element('feed').innerHTML;
+  assert.match(feed, /intake<\/b> information intake[\s\S]*received from sim/);
+  assert.match(feed, /read by the rule grammar · weather/);
+  assert.match(feed, /not read \(no model\)/);
+  assert.match(feed, /fleet<\/b> weather hold[\s\S]*WEATHER HOLD · gusts 14 m\/s > 12 · takeoffs held until tick 2700/);
+  assert.match(feed, /weather hold expired at tick 2700/);
+  assert.match(feed, /incident keep-out[\s\S]*FIRE · 1 Bowling Green · 200 m keep-out until tick 3600/);
+  assert.match(feed, /lift the weather hold[\s\S]*weather hold lifted by a person · 관제사/);
+  assert.doesNotMatch(feed, /r_intake|r_weather/);
+  ui.run('renderDenials', {ledger:entries}, 0);
+  assert.equal(ui.element('denial').hidden, true, '대기가 열린 것은 회수 카드가 아닙니다');
+});

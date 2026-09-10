@@ -335,6 +335,31 @@ id·지연을 확인합니다).
 **그것도 결과지만, 누가 그렇게 정했는지가 기록에 남아 있습니다.** 오른쪽에서 멈춘 기체는
 아무도 정하지 않았고 아무도 모릅니다.
 
+### 관제탑이 읽는 것 — 날씨·사고·제한
+
+런타임은 문장을 받아 규칙으로 바꿉니다. 시뮬레이터가 두 문장을 냅니다(모델 없이도 돕니다):
+
+- 틱 2175 `KNYC 0929Z WIND 240 AT 18 GUST 28 KT VIS 2SM RA` — 돌풍 14 m/s 가 한도 12(`configs/fleet.yaml weather`)를
+  넘어 **이륙 정지**. 땅에서 낸 신청은 거절되고 아직 안 뜬 승인 경로는 물리고, 떠 있는 기체는 그대로 내립니다.
+  한도 안 보고서가 뒤에 와도 저절로 안 풀립니다 — 승인 화면의 "기상 대기 풀기" 카드를 사람이 누르거나 틱 2700 에 창이 닫혀야.
+- 틱 3000 `FDNY 3-ALARM FIRE AT 4705 CENTER BOULEVARD. KEEP CLEAR 150 M RADIUS` — 주소를 지명 사전에서 찾아 150 m
+  원을 닫습니다. 그리로 가던 승인 회랑은 회수되고 새 경로는 거절, 원 안의 착륙장(갠트리플라자)은 못 씁니다.
+
+오른쪽(직접) 세계는 두 문장을 읽을 곳이 없어 그대로 뜹니다 — 점수판 "기상 대기 중 이륙" 이 그것을 셉니다.
+
+```
+curl -X POST localhost:8000/intake -H 'Content-Type: application/json' \
+  -d '{"text":"KNYC 1030Z WIND 300 AT 22 GUST 35 KT VIS 1SM SN"}'     # 문법이 읽음 → 승인 화면 카드 → 대기
+curl -X POST localhost:8000/intake -H 'Content-Type: application/json' \
+  -d '{"text":"Gusty afternoon across Manhattan, peaking near thirty"}'  # 문법 밖 → Super 가 읽고 → 카드
+```
+
+`.env` 에 `TAVILY_API_KEY` 를 넣으면 5분마다 검색(`intake.queries`)이 같은 길로 들어옵니다. **그 틱에 걸리는 것은
+시뮬레이터(관제탑 피드) 공지를 문법이 읽은 것뿐입니다.** 검색 결과와 `POST /intake` 는 문법이 읽어도 승인 화면의
+카드로 서고, 사람이 확인해야 규칙이 됩니다 — 2012년 태풍 기사 한 줄이 기단을 세우면 안 되니까. 모델이 읽은 것도 같습니다.
+코드가 검사 못 하는 답(지명 사전 밖 주소, 말이 안 되는 숫자·반경)은 누가 읽었든 버립니다. `/state` 의
+`intake`·`weather`·`incidents`, 원장의 `intake_*`·`weather_hold*`·`incident_keepout` 줄에 전부 남습니다.
+
 ## 3D 로 보기
 
 ```

@@ -1,0 +1,62 @@
+[
+ {
+  "label": "intake-weather-gusty",
+  "tier": "super",
+  "model": "nemotron-3-super-reference",
+  "needle": "Gusty afternoon across Manhattan",
+  "text": "{\"kind\": \"weather\", \"wind_mps\": 9, \"gust_mps\": 16, \"visibility_m\": null, \"precipitation\": null, \"from\": null, \"until\": null}",
+  "via": "authored",
+  "latency_ms": 0,
+  "note": "Not a recording: the answer the Super tier is expected to give for a forecast sentence the grammar cannot read (no unit next to the number). Written by hand so the held -> approve -> hold path can be tested offline."
+ },
+ {
+  "label": "intake-weather-calm",
+  "tier": "super",
+  "model": "nemotron-3-super-reference",
+  "needle": "Calm and clear over the harbor",
+  "text": "{\"kind\": \"weather\", \"wind_mps\": 3, \"gust_mps\": null, \"visibility_m\": 16000, \"precipitation\": null, \"from\": null, \"until\": null}",
+  "via": "authored",
+  "latency_ms": 0,
+  "note": "Within every limit: nothing to hold, so nothing is held for a person either."
+ },
+ {
+  "label": "intake-incident-midtown",
+  "tier": "super",
+  "model": "nemotron-3-super-reference",
+  "needle": "Three-alarm blaze tearing through a Midtown office tower",
+  "text": "{\"kind\": \"incident\", \"incident\": \"fire\", \"address\": \"10 West 46th Street\", \"building_id\": null, \"radius_m\": 150, \"from\": null, \"until\": null}",
+  "via": "authored",
+  "latency_ms": 0,
+  "note": "A news sentence with the address in prose. The address exists in configs/airspace/nyc_addresses.json, so the model's answer geocodes and is held for a person."
+ },
+ {
+  "label": "intake-incident-invented",
+  "tier": "super",
+  "model": "nemotron-3-super-reference",
+  "needle": "Fire crews responding to a building near the river",
+  "text": "{\"kind\": \"incident\", \"incident\": \"fire\", \"address\": \"999 Nowhere Lane\", \"building_id\": null, \"radius_m\": 150, \"from\": null, \"until\": null}",
+  "via": "authored",
+  "latency_ms": 0,
+  "note": "An address that is not in the gazetteer. Code discards it (intake_unreadable) instead of holding it - a made-up place is not a place."
+ },
+ {
+  "label": "intake-none",
+  "tier": "super",
+  "model": "nemotron-3-super-reference",
+  "needle": "Yankees clinch the division",
+  "text": "{\"kind\": \"none\"}",
+  "via": "authored",
+  "latency_ms": 0,
+  "note": "Irrelevant news. kind none is a valid answer: it is ledgered as read and changes nothing."
+ },
+ {
+  "label": "intake-weather-forever",
+  "tier": "super",
+  "model": "nemotron-3-super-reference",
+  "needle": "Gale warning in effect until further notice",
+  "text": "{\"kind\": \"weather\", \"wind_mps\": 9, \"gust_mps\": 20, \"visibility_m\": null, \"precipitation\": null, \"from\": null, \"until\": 99999999}",
+  "via": "authored",
+  "latency_ms": 0,
+  "note": "A window the model made up far past any real forecast. Code clamps it to the horizon (now + 4 x hold_default_ticks) before the card is raised, so a person never confirms a hold that outlives the day."
+ }
+]

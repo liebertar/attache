@@ -483,6 +483,129 @@ to be of type number, but found null" 경고 3건은 OpenFreeMap positron 스타
 - 20 m 자료로 바꾼 뒤 A* 시간: 창고→워싱턴스퀘어 0.1 s, →세인트니콜라스 4.7 s, →토머스제퍼슨 15 s, →할렘미어 159 s(첫 계산; 낮은 칸을 도는 탐색이 큼). `test_cycle` 12개 374 s. 에이전트는 계획을 초안 스레드처럼 밖에서 돌리지 않으므로 긴 계획은 그 기체가 자리에서 기다리는 시간이 됨 — 0-7.
 - Docker: `docker/Dockerfile` 시뮬 이미지에 `configs/airspace` 가 없어 시작 즉시 죽던 것을 넣고, 화면 이미지는 `scripts/serve_ui.py`(no-store). `compose.yaml` 은 드론 서비스마다 `LLM_URL_1..4`(로컬 함대는 `host.docker.internal:1143x`), Super/Ultra 는 런타임에만.
 
+## 0-12. 정보 수집 — 날씨·사고·제한을 코드가 규칙으로 (2026-09-10)
+
+사용자의 말: "120B(Super)가 늘 결정하는 게 아니다. Tavily 가 모은 것(날씨, 어느 건물에 무슨 사고, 비행 제한)을
+읽고, 런타임이 그것을 규칙으로 바꾼다. Super 가 안 붙어 있어도 같은 장면이 시뮬레이터 공지로 돌아야 한다."
+
+### 출처 셋 (전부 선택, 서로 독립)
+
+| 출처 | 켜지는 조건 | 어떻게 들어오나 |
+|---|---|---|
+| 시뮬레이터 공지 `kind: weather / incident` | 항상 | `Runtime.absorb(bulletins)` — 구역 공지와 같은 폴링 |
+| Tavily 검색 | `TAVILY_API_KEY` | `INTAKE_PERIOD_S`(기본 300 s)마다 `configs/fleet.yaml intake.queries` 세 질문. 자기 스레드(`attache/core/tavily.py IntakePoller`), 결과는 접수함에 놓고 세계 스레드가 다음 폴링에 읽음. 항목 `{id: tavily-<url 해시>, source, query, title, url, snippet, fetched_at, text}` |
+| `POST /intake {text, kind?, id?, address?, building_id?, radius_m?, until_tick?}` | 항상 | 시연·수동 주입. 접수함에 넣고 `{ok, id, queued}` 로 돌아옴 — 읽기는 세계 스레드 |
+
+항목마다 **한 번**: 원장 `intake_received`(source·url) → 읽기 → `intake_read`(kind·read_by) 또는 `intake_unreadable`(why).
+같은 id(없으면 문장 해시)는 판 안에서 다시 읽지도 적지도 않습니다. 판이 바뀌면 비웁니다(공지와 같음).
+`POST /intake` 의 id 는 항상 `manual-` 로 시작합니다(부른 쪽이 시뮬레이터 공지의 id 를 쓰면 그 공지가 '본 것' 이 되어 진짜
+돌풍 보고서가 안 읽혔습니다). `radius_m`·`until_tick` 힌트가 수가 아니면 400 — 세계 스레드에서 터지면 그 폴링의 나머지를 잃습니다.
+키 없음 → `/state.intake.sources.tavily = "off"`, 폴링마다 아무것도 적지 않음(시험 `TavilyTest`).
+키가 있는데 닿지 못하면(401·닫힌 포트·타임아웃·잘못된 URL) 원장에 `intake_source_failed` **한 줄**, 다시 답하면 `intake_source_recovered` 한 줄
+— 주기마다가 아니라 바뀔 때만. `/state.intake.sources.tavily = failed | enabled`, `intake.fetch = {ok, error, calls, failures}`,
+`last_fetch_tick` 은 성공한 주기만 앞당깁니다. 잘못된 `TAVILY_URL` 은 `SearchFailed` 이지 폴링 스레드의 죽음이 아닙니다.
+
+### 출처가 신뢰의 일부 — 문법이 읽었다는 것과 관제탑이 말했다는 것은 다른 일
+
+`TRUSTED_SOURCES = {"sim"}` (`attache/runtime/intake.py`). 그 틱에 걸리는 것은 **관제탑 피드(시뮬레이터 공지)를 문법이 읽은 것뿐**입니다.
+검색 결과(`tavily`)와 수동 입력(`manual`)은 문법이 읽어 냈어도 승인 화면 카드(`publish_weather` / `publish_notice`)로 서고, 사람이
+확인해야 규칙이 됩니다 — 모델이 읽은 것과 같은 길. 이유: "Remembering Superstorm Sandy: winds 50 mph gusting to 70 mph … 2012" 라는
+검색 문장을 문법은 읽어 냅니다(단위가 있으니까). 그것이 그 틱에 기단을 세우면 웹 페이지가 관제탑 공지의 권한을 갖는 것입니다.
+`POST /intake` 도 누가 보냈는지 런타임은 모르고, 사람의 말이 규칙이 되는 자리는 승인 화면입니다. 대기가 이미 서 있으면 검색 결과는
+창을 늘리지 못하고 카드도 더 올리지 않습니다(기록만). 바꾸려면 상수 하나.
+**범위 검사도 누가 읽었든 겁니다**(`compile_item`): 문법이 읽은 `KEEP CLEAR 9999 M RADIUS`, `radius_m: 50000` 힌트, `WIND 240 AT 900 KT`
+는 `intake_unreadable`(read_by grammar, why 에 범위) — 오독으로 맨해튼을 닫거나 기단을 세우지 않습니다. 모델에게 다시 묻지도 않습니다.
+
+### 읽기 — 문법 먼저, Super 는 그 다음, 판정은 언제나 코드
+
+- **문법**(`attache/core/intake.py`, 결정적): NOTAM 어투(`core/notam.parse_notice`) → 사고 → 날씨 순.
+  날씨: `WIND 240 AT 18 GUST 28 KT`, `24018G28KT`, `winds 25 mph gusting to 45 mph`, `VIS 2SM` / `0800` / `visibility 1 mile`,
+  강수 단어(RA·SN·TS·FG·rain·fog…), 창 `TICK a-b` / `HHMM-HHMMZ`. 단위 없는 숫자는 바람이 아닙니다.
+  사고: `fire|blaze|collapse|explosion|police|gas leak` + `AT <번지> <거리>`(주소 정규화: W→West, St→Street…, 지명 사전
+  `configs/airspace/nyc_addresses.json` 832곳과 정확 일치) 또는 `bldg-t#####`(공역의 건물 중심), 반경 `150 M RADIUS`/`WITHIN 200 M`
+  (기본 150), 창. 자리를 못 찾으면 못 읽은 것입니다 — 추측하지 않습니다.
+- **Super**(`MODEL_SUPER` 있을 때만, `INTAKE_TIMEOUT_S` 기본 60 s, 세계 스레드 밖 데몬 스레드, 판이 바뀐 뒤 온 답은 버림):
+  json_object `{kind: weather|incident|notice|none, …}`. 코드가 검사합니다 — 바람 0~60·돌풍 0~80 m/s, 돌풍 ≥ 바람, 시정 0~50 km,
+  주소는 지명 사전에 있어야 하고 건물 id 는 공역에 있어야 하며(없으면 `intake_unreadable` "지명 사전에 없는 주소"), 반경 50~500 m,
+  서비스 상자 안, 창 순서. `kind: none` 은 정상 답(기단과 무관한 글, `intake_read` kind none). 못 넘으면 `llm.discard`.
+- **모델이 읽은 것, 그리고 관제탑 피드 밖에서 온 것은 사람 확인 뒤에만** 적용(공지와 같음). 관제탑 피드를 문법이 읽은 것만 그 틱에 걸림.
+- 창의 상한: 보고서·힌트·모델 답의 `until_tick` 은 `지금 + 4 × hold_default_ticks`(2000틱 ≈ 27분)에서 잘립니다(`IntakeBook.window_until`).
+  모델이 99999999 를 말하면 카드는 4200 까지로 섭니다. 창이 이미 닫힌 한도 밖 보고서(`until_tick <= tick`)는 `intake_read`(window_closed)만 —
+  세웠다가 같은 폴링에 풀면 아직 안 뜬 승인 경로만 헛되이 물렸습니다.
+- 시정 문법: METAR 4자리 시정은 바람 그룹 뒤에 홀로 설 때만(`KT 0800`). `KT 0930-0940Z` 의 0930 은 시각 창이지 시정 930 m 가 아닙니다 —
+  전에는 한도 안 바람에 없는 시정 위반이 붙어 대기가 섰습니다.
+
+### 날씨 규칙 (결정적)
+
+`configs/fleet.yaml weather: max_wind_mps 10 · max_gust_mps 12 · min_visibility_m 1500 · hold_default_ticks 500`.
+한도를 넘는 보고서(같으면 안 넘음) → **WEATHER HOLD**: 정책 셋 `weather-hold:fly_route / :reserve_pad / :depart`
+(`Policy.ground_only=True` — 땅에 있는 기체의 신청만 거절, 떠 있는 기체의 재신청은 그대로 판정), 이유 `WEATHER HOLD · gusts 14 m/s > 12`,
+`until_tick` = 문장의 창 → 항목의 `until_tick` → 지금 + hold_default_ticks. 여는 순간 땅에서 승인만 받고 아직 안 뜬 경로는
+`divert_ground`(code `recalled`, policy_hit `weather-hold`)로 물립니다 — 정책은 새 신청만 막고 승인된 출발은 신청이 아니라서.
+사람 카드나 자원 줄에 서 있던 신청은 실행 직전 `_rejudge` 가 정책도 다시 봅니다(전에는 공역·교차만 봤음).
+**한도 안의 보고서가 뒤에 와도 저절로 안 풀립니다** — 승인 화면 카드 `lift_weather_hold`(대기가 열릴 때 오르고, 거부하면 내려가며,
+한도 안 보고서가 오면 그 사실을 붙여 다시 오름, 관제탑 피드가 창을 늘리면 카드의 `until_tick`·문구도 그 창으로)를 사람이 승인하거나
+(`weather_hold_lifted`) 창이 닫혀야(`weather_hold_expired`) 풉니다. 판이 바뀌어 열린 채 사라지는 대기는 `weather_hold_closed` 줄을 남깁니다
+(`GET /ledger/report` fleet.weather_holds 의 `closed_by: round`, md "closed tick N (round changed)") — 없으면 보고서가 영원히 '열림' 이었습니다.
+`publish_weather` 카드의 문구에도 세울 창(`until tick N`)이 있습니다 — 사람이 확인하는 것은 창까지입니다.
+모델이 읽은 한도 밖 보고서는 `publish_weather` 카드로 보류(`human_weather`) → 승인 `weather_confirmed`(source human 으로 대기 열림) /
+거부 `weather_refused` / 창 지나면 `weather_lapsed`.
+
+### 사고 규칙
+
+읽어 낸 사고 = 중심(주소 좌표 또는 건물 중심)·반경·창 → 16각형 원 `Volume(rule forbidden, floor 0, ceiling None)` 을
+**공지 책(NoticeBook)에 kind `incident` 로** 올립니다. 그 뒤는 공지의 길 그대로: `_apply_notices` 가 걸고(`incident_keepout` 원장 줄),
+지나던 승인 회랑은 `recall_flights`(nearest_exit), 새 경로는 `first_breach`(이격 40 m)로 거절, 원 안·둘레 50 m 의 착륙장은
+`landing_breach` 로 착륙 불가, 화면은 `runtime.notices` 의 applied 폴리곤을 구역처럼 칠합니다. 거절 값 `blocked_name` = `FIRE · 4705 Center Boulevard`.
+모델이 읽은 사고는 `publish_notice` 카드(`human_notice`) → 승인 뒤 적용. 일찍 닫는 것은 사람(카드), 아니면 창 만료.
+창이 없으면 `hold_default_ticks` 만큼. 접수가 만든 공지 id 는 `intake.notice_ids` 로 피드 검사에서 빠지지 않게 합니다.
+
+### 시뮬레이터 두 장면 (모델 없이 돎, 씨앗 7)
+
+| 장면 | 틱 | 문장 | 런타임 세계 | 직결 세계 |
+|---|---|---|---|---|
+| 날씨 `wx-2026-09-knyc-0929` | 2175–2700 (0929–0936Z) | `KNYC 0929Z WIND 240 AT 18 GUST 28 KT VIS 2SM RA` — 돌풍 14.4 m/s > 12 | 문법이 읽어 즉시 대기. 땅의 신청 113건 거절(code policy, policy_hit weather-hold:*), 아직 안 뜬 승인 1건 물림, 2735 부터 다시 뜸 | 창 안 이륙 2건(2195, 2455) — 읽을 곳이 없음 |
+| 사고 `fdny-2026-09-center-blvd` | 3000–3600 | `FDNY 3-ALARM FIRE AT 4705 CENTER BOULEVARD. KEEP CLEAR 150 M RADIUS` — 갠트리플라자 착륙장에서 156 m | drone-02 의 창고→갠트리 승인 회랑이 3000 에 회수, 재신청은 착륙 불가로 거절 → 주문 반려 1 | 같은 창에 갠트리를 안 지남(drone-01 은 예산 바닥으로 창고에 섬) → 0 |
+
+점수판 `weather_hold_takeoffs`(창 첫 틱 제외 — 그 틱에 게시된 문장은 다음 폴링에야 읽힘)·`incident_incursions`(도착 순간 안에 있던 것 제외).
+하네스: 런타임 0/0, 직결 2/0 (`test_two_worlds` 두 시험 추가). 직결 세계는 두 문장을 모른 채 돕니다(구조화 금지만 읽음).
+솔직히: 날씨 장면의 대조는 직결 에이전트에게 **날씨를 읽는 곳이 없다**는 데서 옵니다 — "기체마다 규칙을 두는 것은 규칙이 아니다" 가
+아니라 "아무도 안 읽는다" 입니다. 직결 쪽에 읽는 코드를 넣지 않은 것은 "unguarded 쪽을 조작하지 않는다" 는 원칙 그대로이고, 그 쪽은
+날씨 공지 형식을 애초에 모릅니다(`applies_to` 없는 문장). 사고 장면은 라이브(벽시계 에이전트)에서 회랑이 원을 안 지날 수 있습니다 —
+라이브에서 약속할 수 있는 것은 "원이 뜨고 그리로 내는 경로는 거절된다" 까지이고, 회수는 씨앗 하네스(틱 고정)에서만 확실합니다.
+사고 주소는 트레이스로 골랐습니다: 기상 대기가 런타임 세계 일정을 500틱 미뤄, 대기 전 트레이스로 고른 주소(배터리파크 곁)는
+대기 후에는 아무 회랑도 안 걸렸습니다. 지금 주소는 런타임 회수 1·거절 1 이 나고 직결 진입은 0 — 그 대조는 날씨 쪽이 맡습니다.
+
+### 상태·원장·화면
+
+- `/state`: `intake {sources {tavily: enabled|off, sim: true}, last_fetch_tick, items_read, items_unreadable, items[≤20 {id, source, kind, read_by, why, held, tick, url, text}]}`,
+  `weather {hold {id, reason, until_tick, since_tick, source, report, breaches, lift_card, later_report}|null, last_report, held[]}`,
+  `incidents [{id, name, kind, place, centre, radius_m, from_tick, until_tick, source, applied, held, confirmed_by, text}]`. 사고는 `notices` 에도(kind incident).
+- 원장 코드: `intake_received / intake_read / intake_unreadable`(action intake), `intake_source_failed / intake_source_recovered`(action intake_source, 바뀔 때 한 줄),
+  `weather_hold / weather_hold_expired / weather_hold_closed`(action weather_hold),
+  `human_lift / weather_hold_lifted / lift_refused`(lift_weather_hold), `human_weather / weather_confirmed / weather_refused / weather_lapsed`(publish_weather),
+  `incident_keepout`, 사고 물림·회수는 `recalled`(policy_hit `weather-hold` 또는 사고 id). 정책 거절 detail 에 `until_tick` 추가.
+  `GET /ledger/report` 에 `fleet {weather_holds[], incidents[]}` 절(md 는 `## Fleet`).
+- 지도: 배너 `WEATHER HOLD · gusts 14 m/s > 12 · takeoffs held until tick 2700 — read by the rule grammar` / `waiting for a person` / 원문(못 읽음),
+  `FIRE · 4705 Center Boulevard · 150 m keep-out until tick 3600`, 점수판 두 줄, 기록 줄, 거절 카드 `WEATHER HOLD · takeoffs held until tick N`,
+  `NO ROOM TO LAND · FIRE · …`(자리 거절은 "leg N enters" 없이 라벨만 — 전에는 착륙 거절도 "leg 3 enters NO ROOM…" 이었음). EN/KR.
+  구역 폴리곤(NOTAM·사고)에 이름 라벨(`zone-label` 심볼 레이어) — 건물이 원을 가려도 무엇이 닫혔는지 보입니다.
+  승인 화면(`index.html`): 카드 이름(`publish_weather`, `lift_weather_hold`, `publish_notice`)과 규칙 배너. 리콜 줄은 `kind == recall` 공지가
+  있을 때만(`sim/service.py compare` 의 `recall_tick`) — 전에는 첫 공지의 틱이라 날씨·사고 창에도 "리콜 공지" 라고 떴습니다.
+- 시험: `tests/test_runtime_intake.py` 40개(문법·한도·대기·사고·모델 경로 fixture `intake_super.json`·가짜 Tavily 서버·타임아웃 중 틱 진행·키 없음·sim 장면),
+  `test_map.mjs` +5. 모델 경로 fixture 는 손으로 쓴 기대 답(`via: authored`) — 실제 120B 녹음은 키가 없어 없음.
+
+### 제가 정한 것 (뒤집을 수 있음)
+
+- 정책 검사 순서는 그대로(dedupe → 양식 → 경로 → 교차 → 정책). 대기 중 직선이 공역에 먼저 걸리면 첫 거절은 공역, 우회로가 정책. 순서를 바꾸면 `checks_run` 시험이 깨짐.
+- 모델이 읽은 **조이는** 날씨도 사람 뒤에 적용(공지와 같은 규칙). 조이는 쪽은 즉시가 원칙이라 이것은 뒤집을 만함 — 그러려면 `IntakeBook.must_hold` 하나.
+- `TRUSTED_SOURCES = {"sim"}`: 수동 입력(`POST /intake`)도 사람 카드 뒤. 관제사가 직접 친 문장이라면 즉시가 맞다고 볼 수도 있지만, 런타임은 그 POST 가
+  누구 것인지 모르고 카드가 문법의 해석(어느 주소, 몇 m, 언제까지)을 사람에게 보여 줍니다. 시연에서는 클릭 하나가 늘었습니다.
+- 사고 반경 기본 150, 모델 답 50~500. 착륙 둘레 50 m 가 더해져 사실상 200 m 원.
+- 대기 중 한도 밖 보고서가 더 오면 창을 늘리기만(문법일 때). 대기가 둘 겹치는 일은 없음.
+- 검색 결과의 kind 는 문법이 정함(사고 → 날씨 순). 둘 다 읽히면 사고.
+- 하네스의 공중 대기 상한을 60 → 150틱으로. 사고 회수(3000) 뒤 drone-02 의 새 길이 drone-03 회랑(3218 까지)과 겹쳐 110틱을 떠서 기다립니다 — 판정이 시킨 대기라 시나리오를 안 바꾸고 상한만 늘렸습니다.
+
 ## 0-7. 남은 것
 
 1. 강 건너(뉴저지) 착륙장 — OSM 건물 보강 후. 지금 뉴저지로는 안 갑니다.
