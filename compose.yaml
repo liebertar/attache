@@ -1,4 +1,4 @@
-# docker compose up --build  →  http://localhost:3100
+# docker compose up --build  →  지도 http://localhost:3100/map.html · 승인함 http://localhost:3100
 #
 # 이 파일 자체가 설명입니다. guarded 에이전트는 world 망에 없어서 조종장치에 닿을
 # 길이 없고, direct 에이전트는 world 망에 있어서 직접 만집니다. 코드는 같습니다.
