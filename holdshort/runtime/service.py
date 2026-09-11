@@ -224,6 +224,14 @@ class Runtime:
         self._recent_commits: dict[tuple[str, str], int] = {}
         self.dedupe_ticks = int(os.getenv("DEDUPE_TICKS", "15"))
         self._guard = threading.Lock()
+        # 판정에서 의도 등록까지 한 번에 하나. HTTP 처리 스레드마다 file() 이 따로 돌아,
+        # 0.2초 간격으로 온 두 신청이 서로의 의도가 등록되기 전에(_on_committed) 교차 판정을
+        # 지나 둘 다 승인됐습니다 — 실주행(규칙 모드)에서 회수된 두 기체가 같은 A* 회랑을 다시
+        # 내 런타임 쪽 분리 상실이 둘. 잡는 순서는 늘 _judging → _guard 입니다(_guard 를 쥔 채
+        # 이것을 잡는 곳은 없습니다). 세계 스레드(회수·공지)는 이것을 잡지 않습니다 — 느린
+        # 조종장치 명령 뒤에 시계가 서면 안 되고, 회수 도중 의도가 빈 떠 있는 기체는 _others 가
+        # 텔레메트리로 세우는 자리(presence)가 막습니다.
+        self._judging = threading.RLock()
 
     # ---------- 신청 접수 ----------
 
@@ -233,6 +241,11 @@ class Runtime:
         return self.airspace_loaded or not self.await_airspace
 
     def file(self, raw: dict) -> Decision:
+        """신청 하나를 판정하고, 되면 실행합니다. 판정에서 의도 등록까지 한 번에 하나(_judging)."""
+        with self._judging:
+            return self._judge_and_commit(raw)
+
+    def _judge_and_commit(self, raw: dict) -> Decision:
         proposal = Proposal.from_dict({**raw, "world": "guarded"})
         asset = self.telemetry.get(proposal.asset_id, {})
         # 이 접수의 검사 목록. 운영사가 같은 id 로 다시 내면(직선 → 재작성) 새로 셉니다 — 원장
@@ -914,6 +927,12 @@ class Runtime:
             proposal = self._awaiting_human.pop(proposal_id, None)
         if proposal is None:
             return None
+        # 사람의 답도 판정 줄에 섭니다 — 승인은 재판정·실행·의도 등록으로 이어집니다.
+        with self._judging:
+            return self._answer_card(proposal, proposal_id, actor, allow)
+
+    def _answer_card(self, proposal: Proposal, proposal_id: str, actor: str,
+                     allow: bool) -> Decision:
         decision = self._decisions[proposal_id]
         decision.approved_by = actor
         card = self._open_cards.pop(proposal_id, None)
@@ -950,6 +969,12 @@ class Runtime:
             ]
             batches = {resource: self._contended.pop(resource) for resource in ready}
 
+        if batches:
+            with self._judging:
+                self._settle_batches(batches)
+
+    def _settle_batches(self, batches: dict) -> None:
+        """줄 선 자원의 배정. 재판정·실행·의도 등록이라 신청(file)과 같은 줄(_judging)에 섭니다."""
         for resource, waiting in batches.items():
             # 줄 서 있는 동안 공역이 바뀌었을 수 있습니다. 막힌 경로는 중재에 들어가지 않습니다.
             waiting = [item for item in waiting if self._rejudge(item[0], item[1]) is None]

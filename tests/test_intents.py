@@ -563,8 +563,10 @@ class ResolutionLadderTest(unittest.TestCase):
                          params["depart_after_tick"])
 
     def test_the_ladder_is_finite(self):
-        """고도도 지연도 안 되면 A* 로 다시 그리고, 그것도 안 되면 이번 차례는 접습니다."""
+        """고도도 지연도 안 되면 후보를 차례로 내고(후보마다 같은 사다리), 그것도 안 되면 이번
+        차례는 접습니다. 사다리는 직선 하나 + 후보마다 하나(loop.py _file_candidates)까지입니다."""
         from holdshort.agent.loop import MAX_DELAY_TRIES
+        from holdshort.core.route import CANDIDATE_LABELS
         from holdshort.runtime.intents import Volume4D
 
         filings = []
@@ -588,8 +590,53 @@ class ResolutionLadderTest(unittest.TestCase):
         decision = self.side._file(proposal, self._telemetry("drone-02", leg(1500, -1500, 0.0)))
         self.assertIs(decision.verdict, Verdict.DENIED)
         self.assertEqual(decision.policy_hit, "traffic")
-        self.assertLessEqual(filings.count("delay"), 2 * MAX_DELAY_TRIES)
-        self.assertLessEqual(len(filings), 2 * (2 + MAX_DELAY_TRIES))
+        ladders = 1 + len(CANDIDATE_LABELS)
+        self.assertLessEqual(filings.count("delay"), ladders * MAX_DELAY_TRIES)
+        # 사다리 하나 = 첫 신청 + 고도 한 번 + 지연 MAX_DELAY_TRIES 번
+        self.assertLessEqual(len(filings), ladders * (2 + MAX_DELAY_TRIES))
+
+
+# ---------- C4b. 거의 같은 순간에 온 두 신청: 판정에서 의도 등록까지 한 번에 하나 ----------
+
+
+class ConcurrentFilingTest(unittest.TestCase):
+    """HTTP 처리 스레드마다 file() 이 따로 돕니다. 앞 신청이 조종장치에 명령을 보내는 사이(의도
+    등록 전)에 뒤 신청이 교차 판정을 지나면 둘 다 승인됩니다. 실주행(규칙 모드) 한 판에서 회수된
+    두 기체가 0.2초 간격으로 같은 A* 회랑을 다시 냈고 둘 다 승인되어, 시뮬레이터가 런타임 쪽 분리
+    상실 둘(틱 925, 1338)을 셌습니다. 오프라인 하네스는 한 스레드라 이것을 못 봤습니다."""
+
+    def test_two_filings_at_once_cannot_both_clear_crossing_corridors(self):
+        import threading
+        import time
+
+        runtime, adapter = make_runtime()
+        runtime.telemetry = {"drone-01": ground(0, 0), "drone-02": ground(0, 82)}
+        original = adapter.execute
+        commanding = threading.Event()
+
+        def slow(asset_id, action, params, ledger_id, blast="none", approved_by=None):
+            if asset_id == "drone-01":
+                commanding.set()
+                time.sleep(0.4)     # 조종장치가 답하는 동안 — 01 의 의도는 아직 등록 전입니다
+            return original(asset_id, action, params, ledger_id, blast, approved_by)
+
+        adapter.execute = slow
+        decisions = {}
+
+        def file_first():
+            decisions["drone-01"] = runtime.file(
+                route("drone-01", [leg(0, 0, 70.0), leg(1500, 1500, 70.0)]))
+
+        first = threading.Thread(target=file_first)
+        first.start()
+        self.assertTrue(commanding.wait(5))
+        decisions["drone-02"] = runtime.file(
+            route("drone-02", [leg(0, 82, 70.0), leg(1500, -1500, 70.0)]))
+        first.join(5)
+        self.assertTrue(decisions["drone-01"].committed, decisions["drone-01"].reason)
+        self.assertFalse(decisions["drone-02"].committed, "교차하는 두 회랑이 둘 다 승인됐습니다")
+        self.assertEqual(decisions["drone-02"].policy_hit, "traffic")
+        self.assertEqual([sent[0] for sent in adapter.sent], ["drone-01"])
 
 
 # ---------- C5. 시뮬레이터: 분리 상실과 미룬 출발 ----------
