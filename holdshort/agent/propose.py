@@ -4,7 +4,10 @@ Both worlds use this same file. The agents in the unguarded world are exactly as
 and exactly as well behaved; what they lack is a place to put the rules.
 """
 
+import time
+
 from holdshort.agent.detect import Concern
+from holdshort.agent.trace import concern_words, form_part
 from holdshort.core.models import Proposal
 from holdshort.llm.client import LlmTier, TieredLlm, parse_json_object
 
@@ -90,6 +93,9 @@ def _build(asset_id: str, action: str, pad: str | None, rationale: str, author: 
 class Proposer:
     def __init__(self, llm: TieredLlm):
         self.llm = llm
+        # 마지막 신청서를 누가 썼나(trace.form_part). 기체 에이전트가 이것을 신청서의
+        # model_trace 에 싣습니다.
+        self.last_trace: dict | None = None
 
     def write(
         self, concern: Concern, telemetry: dict, pad: str,
@@ -98,32 +104,50 @@ class Proposer:
         known = tuple(pads) or (pad,)
         fallback = by_rule(concern, telemetry, pad, banned)
         tier = LlmTier.SUPER if concern.urgency == "high" else LlmTier.NANO
+        words = concern_words(concern, telemetry)
+        started = time.monotonic()
         reply = self.llm.ask(tier, system_for(known),
                              self._brief(concern, telemetry, pad), max_tokens=160,
                              json_object=True)
         if reply is None:
+            waited = int((time.monotonic() - started) * 1000)
+            self.last_trace = form_part("", words, fallback.action, fallback.rationale, waited,
+                                        False, self._silence_reason(tier))
             return fallback
 
         form = parse_json_object(reply.text)
-        if not form or form.get("action") not in allowed_for(concern):
-            self.llm.discard(tier)
-            return fallback  # 양식이 아니거나 이 걱정거리에 맞지 않는 행동이면 버립니다
-        if form["action"] in banned:
-            self.llm.discard(tier)
-            return fallback  # 이미 금지된 걸 골랐으면 버립니다
-        if not possible_now(form["action"], telemetry):
+        problem = None
+        if not form:
+            problem = "not a form"
+        elif form.get("action") not in allowed_for(concern):
+            problem = "invalid action"  # 이 걱정거리에 맞지 않는 행동이면 버립니다
+        elif form["action"] in banned:
+            problem = "banned action"   # 이미 금지된 걸 골랐으면 버립니다
+        elif not possible_now(form["action"], telemetry):
             # 지금 기체가 할 수 없는 일(패드 위가 아닌데 충전, 떠 있는데 이륙). 양식은 맞지만
             # 조종장치가 거절할 신청입니다 — 실주행에서 4B 가 마당의 기체에 '충전' 을 61번 적어
             # 전부 "not on a pad" 로 실패했고, 그동안 그 기체는 짐을 싣지 못했습니다.
             # 판정이 아니라 운영사의 상식입니다.
+            problem = "impossible now"
+        if problem is not None:
             self.llm.discard(tier)
+            self.last_trace = form_part("", words, fallback.action, fallback.rationale,
+                                        reply.latency_ms, False, problem)
             return fallback
 
         chosen_pad = form.get("pad") if form.get("action") == "reserve_pad" else None
         if chosen_pad is not None and chosen_pad not in known:
             chosen_pad = pad  # 없는 패드를 골랐습니다. 양식은 맞으니 가까운 것으로 되돌립니다
         rationale = str(form.get("rationale") or concern.detail)[:180]
+        self.last_trace = form_part(reply.model, words, form["action"], rationale,
+                                    reply.latency_ms, True, None)
         return _build(telemetry.get("id", "?"), form["action"], chosen_pad, rationale, reply.model)
+
+    def _silence_reason(self, tier: LlmTier) -> str:
+        """답이 없었던 이유. 모델이 없으면 no model, 서버에 못 닿았으면(시간 초과 포함) timeout."""
+        if not (self.llm.enabled and self.llm.model_for(tier)):
+            return "no model"
+        return "timeout" if self.llm.unreachable_within(5.0) else "no reply"
 
     @staticmethod
     def _brief(concern: Concern, telemetry: dict, pad: str) -> str:

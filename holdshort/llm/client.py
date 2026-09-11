@@ -1,7 +1,8 @@
 """OpenAI-compatible client with three Nemotron tiers.
 
 The model never decides anything. It fills in a form (nano/super), drafts a route that a
-judge will read (nano), or returns one index from a list the runtime built (ultra).
+judge will read (nano), chooses one of the operator planner's candidate routes by calling a
+tool (nano), or returns one index from a list the runtime built (ultra).
 Anything else is discarded and the caller falls back to rules. That is what keeps this
 side of the system non-authoritative.
 """
@@ -11,7 +12,7 @@ import os
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
@@ -38,8 +39,10 @@ class LlmReply:
     text: str
     model: str
     latency_ms: int = 0
-    # 답이 어느 필드에서 왔나: content | think-stripped | reasoning_content | reasoning
+    # 답이 어느 필드에서 왔나: content | think-stripped | reasoning_content | reasoning | tool_calls
     via: str = "content"
+    # 도구 호출로 온 답: [{"name", "arguments"(dict 또는 None), "raw"}]. 글로만 답했으면 빈 목록.
+    tool_calls: list = field(default_factory=list)
 
 
 @dataclass
@@ -107,6 +110,9 @@ class TieredLlm:
         self.stats: dict[str, TierStats] = {tier.value: TierStats() for tier in LlmTier}
         # response_format 을 모르는 서버는 400 으로 답합니다. 한 번 그러면 다시 안 보냅니다.
         self._json_mode_ok = True
+        # tools 를 모르는 서버(400)는 한 번 알면 다시 안 보냅니다.
+        # 부르는 쪽은 JSON 양식으로 묻습니다.
+        self._tools_ok = True
         self._recorded = 0
         # 마지막으로 서버에 닿지 못한(타임아웃·연결 실패) 시각(monotonic). 답을 받으면 지웁니다.
         # 부르는 쪽이 "방금 못 받은 서버에 또 긴 질문을 걸 것인가" 를 정하는 근거입니다.
@@ -127,6 +133,11 @@ class TieredLlm:
 
     def model_for(self, tier: LlmTier) -> str:
         return self.models.get(tier.value, "")
+
+    @property
+    def tools_ok(self) -> bool:
+        """이 서버에 tools 를 보내도 되나. 400 을 한 번 받으면 False 로 남습니다."""
+        return self._tools_ok
 
     def ask(self, tier: LlmTier, system: str, user: str, max_tokens: int = 400,
             json_object: bool = False, timeout_s: float | None = None) -> LlmReply | None:
@@ -166,6 +177,55 @@ class TieredLlm:
         self.record(tier, model, system, user, reply, latency_ms)
         return reply
 
+    def ask_tools(self, tier: LlmTier, system: str, user: str, tools: list[dict],
+                  tool_choice="required", max_tokens: int = 200,
+                  timeout_s: float | None = None) -> LlmReply | None:
+        """도구 호출로 한 번 묻습니다(OpenAI 호환 tools/tool_choice). 부른 도구는 reply.tool_calls.
+
+        Nemotron 카드가 학습한 형식이 이것입니다. 모델은 도구를 부를 수만 있고, 그 도구가 무엇을
+        하는지는 부르는 쪽 코드가 정합니다 — 여기서는 아무것도 실행하지 않습니다.
+        'required' 를 모르는 서버가 있어 400 이면 'auto' 로 한 번 더 냅니다. 그래도 400 이면 tools
+        자체를 모르는 서버라 tools_ok 를 끄고 None 입니다(셈하지 않음 — 모델이 답을 못 한 게
+        아니라 서버가 형식을 모르는 것). 부르는 쪽은 JSON 으로 다시 묻습니다. 타임아웃(0)은
+        다시 안 냅니다.
+        """
+        model = self.model_for(tier)
+        if not self.enabled or not model or not self._tools_ok:
+            return None
+        budget = self.timeout_s if timeout_s is None else float(timeout_s)
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+        }
+        payload.update(self.request_extra)
+        names = [str((tool.get("function") or {}).get("name")) for tool in tools]
+        started = time.monotonic()
+        url = f"{self.base_url}/chat/completions"
+        status, response = post_json_status(url, payload, timeout=budget, headers=headers)
+        if status == 400 and payload.get("tool_choice") != "auto":
+            status, response = post_json_status(url, {**payload, "tool_choice": "auto"},
+                                                timeout=budget, headers=headers)
+        latency_ms = int((time.monotonic() - started) * 1000)
+        if status == 400:
+            self._tools_ok = False
+            self.record(tier, model, system, user, None, latency_ms,
+                        extra={"tools": names, "status": 400})
+            return None
+        reply = tool_reply_from(response, model, latency_ms)
+        self.unreachable_at = time.monotonic() if status == 0 else None
+        self.account(tier, reply, latency_ms)
+        self.record(tier, model, system, user, reply, latency_ms,
+                    extra={"tools": names, "tool_choice": tool_choice})
+        return reply
+
     def unreachable_within(self, seconds: float) -> bool:
         """최근 seconds 초 안에 서버에 닿지 못했나. 그 사이에 답을 받았으면 False."""
         return (self.unreachable_at is not None
@@ -188,7 +248,7 @@ class TieredLlm:
                 stats.ok += 1
 
     def record(self, tier: LlmTier, model: str, system: str, user: str,
-               reply: LlmReply | None, latency_ms: int) -> None:
+               reply: LlmReply | None, latency_ms: int, extra: dict | None = None) -> None:
         """LLM_RECORD_DIR 이 있으면 호출을 하나씩 파일로 남깁니다. 시험 fixture 의 원료입니다."""
         if not self.record_dir:
             return
@@ -199,6 +259,7 @@ class TieredLlm:
             "tier": tier.value, "model": model, "system": system, "user": user,
             "text": reply.text if reply else None, "via": reply.via if reply else None,
             "latency_ms": latency_ms, "at": time.time(),
+            "tool_calls": reply.tool_calls if reply else None, **(extra or {}),
         }
         try:
             folder = Path(self.record_dir)
@@ -241,6 +302,53 @@ def reply_from(response: dict | None, model: str, latency_ms: int = 0) -> LlmRep
     if not text:
         return None
     return LlmReply(text=text, model=model, latency_ms=latency_ms, via=via)
+
+
+def tool_calls_from(response: dict | None) -> list[dict]:
+    """message.tool_calls 를 [{"name", "arguments", "raw"}] 로. 모양이 아니면 빈 목록.
+
+    arguments 는 OpenAI 규격상 JSON 문자열이지만(Ollama 도 문자열) 사전으로 주는 서버도 있습니다.
+    """
+    try:
+        message = response["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError):
+        return []
+    calls = message.get("tool_calls") if isinstance(message, dict) else None
+    if not isinstance(calls, list):
+        return []
+    found = []
+    for call in calls:
+        function = call.get("function") if isinstance(call, dict) else None
+        if not isinstance(function, dict) or not isinstance(function.get("name"), str):
+            continue
+        raw = function.get("arguments")
+        text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
+        found.append({"name": function["name"], "arguments": parse_tool_arguments(raw),
+                      "raw": text[:500]})
+    return found
+
+
+def parse_tool_arguments(raw) -> dict | None:
+    """도구 인자 하나. 사전이면 그대로, 문자열이면 JSON 으로 읽고, 못 읽으면 None."""
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return parse_json_object(raw)
+    return parsed if isinstance(parsed, dict) else None
+
+
+def tool_reply_from(response: dict | None, model: str, latency_ms: int = 0) -> LlmReply | None:
+    """도구 호출이 있으면 그것을, 없으면 글 답(reply_from)을. 둘 다 없으면 None."""
+    calls = tool_calls_from(response)
+    plain = reply_from(response, model, latency_ms)
+    if not calls:
+        return plain
+    return LlmReply(text=plain.text if plain else "", model=model, latency_ms=latency_ms,
+                    via="tool_calls", tool_calls=calls)
 
 
 def parse_json_object(text: str) -> dict | None:

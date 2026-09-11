@@ -142,6 +142,15 @@ def needed_over(volume: Volume) -> int | None:
     return math.ceil(volume.ceiling_m + volume.clearance_m + OVER_ROOF_MARGIN_M)
 
 
+def breach_words(volume: Volume) -> str:
+    """사전 판정에 걸린 것을 짧게. 화면 카드용입니다. 예: "crossed bldg-t02452, roof 114 m"."""
+    if is_building(volume):
+        return f"crossed {volume.id}, roof {volume.ceiling_m:.0f} m"
+    if volume.rule == "ceiling" and volume.ceiling_m is not None:
+        return f"above the {volume.ceiling_m:.0f} m cap in {volume.id}"
+    return f"entered {volume.id}"
+
+
 def describe(volume: Volume, allowed_m: float = ALT_MAX_M) -> str:
     """모델이 읽을 장애물 한 줄. 판정 근거가 아니라 지도 읽기입니다.
 
@@ -184,6 +193,9 @@ class ModelDrafter:
         self.last_attempts = 0
         self.last_failures: list[str] = []
         self.last_raised = 0            # 운영사의 고도 규칙이 올린 구간 수
+        # 화면 카드(model_trace.route.draft)용: 마지막 초안이 무엇에 걸렸나, 모델이 쓴 시간(합).
+        self.last_breach: str | None = None
+        self.last_latency_ms = 0
         self._volumes_by_id: dict[str, Volume] = {}
         self._volumes_for = -1
 
@@ -208,6 +220,8 @@ class ModelDrafter:
         self.last_attempts = 0
         self.last_failures = []
         self.last_raised = 0
+        self.last_breach = None
+        self.last_latency_ms = 0
         if not self.enabled:
             return None
         if time.monotonic() < self.skip_until:
@@ -241,11 +255,13 @@ class ModelDrafter:
                 self.skip_until = time.monotonic() + self.backoff_s
                 return None   # 서버가 없거나 느립니다. 또 물어봐야 또 기다립니다
             took_s = reply.latency_ms / 1000.0
+            self.last_latency_ms += reply.latency_ms
             form = parse_json_object(reply.text)
             legs, problem = self.validate(form, start, goal, bbox)
             if legs is None:
                 self.llm.discard(self.tier)
                 self.last_failures.append(problem)
+                self.last_breach = problem
                 user = self._retry_brief(brief, reply.text[:1500], [problem])
                 continue
             legs = self._apply_altitude_rule(legs)
@@ -253,6 +269,7 @@ class ModelDrafter:
             if not breaches:
                 return legs
             self.llm.discard(self.tier)
+            self.last_breach = breach_words(breaches[0][1])
             lines = self.feedback_lines(legs, breaches)
             self.last_failures.append("; ".join(lines))
             user = self._retry_brief(brief, json.dumps({"legs": legs}), lines)

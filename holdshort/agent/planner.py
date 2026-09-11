@@ -10,6 +10,8 @@ airspace may be stale or read differently; the disagreement is resolved by askin
 assuming.
 """
 
+import os
+
 from holdshort.core.geo import Airspace, Volume, first_breach
 from holdshort.core.route import Router
 
@@ -36,6 +38,16 @@ class OperatorPlanner:
         if route is None:
             return None
         return [leg.to_dict() for leg in route.legs]
+
+    def candidates(self, start: tuple[float, float], goal: tuple[float, float],
+                   context: dict | None = None, budget_s: float | None = None) -> list[dict]:
+        """규정 안의 후보를 셋까지(route.Router.candidates). 고르는 것은 이 파일이 아닙니다.
+
+        budget_s 는 (b)(c) 하나의 탐색 한도. 없으면 ROUTE_CANDIDATE_BUDGET_S, 그것도 없으면 기본값.
+        """
+        if budget_s is None and os.getenv("ROUTE_CANDIDATE_BUDGET_S"):
+            budget_s = float(os.getenv("ROUTE_CANDIDATE_BUDGET_S"))
+        return self.router.candidates(start, goal, context, budget_s)
 
     def start_blocked(self, start: tuple[float, float], telemetry: dict | None = None) -> bool:
         """출발점 자체가 금지 구역 안(또는 이격 거리 안)인가. 그러면 목적지 문제가 아닙니다."""

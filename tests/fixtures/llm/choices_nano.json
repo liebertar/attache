@@ -1,0 +1,215 @@
+[
+ {
+  "kind": "choice",
+  "tier": "nano",
+  "model": "nemotron-3-nano:4b",
+  "needle": "has a delivery to Morningside Park, no cleared route",
+  "text": "",
+  "via": "tool_calls",
+  "tool_calls": [
+   {
+    "name": "choose_route",
+    "arguments": {
+     "id": "c",
+     "reason": "clear of traffic"
+    },
+    "raw": "{\"id\":\"c\",\"reason\":\"clear of traffic\"}"
+   }
+  ],
+  "latency_ms": 2530,
+  "candidate_ids": [
+   "a",
+   "b",
+   "c"
+  ],
+  "chosen": "c",
+  "brief": "Aircraft drone-03 (dv-x500) on the ground, battery 66%, 2 stop(s) left this trip.\nTask: has a delivery to Morningside Park, no cleared route.\nThe runtime refused the straight line — airspace: bldg-t02079 is in the way.\nNow: tick 38. Weather: no weather hold.\nIn force: TFR · 1.0 NM · near 477 Madison Avenue (until tick 6021); CLOSED · St. Nicholas Park (until tick 6021).\nOther aircraft already cleared: drone-04 ticks 33-266 (waiting to depart).\nCandidates (each one already passes the operator's airspace check; the runtime judges the one you pick):\na) shortest — 15.5 km, 18 legs, cruise 60.0-117.5 m; detour, near-traffic:drone-04\nb) lowest altitude — 15.8 km, 33 legs, cruise 60.0-101.5 m; lowest-altitude, near-traffic:drone-04\nc) clear of traffic — 15.6 km, 23 legs, cruise 60.0-117.5 m; clear-of-traffic, near-traffic:drone-04\nPrefer a route that keeps clear of another aircraft's cleared corridor or an incident when one is near; otherwise a lower cruise if it costs little; otherwise the shortest.\nCall choose_route with one id and one short sentence why.",
+  "source": "Ollama nemotron-3-nano:4b (per-drone fleet 11435-11438), reasoning_effort=none, tools + tool_choice=\"required\", live round 2026-09-11, 1789093685388-68531-0002-nano.json"
+ },
+ {
+  "kind": "choice",
+  "tier": "nano",
+  "model": "nemotron-3-nano:4b",
+  "needle": "heading back to the warehouse, no cleared route",
+  "text": "",
+  "via": "tool_calls",
+  "tool_calls": [
+   {
+    "name": "choose_route",
+    "arguments": {
+     "id": "c",
+     "reason": "clear of traffic, avoids drone-01 corridor"
+    },
+    "raw": "{\"id\":\"c\",\"reason\":\"clear of traffic, avoids drone-01 corridor\"}"
+   }
+  ],
+  "latency_ms": 2254,
+  "candidate_ids": [
+   "a",
+   "c"
+  ],
+  "chosen": "c",
+  "brief": "Aircraft drone-04 (dv-hexa) on the ground, battery 49%, 0 stop(s) left this trip.\nTask: heading back to the warehouse, no cleared route.\nThe runtime refused the straight line — airspace: bldg-t02452 is in the way.\nNow: tick 506. Weather: no weather hold.\nIn force: TFR · 1.0 NM · near 477 Madison Avenue (until tick 6021); CLOSED · St. Nicholas Park (until tick 6021).\nOther aircraft already cleared: drone-02 ticks 498-799 (waiting to depart); drone-03 ticks 413-1637 (flying); drone-01 ticks 672-1857 (waiting to depart).\nCandidates (each one already passes the operator's airspace check; the runtime judges the one you pick):\na) shortest — 2.4 km, 5 legs, cruise 70.0-88.5 m; detour, near-traffic:drone-01\nc) clear of traffic — 2.4 km, 7 legs, cruise 70.0-103.5 m; clear-of-traffic, near-traffic:drone-01\nPrefer a route that keeps clear of another aircraft's cleared corridor or an incident when one is near; otherwise a lower cruise if it costs little; otherwise the shortest.\nCall choose_route with one id and one short sentence why.",
+  "source": "Ollama nemotron-3-nano:4b (per-drone fleet 11435-11438), reasoning_effort=none, tools + tool_choice=\"required\", live round 2026-09-11, 1789093745673-68534-0004-nano.json"
+ },
+ {
+  "kind": "choice",
+  "tier": "nano",
+  "model": "nemotron-3-nano:4b",
+  "needle": "has a delivery to Central Park North 110th, no cleared route",
+  "text": "",
+  "via": "tool_calls",
+  "tool_calls": [
+   {
+    "name": "choose_route",
+    "arguments": {
+     "id": "a",
+     "reason": "shortest route avoids drone-04 traffic near hospital"
+    },
+    "raw": "{\"id\":\"a\",\"reason\":\"shortest route avoids drone-04 traffic near hospital\"}"
+   }
+  ],
+  "latency_ms": 2334,
+  "candidate_ids": [
+   "a",
+   "b",
+   "c"
+  ],
+  "chosen": "a",
+  "brief": "Aircraft drone-01 (dv-x500) on the ground, battery 62%, 2 stop(s) left this trip.\nTask: has a delivery to Central Park North 110th, no cleared route.\nThe runtime refused the straight line — airspace: bldg-t02215 is in the way.\nNow: tick 546. Weather: no weather hold.\nIn force: TFR · 1.0 NM · near 477 Madison Avenue (until tick 6021); CLOSED · St. Nicholas Park (until tick 6021); 이스트빌리지 응급헬기 회랑 (until tick 900).\nOther aircraft already cleared: drone-04 ticks 529-868 (waiting to depart); drone-02 ticks 498-799 (flying); drone-03 ticks 495-1000000030 (flying).\nCandidates (each one already passes the operator's airspace check; the runtime judges the one you pick):\na) shortest — 15.7 km, 15 legs, cruise 60.0-117.5 m; detour, near-traffic:drone-04, near-traffic:drone-02, near-keepout:nofly-2026-09-hospital\nb) lowest altitude — 16.0 km, 35 legs, cruise 60.0-101.5 m; lowest-altitude, near-traffic:drone-04, near-keepout:nofly-2026-09-hospital\nc) clear of traffic — 15.8 km, 25 legs, cruise 60.0-117.5 m; clear-of-traffic, near-traffic:drone-04, near-traffic:drone-02, near-keepout:nofly-2026-09-hospital\nPrefer a route that keeps clear of another aircraft's cleared corridor or an incident when one is near; otherwise a lower cruise if it costs little; otherwise the shortest.\nCall choose_route with one id and one short sentence why.",
+  "source": "Ollama nemotron-3-nano:4b (per-drone fleet 11435-11438), reasoning_effort=none, tools + tool_choice=\"required\", live round 2026-09-11, 1789093784507-68525-0005-nano.json"
+ },
+ {
+  "kind": "choice",
+  "tier": "nano",
+  "model": "nemotron-3-nano:4b",
+  "needle": "has a delivery to Gantry Plaza, no cleared route",
+  "text": "",
+  "via": "tool_calls",
+  "tool_calls": [
+   {
+    "name": "choose_route",
+    "arguments": {
+     "id": "a",
+     "reason": "shortest route avoids traffic conflicts"
+    },
+    "raw": "{\"id\":\"a\",\"reason\":\"shortest route avoids traffic conflicts\"}"
+   }
+  ],
+  "latency_ms": 1944,
+  "candidate_ids": [
+   "a",
+   "b",
+   "c"
+  ],
+  "chosen": "a",
+  "brief": "Aircraft drone-04 (dv-hexa) on the ground, battery 43%, 2 stop(s) left this trip.\nTask: has a delivery to Gantry Plaza, no cleared route.\nThe runtime refused the straight line — airspace: bldg-t02088 is in the way.\nNow: tick 865. Weather: no weather hold.\nIn force: TFR · 1.0 NM · near 477 Madison Avenue (until tick 6021); CLOSED · St. Nicholas Park (until tick 6021); 이스트빌리지 응급헬기 회랑 (until tick 900).\nOther aircraft already cleared: drone-02 ticks 766-1039 (flying); drone-03 ticks 639-1796 (flying); drone-01 ticks 1065-2294 (waiting to depart).\nCandidates (each one already passes the operator's airspace check; the runtime judges the one you pick):\na) shortest — 5.1 km, 6 legs, cruise 70.0-115.5 m; detour, near-traffic:drone-02, near-traffic:drone-03, near-traffic:drone-01, near-keepout:brief-rec-2021e3f501fe\nb) lowest altitude — 5.1 km, 12 legs, cruise 70.0-94.5 m; lowest-altitude, near-traffic:drone-02, near-traffic:drone-03, near-traffic:drone-01, near-keepout:brief-rec-2021e3f501fe\nc) clear of traffic — 5.2 km, 13 legs, cruise 70.0-103.5 m; clear-of-traffic, near-traffic:drone-02, near-traffic:drone-01, near-keepout:brief-rec-2021e3f501fe\nPrefer a route that keeps clear of another aircraft's cleared corridor or an incident when one is near; otherwise a lower cruise if it costs little; otherwise the shortest.\nCall choose_route with one id and one short sentence why.",
+  "source": "Ollama nemotron-3-nano:4b (per-drone fleet 11435-11438), reasoning_effort=none, tools + tool_choice=\"required\", live round 2026-09-11, 1789093820260-68534-0007-nano.json"
+ },
+ {
+  "kind": "choice",
+  "tier": "nano",
+  "model": "nemotron-3-nano:4b",
+  "needle": "has a delivery to Pier 25 Tribeca, no cleared route",
+  "text": "",
+  "via": "tool_calls",
+  "tool_calls": [
+   {
+    "name": "choose_route",
+    "arguments": {
+     "id": "a",
+     "reason": "shortest route avoids drone-04 corridor"
+    },
+    "raw": "{\"id\":\"a\",\"reason\":\"shortest route avoids drone-04 corridor\"}"
+   }
+  ],
+  "latency_ms": 1936,
+  "candidate_ids": [
+   "a",
+   "b"
+  ],
+  "chosen": "a",
+  "brief": "Aircraft drone-02 (dv-hexa) on the ground, battery 48%, 1 stop(s) left this trip.\nTask: has a delivery to Pier 25 Tribeca, no cleared route.\nThe runtime refused the straight line — airspace: bldg-t03754 is in the way.\nNow: tick 1480. Weather: no weather hold.\nIn force: TFR · 1.0 NM · near 477 Madison Avenue (until tick 6021); CLOSED · St. Nicholas Park (until tick 6021).\nOther aircraft already cleared: drone-04 ticks 1395-1744 (flying); drone-03 ticks 639-1796 (flying); drone-01 ticks 1065-2294 (flying).\nCandidates (each one already passes the operator's airspace check; the runtime judges the one you pick):\na) shortest — 1.9 km, 5 legs, cruise 70.0-113.5 m; detour\nb) lowest altitude — 1.9 km, 7 legs, cruise 70.0-95.5 m; lowest-altitude\nPrefer a route that keeps clear of another aircraft's cleared corridor or an incident when one is near; otherwise a lower cruise if it costs little; otherwise the shortest.\nCall choose_route with one id and one short sentence why.",
+  "source": "Ollama nemotron-3-nano:4b (per-drone fleet 11435-11438), reasoning_effort=none, tools + tool_choice=\"required\", live round 2026-09-11, 1789093946817-68528-0007-nano.json"
+ },
+ {
+  "kind": "choice",
+  "tier": "nano",
+  "model": "nemotron-3-nano:4b",
+  "needle": "has a delivery to Pier 84 Hudson, no cleared route",
+  "text": "",
+  "via": "tool_calls",
+  "tool_calls": [
+   {
+    "name": "choose_route",
+    "arguments": {
+     "id": "a",
+     "reason": "shortest route avoids drone-04 corridor"
+    },
+    "raw": "{\"id\":\"a\",\"reason\":\"shortest route avoids drone-04 corridor\"}"
+   }
+  ],
+  "latency_ms": 1728,
+  "candidate_ids": [
+   "a",
+   "b"
+  ],
+  "chosen": "a",
+  "brief": "Aircraft drone-03 (dv-x500) on the ground, battery 37%, 1 stop(s) left this trip.\nTask: has a delivery to Pier 84 Hudson, no cleared route.\nThe runtime refused the straight line — airspace: bldg-t14594 is in the way.\nNow: tick 1756. Weather: no weather hold.\nIn force: TFR · 1.0 NM · near 477 Madison Avenue (until tick 6021); CLOSED · St. Nicholas Park (until tick 6021).\nOther aircraft already cleared: drone-04 ticks 1733-2048 (waiting to depart); drone-02 ticks 1503-1827 (flying); drone-01 ticks 1065-2294 (flying).\nCandidates (each one already passes the operator's airspace check; the runtime judges the one you pick):\na) shortest — 8.0 km, 11 legs, cruise 60.0-100.5 m; detour\nb) lowest altitude — 8.0 km, 17 legs, cruise 60.0-101.5 m; lowest-altitude\nPrefer a route that keeps clear of another aircraft's cleared corridor or an incident when one is near; otherwise a lower cruise if it costs little; otherwise the shortest.\nCall choose_route with one id and one short sentence why.",
+  "source": "Ollama nemotron-3-nano:4b (per-drone fleet 11435-11438), reasoning_effort=none, tools + tool_choice=\"required\", live round 2026-09-11, 1789094008620-68531-0005-nano.json"
+ },
+ {
+  "kind": "choice",
+  "tier": "nano",
+  "model": "nemotron-3-nano:4b",
+  "needle": "heading back to the warehouse, no cleared route",
+  "text": "",
+  "via": "tool_calls",
+  "tool_calls": [
+   {
+    "name": "choose_route",
+    "arguments": {
+     "id": "c",
+     "reason": "clear of traffic"
+    },
+    "raw": "{\"id\":\"c\",\"reason\":\"clear of traffic\"}"
+   }
+  ],
+  "latency_ms": 1799,
+  "candidate_ids": [
+   "a",
+   "b",
+   "c"
+  ],
+  "chosen": "c",
+  "brief": "Aircraft drone-02 (dv-hexa) on the ground, battery 42%, 0 stop(s) left this trip.\nTask: heading back to the warehouse, no cleared route.\nThe runtime refused the straight line — airspace: bldg-t02908 is in the way.\nNow: tick 1800. Weather: no weather hold.\nIn force: TFR · 1.0 NM · near 477 Madison Avenue (until tick 6021); CLOSED · St. Nicholas Park (until tick 6021).\nOther aircraft already cleared: drone-04 ticks 1733-2048 (flying); drone-03 ticks 2047-2717 (waiting to depart); drone-01 ticks 1065-2294 (flying).\nCandidates (each one already passes the operator's airspace check; the runtime judges the one you pick):\na) shortest — 4.3 km, 7 legs, cruise 70.0-110.5 m; detour, near-traffic:drone-04\nb) lowest altitude — 4.4 km, 10 legs, cruise 70.0-93.5 m; lowest-altitude, near-traffic:drone-04\nc) clear of traffic — 4.3 km, 9 legs, cruise 70.0-115.5 m; clear-of-traffic, near-traffic:drone-04\nPrefer a route that keeps clear of another aircraft's cleared corridor or an incident when one is near; otherwise a lower cruise if it costs little; otherwise the shortest.\nCall choose_route with one id and one short sentence why.",
+  "source": "Ollama nemotron-3-nano:4b (per-drone fleet 11435-11438), reasoning_effort=none, tools + tool_choice=\"required\", live round 2026-09-11, 1789094015646-68528-0009-nano.json"
+ },
+ {
+  "kind": "choice",
+  "tier": "nano",
+  "model": "nemotron-3-nano:4b",
+  "needle": "has a delivery to Bella Abzug Park, no cleared route",
+  "text": "",
+  "via": "tool_calls",
+  "tool_calls": [
+   {
+    "name": "choose_route",
+    "arguments": {
+     "id": "c",
+     "reason": "clear of traffic"
+    },
+    "raw": "{\"id\":\"c\",\"reason\":\"clear of traffic\"}"
+   }
+  ],
+  "latency_ms": 1520,
+  "candidate_ids": [
+   "a",
+   "b",
+   "c"
+  ],
+  "chosen": "c",
+  "brief": "Aircraft drone-04 (dv-hexa) on the ground, battery 22%, 2 stop(s) left this trip.\nTask: has a delivery to Bella Abzug Park, no cleared route.\nThe runtime refused the straight line — airspace: bldg-t03261 is in the way.\nNow: tick 2049. Weather: no weather hold.\nIn force: TFR · 1.0 NM · near 477 Madison Avenue (until tick 6021); CLOSED · St. Nicholas Park (until tick 6021).\nOther aircraft already cleared: drone-02 ticks 1823-2303 (flying); drone-03 ticks 2047-2717 (waiting to depart); drone-01 ticks 1065-2294 (flying).\nCandidates (each one already passes the operator's airspace check; the runtime judges the one you pick):\na) shortest — 6.8 km, 10 legs, cruise 70.0-117.5 m; detour, near-traffic:drone-02\nb) lowest altitude — 6.9 km, 16 legs, cruise 70.0-117.5 m; lowest-altitude, near-traffic:drone-02\nc) clear of traffic — 6.9 km, 16 legs, cruise 70.0-117.5 m; clear-of-traffic, near-traffic:drone-02\nPrefer a route that keeps clear of another aircraft's cleared corridor or an incident when one is near; otherwise a lower cruise if it costs little; otherwise the shortest.\nCall choose_route with one id and one short sentence why.",
+  "source": "Ollama nemotron-3-nano:4b (per-drone fleet 11435-11438), reasoning_effort=none, tools + tool_choice=\"required\", live round 2026-09-11, 1789094071633-68534-0012-nano.json"
+ }
+]
