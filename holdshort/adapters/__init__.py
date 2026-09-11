@@ -15,4 +15,10 @@ def build(kind: str, **kwargs):
         from holdshort.adapters.flockwave import from_env
 
         return from_env()
+    if kind == "composite":
+        # 시뮬레이터가 네 대의 기록의 세계이고, 그중 한 대는 진짜 PX4 도 같이 납니다.
+        from holdshort.adapters.composite import from_env
+
+        return from_env(kwargs["sim_url"], world=kwargs.get("world", "guarded"),
+                        journal_path=kwargs.get("journal_path"))
     return FleetSimAdapter(kwargs["sim_url"], world=kwargs.get("world", "guarded"))

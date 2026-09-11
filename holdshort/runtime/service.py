@@ -133,7 +133,12 @@ class Runtime:
         self.llm = TieredLlm(models=vars(self.config.escalation))
         self.arbiter = Arbiter(self.llm)
         self.adapter = build_adapter(
-            os.getenv("ADAPTER", "sim"), sim_url=sim_url, world="guarded"
+            os.getenv("ADAPTER", "sim"), sim_url=sim_url, world="guarded",
+            # PX4 거울(ADAPTER=composite)의 답은 원장 옆 줄 파일에 적힙니다. 자동조종의 답은
+            # 원장 줄이 닫힌 뒤에 오고, 같은 번호로 줄을 하나 더 쓰면 화면과 보고서가 한 결정을
+            # 두 번 셉니다. AUTOPILOT_LOG 로 자리를 옮길 수 있습니다.
+            journal_path=os.getenv("AUTOPILOT_LOG")
+            or str(Path(ledger_path).with_name("autopilot.jsonl")),
         )
         self.committer = Committer(self.adapter, self.locks, self.ledger, self.authority)
         self.committer.on_committed = self._on_committed
@@ -2251,6 +2256,9 @@ class Runtime:
             "agents": self.agents_snapshot(),
             # 텔레메트리 심장박동. lost 인 기체의 공간은 예약된 채입니다.
             "links": self._links_snapshot(),
+            # 런타임 뒤에 붙은 진짜 자동조종(ADAPTER=composite). 읽기 전용입니다 — 판정은
+            # 여전히 기록의 세계(시뮬레이터)의 텔레메트리로만 합니다.
+            "autopilots": self._autopilots_snapshot(),
             "spend": {
                 "fleet": self.authority.fleet_spend,
                 "fleet_limit": self.config.authority.fleet_usd,
@@ -2281,6 +2289,11 @@ class Runtime:
     def _links_snapshot(self) -> dict:
         with self._link_lock:
             return self.links.snapshot()
+
+    def _autopilots_snapshot(self) -> dict:
+        """거울이 붙은 어댑터만 답합니다. 시뮬레이터만 쓰는 배선에서는 빈 표입니다."""
+        view = getattr(self.adapter, "autopilots", None)
+        return view() if callable(view) else {}
 
 
 def _is_intake(item: dict) -> bool:
