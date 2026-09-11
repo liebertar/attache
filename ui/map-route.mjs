@@ -156,8 +156,9 @@ const GAP_M = 14;
 /**
  * 경로를 구간마다 하나씩 사각형으로 만듭니다. 구간마다 승인 고도가 다르므로
  * 판도 구간마다 따로 떠 있어야 합니다 — 한 덩어리로 만들면 그 차이가 사라집니다.
+ * offsetM 은 중심선에서 옆으로 옮긴 거리(진행 방향 왼쪽이 +). 0 이면 중심선 위의 판입니다.
  */
-export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_THICK_M) {
+export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_THICK_M, offsetM = 0) {
   const out = [];
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i], b = points[i + 1];
@@ -165,16 +166,16 @@ export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_T
     const dLat = b.lat - a.lat, dLon = (b.lon - a.lon) * scale;
     const length = Math.hypot(dLat, dLon);
     if (!(length > 0)) continue;
-    // 진행 방향의 법선. 미터를 위도 도수로 바꿔서 폭을 잡습니다.
-    const half = halfWidthM / METRES_PER_DEG_LAT;
-    const nLat = (-dLon / length) * half, nLon = (dLat / length) * half / scale;
+    // 진행 방향의 1 m 법선. 미터를 위도 도수로 바꿔서 폭을 잡습니다.
+    const unitLat = -dLon / length / METRES_PER_DEG_LAT, unitLon = dLat / length / METRES_PER_DEG_LAT / scale;
+    const outer = offsetM + halfWidthM, inner = offsetM - halfWidthM;
     const altitude = Number(b.alt_m ?? a.alt_m ?? 0);
     const top = Math.max(thicknessM, altitude - RIBBON_DROP_M);
     out.push({
       polygon: [
-        [a.lon + nLon, a.lat + nLat], [b.lon + nLon, b.lat + nLat],
-        [b.lon - nLon, b.lat - nLat], [a.lon - nLon, a.lat - nLat],
-        [a.lon + nLon, a.lat + nLat],
+        [a.lon + unitLon * outer, a.lat + unitLat * outer], [b.lon + unitLon * outer, b.lat + unitLat * outer],
+        [b.lon + unitLon * inner, b.lat + unitLat * inner], [a.lon + unitLon * inner, a.lat + unitLat * inner],
+        [a.lon + unitLon * outer, a.lat + unitLat * outer],
       ],
       base: Math.max(0, top - thicknessM),
       height: top,
@@ -229,6 +230,28 @@ export function curveRibbon(curve, from, to) {
       out.push(...ribbon(sliceCurve(curve, left, right).map(([lon, lat]) =>
         ({lon, lat, alt_m:curve.altitudes[leg + 1]}))));
     }
+  }
+  return out;
+}
+
+/** 회랑의 테두리. 링크가 끊긴 기체의 회랑에 둘러 깜빡입니다 — 점선은 그대로 남고(공간은 예약된 채),
+ * 회랑보다 padM 바깥의 네 모서리에 가는 막대(railM)가 이어집니다: 양옆 × 위아래.
+ * 점선 자체를 깜빡이면 회랑이 사라졌다 나타나는 것으로 읽혀 예약 유지와 반대 뜻이 되고,
+ * 회랑 전체를 반투명 판으로 덮었더니 초록 점선과 섞여 흙색 막대 하나로 보였습니다. */
+export function curveShell(curve, from, to, padM = 5, railM = 1.6) {
+  const out = [];
+  const side = RIBBON_HALF_M + padM;
+  for (let leg = 0; leg < curve.lengths.length - 1; leg++) {
+    const start = Math.max(from, curve.lengths[leg]);
+    const end = Math.min(to, curve.lengths[leg + 1]);
+    if (end <= start) continue;
+    const altitude = curve.altitudes[leg + 1];
+    const at = alt => sliceCurve(curve, start, end).map(([lon, lat]) => ({lon, lat, alt_m:alt}));
+    // ribbon 의 윗면은 alt − DROP 입니다. 위 막대의 윗면 = 회랑 윗면 + padM,
+    // 아래 막대의 밑면 = 회랑 밑면 − padM 이 되게 고도를 줍니다.
+    const upper = at(altitude + padM), lower = at(altitude - RIBBON_THICK_M - padM + railM);
+    for (const offset of [side, -side])
+      out.push(...ribbon(upper, railM / 2, railM, offset), ...ribbon(lower, railM / 2, railM, offset));
   }
   return out;
 }

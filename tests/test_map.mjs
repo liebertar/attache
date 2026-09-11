@@ -57,7 +57,12 @@ function scene(overrides = {}) {
       {style:{},hidden:true,textContent:'',innerHTML:'',addEventListener(){}});
     return elements.get(id);
   };
-  const map = {on(){}, addControl(){},
+  // 카메라 조작은 호출만 기록합니다. 키 하나가 지도를 어떻게 움직였는지는 여기서 읽습니다.
+  // 인자는 이쪽 realm 으로 복사합니다 — vm 안에서 만든 배열은 프로토타입이 달라 deepEqual 이 값이 같아도 틀립니다.
+  const calls = [], record = name => (...args) => { calls.push([name, ...structuredClone(args)]); };
+  const map = {on(){}, addControl(){}, keyboard:{disable:record('keyboard.disable')},
+    panBy:record('panBy'), easeTo:record('easeTo'), flyTo:record('flyTo'),
+    zoomIn:record('zoomIn'), zoomOut:record('zoomOut'), getBearing:()=>-28, getPitch:()=>45,
     addLayer(layer){layers.set(layer.id, structuredClone(layer));},
     setPaintProperty(id, name, value){layers.get(id).paint[name] = value;},
     getLayer(id){return layers.get(id);},
@@ -68,12 +73,13 @@ function scene(overrides = {}) {
   const html = readFileSync(new URL('../ui/map.html',import.meta.url),'utf8');
   const imports = Object.fromEntries(html.match(/import \{([^}]+)\}/)[1]
     .split(',').map(name=>[name.trim(), geometry[name.trim()]]));
+  const {document:documentOverrides, ...rest} = overrides;
   const context = vm.createContext({...imports, console, Date, Map, Set, Math,
     location:{hostname:'localhost'}, performance:{now:()=>now},
-    requestAnimationFrame(){}, document:{getElementById:element,querySelector:element},
-    maplibregl:{Map:function(){return map;}, NavigationControl:function(){},
+    requestAnimationFrame(){}, document:{getElementById:element,querySelector:element, ...documentOverrides},
+    maplibregl:{Map:function(){return map;}, NavigationControl:function(){}, AttributionControl:function(){},
       Popup:function(){return {setLngLat(){return this;}, setHTML(){return this;},
-        addTo(){return this;}};}}, ...overrides});
+        addTo(){return this;}};}}, ...rest});
   const code = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
     .replace(/^import .*?;\n/m,'');
   vm.runInContext(code,context);
@@ -81,7 +87,7 @@ function scene(overrides = {}) {
   return {run,get:name=>context[name],element,source:id=>sources.get(id)?.data,
     path:phase=>(sources.get('flightpath')?.data?.features || [])
       .filter(f=>f.properties.phase === phase),
-    layer:id=>layers.get(id), time:value=>{now=value;}};
+    layer:id=>layers.get(id), time:value=>{now=value;}, calls, html};
 }
 
 function endOf(path) {
@@ -284,7 +290,7 @@ test('provenance: tier tag from the model id, drafter word, and the approved hea
   assert.ok(!/nemotron-3-nano/.test(feed), '모델 id 전체는 화면에 안 씁니다');
   assert.ok(!/drone-02<\/b> <span class="tier">/.test(feed), '규칙이 쓴 것은 표시가 없습니다');
   assert.match(feed, /delivery route · A\*/);
-  assert.match(ui.element('llm-line').textContent, /Nemotron nano · via ollama/);
+  assert.match(ui.element('llm-line').textContent, /^tower · rules · drones · Nemotron Nano$/);
   ui.time(100); ui.run('draw');
   const labels = ui.source('stage-label').features.map(f => f.properties.label);
   assert.ok(labels.some(l => l === 'PLANNING… · nano'), labels.join('|'));
@@ -464,8 +470,8 @@ test('the banner says who read a NOTAM, and shows the raw text while nobody has'
   assert.doesNotMatch(ui.element('banner').innerHTML, /not yet read/);
   ui.run('renderSnapshot', {...snapshot(), bulletins:[]}, {ledger:[], notices:[
     {id:'n2', name:'Harlem TFR', applied:false, held:true, source:'model:nvidia/nemotron-3-super-120b-a12b'}]});
-  assert.match(ui.element('banner').innerHTML, /waiting for a person/);
-  assert.equal(ui.element('banner').style.display, 'block');
+  assert.match(ui.element('banner').innerHTML, /<i>waiting for a person<\/i>/, '사람을 기다리는 줄은 기울임');
+  assert.equal(ui.element('banner').hidden, false);
 });
 
 test('a notice a person confirmed before its window says so, and is neither raw nor enforced', () => {
@@ -590,7 +596,7 @@ test('notice ledger lines read as words, not codes', () => {
   ui.run('renderSnapshot', snapshot(), {ledger:[line('u1', 'notice_unreadable', {notice:'n9', why:'no model'}),
     line('p1', 'notice_published'), line('r1', 'notice_refused')], llm:{enabled:false, models:{}}, locks:{}});
   const feed = ui.element('feed').innerHTML;
-  assert.match(feed, /airspace<\/b> airspace notice/);
+  assert.match(feed, /tower<\/b> airspace notice/);
   assert.match(feed, /not read by the runtime \(no model\)/);
   assert.match(feed, /confirmed by a person/);
   assert.match(feed, /refused by a person/);
@@ -636,12 +642,12 @@ test('the banner says a weather hold and who read it, a held report waits for a 
   const banner = ui.element('banner').innerHTML;
   assert.match(banner, /<b>WEATHER HOLD<\/b> · gusts 14 m\/s &gt; 12 · takeoffs held until tick 2700 — read by the rule grammar/);
   assert.doesNotMatch(banner, /not yet read/);
-  assert.equal(ui.element('banner').style.display, 'block');
+  assert.equal(ui.element('banner').hidden, false);
   // 모델이 읽은 보고서는 사람을 기다립니다 — 아무것도 세우지 않고 그렇게 말합니다.
   ui.run('renderSnapshot', {...snapshot(), bulletins:[]}, {ledger:[], notices:[], intake:{items:[]},
     weather:{hold:null, held:[{id:'wx-2', breaches:['gusts 20 m/s > 12'], source:'model:nvidia/nemotron-3-super-120b-a12b'}]},
     llm:{enabled:true, models:{super:'nvidia/nemotron-3-super-120b-a12b'}}});
-  assert.match(ui.element('banner').innerHTML, /gusts 20 m\/s &gt; 12 — read by the super agent, waiting for a person/);
+  assert.match(ui.element('banner').innerHTML, /gusts 20 m\/s &gt; 12 — read by the super agent, <i>waiting for a person<\/i>/);
   // 못 읽은 것은 원문 그대로, 이유와 함께.
   ui.run('renderSnapshot', {...snapshot(), bulletins:[]}, {ledger:[], notices:[],
     intake:{items:[{id:'t1', kind:null, why:'no model', text:'Gusty afternoon <b>expected</b>'}]}, weather:{hold:null, held:[]}});
@@ -667,7 +673,7 @@ test('an incident is painted like a zone and named on the banner; held it is nei
   const held = {...notice, applied:false, held:true, source:'model:x'};
   ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[held], incidents:[{...incident, applied:false, held:true}], intake:{items:[]}, weather:{hold:null, held:[]}});
   assert.equal(ui.source('zone').features.length, 0, '보류 중인 사고는 아무것도 안 막습니다');
-  assert.match(ui.element('banner').innerHTML, /FIRE · 1 Bowling Green<\/b> · 200 m keep-out — read by the Agent agent, waiting for a person/);
+  assert.match(ui.element('banner').innerHTML, /FIRE · 1 Bowling Green<\/b> · 200 m keep-out — read by the Agent agent, <i>waiting for a person<\/i>/);
 });
 
 test('a takeoff refused by the weather hold says WEATHER HOLD; a landing refused by the incident names it', () => {
@@ -723,10 +729,10 @@ test('intake and weather ledger lines read as words, and opening a hold raises n
   ];
   ui.run('renderSnapshot', snapshot(), {ledger:entries, llm:{enabled:false, models:{}}, locks:{}, notices:[], intake:{items:[]}, weather:{hold:null, held:[]}});
   const feed = ui.element('feed').innerHTML;
-  assert.match(feed, /intake<\/b> information intake[\s\S]*received from sim/);
+  assert.match(feed, /tower<\/b> information intake[\s\S]*received from sim/);
   assert.match(feed, /read by the rule grammar · weather/);
   assert.match(feed, /not read \(no model\)/);
-  assert.match(feed, /fleet<\/b> weather hold[\s\S]*WEATHER HOLD · gusts 14 m\/s > 12 · takeoffs held until tick 2700/);
+  assert.match(feed, /tower<\/b> weather hold[\s\S]*WEATHER HOLD · gusts 14 m\/s > 12 · takeoffs held until tick 2700/);
   assert.match(feed, /weather hold expired at tick 2700/);
   assert.match(feed, /incident keep-out[\s\S]*FIRE · 1 Bowling Green · 200 m keep-out until tick 3600/);
   assert.match(feed, /lift the weather hold[\s\S]*weather hold lifted by a person · 관제사/);
@@ -734,3 +740,312 @@ test('intake and weather ledger lines read as words, and opening a hold raises n
   ui.run('renderDenials', {ledger:entries}, 0);
   assert.equal(ui.element('denial').hidden, true, '대기가 열린 것은 회수 카드가 아닙니다');
 });
+
+// 기체 이름 아랫줄. 어느 모델이 이 기체를 모는지 — 런타임 쪽은 /state.agents, 직접 쪽은 시뮬레이터 필드.
+test('the second label line names the model flying the aircraft, or "rules" when there is none', () => {
+  // 직접 쪽 이름표도 봐야 하므로 BOTH 로 엽니다(지도는 기본으로 런타임 쪽만 그립니다).
+  const ui = scene({localStorage:{getItem:key => key === 'attache-show' ? 'both' : null, setItem(){}}});
+  const snap = snapshot();
+  snap.worlds.direct.assets['drone-01'].agent_model = 'nvidia/nemotron-3-super-120b-a12b';
+  ui.run('renderSnapshot', snap, {ledger:[], llm:{enabled:true, models:{nano:'nemotron-3-nano:4b'}, host:'ollama'},
+    agents:{'drone-01':{model:'nemotron-3-nano:4b', host:'ollama', world:'guarded', last_seen_tick:1, display:'Nemotron Nano 4B'}}});
+  ui.run('draw');
+  assert.equal(ui.source('guarded').features[0].properties.sub, 'Nemotron Nano 4B · ↑ 110 m');
+  assert.equal(ui.source('direct').features[0].properties.sub, 'Nemotron Super 120B · ↑ 110 m',
+               '직접 쪽은 원래 id 를 다듬어 씁니다');
+  // 머리 카드의 모델 줄에도 기체 에이전트가 몇 대인지.
+  assert.equal(ui.element('llm-line').textContent, 'tower · rules · drones · Nemotron Nano 4B ×1');
+  // 필드가 없으면(옛 런타임·규칙 기단) 규칙입니다. 고도가 없으면 모델 이름만.
+  const grounded = snapshot(1, 1, [], {lon:-73.97, lat:40.70, state:'ready'});
+  ui.run('renderSnapshot', grounded, {ledger:[], llm:{enabled:false, models:{}}});
+  ui.run('draw');
+  assert.equal(ui.source('guarded').features[0].properties.sub, 'rules');
+  assert.equal(ui.source('direct').features[0].properties.sub, 'rules');
+  assert.doesNotMatch(ui.element('llm-line').textContent, /drones/);
+  // 에이전트가 있어도 전부 규칙이면 "rules only" 뒤에 같은 말을 또 붙이지 않습니다.
+  ui.run('renderSnapshot', grounded, {ledger:[], llm:{enabled:false, models:{}},
+    agents:{'drone-01':{model:'', host:'', world:'guarded', last_seen_tick:1, display:''}}});
+  assert.equal(ui.element('llm-line').textContent, 'rules only — no agent model configured');
+  ui.run('draw');
+  assert.equal(ui.source('guarded').features[0].properties.sub, 'rules');
+  // display 가 비어 있으면 model id 를 다듬고, 그것도 없으면 규칙.
+  assert.equal(ui.run('modelName', 'nemotron-3-nano:4b'), 'Nemotron Nano 4B');
+  assert.equal(ui.run('modelName', 'gpt-oss-20b'), 'Gpt Oss 20B');
+  assert.equal(ui.run('modelName', ''), '');
+});
+
+// 빈 카드는 빈 상자입니다. 값이 오기 전에는 카드가 없고, 값이 오면 그때 생깁니다.
+test('cards with nothing to say are hidden; they appear with their first content', () => {
+  const ui = scene();
+  for (const id of ['score', 'acts', 'legend', 'banner', 'lostlink', 'denial', 'advisory'])
+    assert.equal(ui.element(id).hidden, true, `${id} 는 처음에 숨어 있어야 합니다`);
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[]});
+  assert.equal(ui.element('score').hidden, false);
+  assert.equal(ui.element('legend').hidden, false);
+  assert.equal(ui.element('acts').hidden, true, '기록이 없으면 기록 카드도 없습니다');
+  assert.equal(ui.element('banner').hidden, true);
+  assert.equal(ui.element('lostlink').hidden, true);
+  assert.equal(ui.element('round-tick').textContent, 'round 1 · tick 1');
+  ui.run('renderSnapshot', snapshot(), {ledger:[approval()], notices:[]});
+  assert.equal(ui.element('acts').hidden, false);
+  assert.equal(ui.element('feed').innerHTML.match(/class="ev/g).length, 1);
+  // 범례는 화면에 있는 것만. 격자가 없으면 천장 색도, 출처 줄도 없습니다.
+  const legend = ui.element('legend').innerHTML;
+  assert.match(legend, /APPROVED/);
+  assert.match(legend, /Warehouse/);
+  assert.doesNotMatch(legend, /No-fly grid|Ceiling|FAA UAS/);
+  assert.doesNotMatch(legend, /Closed zone|DRONE LANDING AREA/);
+  const snap = snapshot();
+  snap.worlds.guarded.bands = [{name:'b', rule:'ceiling', ceiling_m:61, polygon:[[40.7, -73.98], [40.7, -73.97], [40.71, -73.97]]}];
+  snap.worlds.guarded.landing_areas = [{name:'Pier 17', lat:40.706, lon:-74.002}];
+  snap.worlds.guarded.zone = {active:true, id:'z1', name:'Z', polygon:[[40.7, -73.98], [40.7, -73.97], [40.71, -73.97]]};
+  ui.run('renderSnapshot', snap, {ledger:[], notices:[]});
+  const full = ui.element('legend').innerHTML;
+  assert.match(full, /No-fly grid[\s\S]*Ceiling[\s\S]*122&nbsp;m/);
+  assert.match(full, /FAA UAS Facility Map/);
+  assert.match(full, /DRONE LANDING AREA/);
+  assert.match(full, /Closed zone/);
+});
+
+test('the feed keeps ten lines at most', () => {
+  const ui = scene();
+  const many = Array.from({length:14}, (_, i) => approval(`a${i}`));
+  ui.run('renderSnapshot', snapshot(), {ledger:many, llm:{enabled:false, models:{}}});
+  assert.equal(ui.element('feed').innerHTML.match(/class="ev/g).length, 10);
+});
+
+// 키. 안내판에 적힌 조합이 전부이고, 지도를 먼저 누를 필요가 없습니다.
+test('the keys card is three plain lines, and the keys it lists move the map', () => {
+  const handlers = {};
+  const ui = scene({document:{addEventListener(type, fn){ handlers[type] = fn; }}});
+  const keys = ui.html.match(/<div class="card meta" id="keys"[\s\S]*?<\/div>\n<\/div>/)[0];
+  assert.doesNotMatch(keys, /<kbd/, '키 모양은 그림입니다 — kbd 칩이 아닙니다');
+  assert.deepEqual([...keys.matchAll(/data-t="(keys_\w+)"/g)].map(m => m[1]),
+    ['keys_title', 'keys_mouse', 'keys_arrows', 'keys_letters'], '줄마다 낭독용 문장이 하나씩');
+  // 세로 직사각형: 한 줄에 조작 하나(마우스 셋, 키보드 여섯).
+  const grid = keys.match(/<div class="kgrid" aria-hidden="true">([\s\S]*?)\n  <\/div>/)[1];
+  assert.equal((grid.match(/class="kk"/g) || []).length, 9, '조작 아홉 줄');
+  assert.equal((grid.match(/<svg class="mouse"/g) || []).length, 3, '마우스 왼쪽·휠·오른쪽');
+  assert.equal((grid.match(/class="kc"/g) || []).length, 10, 'Ctrl · 화살표 · Shift+화살표 · + − · N · H · 1–4');
+  assert.ok(!/<button|tabindex/.test(grid), '안내의 키 모양은 누를 수 없습니다');
+  assert.doesNotMatch(keys, /⇧/, 'Mac 기호 대신 글자로');
+  assert.match(grid, /class="kc">Shift</);
+  assert.match(grid, /class="kc">Ctrl</, '트랙패드용 Ctrl+드래그');
+  const t = ui.get('t');
+  assert.equal(t('keys_mouse'), 'drag pan · scroll zoom · right-drag or Ctrl+drag orbit');
+  assert.equal(t('keys_arrows'), 'arrows pan · Shift+arrows rotate/tilt · +/- zoom');
+  assert.equal(t('keys_letters'), 'N north · H home · 1-4 focus drone');
+  // MapLibre 의 키 처리는 끕니다 — 둘 다 살아 있으면 한 번에 두 번 움직입니다.
+  assert.ok(ui.calls.some(c => c[0] === 'keyboard.disable'));
+  ui.run('renderSnapshot', snapshot(), null);
+  ui.calls.length = 0;
+  const press = (key, extra = {}) => {
+    let prevented = false;
+    handlers.keydown({key, target:{tagName:'BODY'}, preventDefault(){ prevented = true; }, ...extra});
+    return prevented;
+  };
+  assert.equal(press('ArrowRight'), true);
+  assert.deepEqual(ui.calls.at(-1).slice(0, 2), ['panBy', [100, 0]], '오른쪽 화살표는 오른쪽으로 이동');
+  press('ArrowUp');
+  assert.deepEqual(ui.calls.at(-1)[1], [0, -100]);
+  press('ArrowLeft', {shiftKey:true});
+  assert.equal(ui.calls.at(-1)[0], 'easeTo');
+  assert.equal(ui.calls.at(-1)[1].bearing, -58, 'Shift+왼쪽은 회전');
+  press('ArrowUp', {shiftKey:true});
+  assert.equal(ui.calls.at(-1)[1].pitch, 60, 'Shift+위는 기울이기');
+  press('+'); assert.equal(ui.calls.at(-1)[0], 'zoomIn');
+  press('-'); assert.equal(ui.calls.at(-1)[0], 'zoomOut');
+  press('n'); assert.equal(ui.calls.at(-1)[1].bearing, 0);
+  press('h'); assert.equal(ui.calls.at(-1)[0], 'flyTo');
+  press('1'); assert.equal(ui.calls.at(-1)[0], 'flyTo');
+  assert.equal(ui.calls.at(-1)[1].zoom, 16.4, '숫자 키는 그 기체로');
+  // 글을 쓰는 중이거나 조합키가 눌려 있으면 지도가 아닙니다.
+  const before = ui.calls.length;
+  assert.equal(press('ArrowRight', {target:{tagName:'INPUT'}}), false);
+  assert.equal(press('ArrowRight', {metaKey:true}), false);
+  assert.equal(press('x'), false);
+  assert.equal(ui.calls.length, before);
+});
+
+// 링크 두절. 런타임이 그 기체의 공간을 그대로 잡고 있다는 것이 이름표·회랑·카드·기록·범례에서 같이 보입니다.
+test('a lost link is named on the aircraft, keeps its corridor with a pulsing shell, and raises a card until restored', () => {
+  const ui = scene();
+  const lost = {links:{'drone-01':{status:'lost', since_tick:400, last_seen_tick:399}}, ledger:[], notices:[]};
+  ui.run('renderSnapshot', snapshot(2, 1, route, {lon:-73.97, lat:40.705, alt_m:110, state:'delivering'}), lost);
+  ui.time(700); ui.run('draw');
+  const label = ui.source('guarded').features[0].properties;
+  assert.equal(label.work, 'LOST LINK', '상태 자리에 링크 두절');
+  assert.equal(label.tone, '#ff9d95');
+  assert.ok(ui.path('approved').length > 0, '회랑은 그대로 — 공간은 예약된 채입니다');
+  const shell = ui.path('shell');
+  assert.ok(shell.length > 0, '회랑 둘레에 껍질');
+  assert.ok(shell.every(f => f.properties.height > f.properties.base));
+  const opacity = ui.layer('flightpath-shell').paint['fill-extrusion-opacity'];
+  assert.ok(opacity >= .25 && opacity <= .85, `테두리는 숨쉬는 범위 안 ${opacity}`);
+  ui.time(1500); ui.run('draw');
+  assert.notEqual(ui.layer('flightpath-shell').paint['fill-extrusion-opacity'], opacity, '껍질이 숨쉽니다');
+  const card = ui.element('lostlink');
+  assert.equal(card.hidden, false);
+  assert.match(card.innerHTML, /LOST LINK<\/span><b>drone-01<\/b><span class="meta">since tick 400 · space reserved/);
+  assert.equal(card.dataset?.asset ?? 'drone-01', 'drone-01');
+  assert.match(ui.element('legend').innerHTML, /RESERVED \(lost link\)/);
+  // 복구되면 전부 사라집니다.
+  const back = {links:{'drone-01':{status:'ok', since_tick:420, last_seen_tick:420}}, ledger:[], notices:[]};
+  ui.run('renderSnapshot', snapshot(3, 1, route, {lon:-73.97, lat:40.706, alt_m:110, state:'delivering'}), back);
+  ui.time(2200); ui.run('draw');
+  assert.equal(ui.element('lostlink').hidden, true);
+  assert.equal(ui.path('shell').length, 0);
+  assert.equal(ui.layer('flightpath-shell').paint['fill-extrusion-opacity'], 0);
+  assert.equal(ui.source('guarded').features[0].properties.work, '');
+  assert.doesNotMatch(ui.element('legend').innerHTML, /RESERVED/);
+  // 런타임이 links 를 아직 안 실으면(옛 런타임) 아무도 안 끊긴 것입니다.
+  ui.run('renderSnapshot', snapshot(4, 1, route, {lon:-73.97, lat:40.707, alt_m:110, state:'delivering'}), {ledger:[]});
+  ui.run('draw');
+  assert.equal(ui.element('lostlink').hidden, true);
+});
+
+test('link ledger lines read as words and raise no denial card', () => {
+  const ui = scene();
+  const line = (id, code, detail) => ({id, at:Date.now()/1000, outcome:'noted',
+    proposal:{asset_id:'drone-02', action:code, author:'runtime', params:{}},
+    decision:{verdict:'auto', reason:'…', code, detail}});
+  ui.run('renderSnapshot', snapshot(), {ledger:[line('l1', 'link_lost', {since_tick:400, last_seen_tick:399}),
+    line('l2', 'link_restored', {since_tick:400, restored_tick:431})], llm:{enabled:false, models:{}}});
+  const feed = ui.element('feed').innerHTML;
+  assert.match(feed, /drone-02<\/b> link lost[\s\S]*no telemetry since tick 400 — the filed space stays reserved/);
+  assert.match(feed, /drone-02<\/b> link restored[\s\S]*telemetry back — reserved space released/);
+  assert.doesNotMatch(feed, /r_link/);
+  assert.equal(ui.element('denial').hidden, true);
+});
+
+// 테두리는 네 모서리의 가는 막대입니다. 정북으로 곧은 한 구간이면 옆 거리가 경도 차이 그대로라 미터로 잴 수 있습니다.
+test('the corridor outline is four thin rails just outside the corridor, at its altitude', () => {
+  const north = geometry.makeCurve({...start, alt_m:55}, [{lon:start.lon, lat:40.71, alt_m:55}]);
+  const total = north.progress.at(-1);
+  const inner = geometry.curveRibbon(north, 0, total);
+  const shell = geometry.curveShell(north, 0, total);
+  assert.ok(shell.length > 0 && shell.flatMap(p => p.polygon).flat().every(Number.isFinite));
+  const east = lon => (lon - start.lon) * Math.cos(start.lat * Math.PI / 180) * 110570;
+  const offsets = shell.map(p => p.polygon.slice(0, 4).reduce((sum, [lon]) => sum + east(lon), 0) / 4);
+  const widths = shell.map(p => { const xs = p.polygon.map(([lon]) => east(lon)); return Math.max(...xs) - Math.min(...xs); });
+  assert.ok(offsets.every(x => Math.abs(Math.abs(x) - 14) < 0.3), `막대는 중심에서 14 m (회랑 반폭 9 + 5): ${offsets.map(x => x.toFixed(1))}`);
+  assert.ok(offsets.some(x => x > 0) && offsets.some(x => x < 0), '양옆 모두');
+  assert.ok(widths.every(w => Math.abs(w - 1.6) < 0.1), `막대는 가늘게: ${widths.map(w => w.toFixed(2))}`);
+  assert.ok(shell.every(p => Math.abs(p.height - p.base - 1.6) < 1e-9), '막대 두께도 1.6 m');
+  // 위아래로 회랑을 5 m 씩 감쌉니다 — 위 막대 윗면과 아래 막대 밑면.
+  const corridor = {base:Math.min(...inner.map(p => p.base)), height:Math.max(...inner.map(p => p.height))};
+  assert.ok(Math.abs(Math.max(...shell.map(p => p.height)) - (corridor.height + 5)) < 1e-9);
+  assert.ok(Math.abs(Math.min(...shell.map(p => p.base)) - (corridor.base - 5)) < 1e-9);
+  // 옆 거리를 안 주면 ribbon 은 예전 그대로입니다(회랑 판 폭 18 m, 중심선 위).
+  const plate = geometry.ribbon([{lon:start.lon, lat:40.70, alt_m:55}, {lon:start.lon, lat:40.71, alt_m:55}])[0];
+  const xs = plate.polygon.map(([lon]) => east(lon));
+  assert.ok(Math.abs(Math.max(...xs) - 9) < 0.1 && Math.abs(Math.min(...xs) + 9) < 0.1);
+});
+
+// 승인 화면. 링크 두절 통보 카드가 사람 말로 오르고, 배너가 끊긴 기체를 말합니다.
+async function tower(state, compare) {
+  const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
+  const elements = new Map();
+  const noop = new Proxy({}, {get: () => () => {}});
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, {style:{}, innerHTML:'', textContent:'', clientWidth:100, clientHeight:60,
+      getContext: () => noop, dataset:{}});
+    return elements.get(id);
+  };
+  const context = vm.createContext({console, Date, Map, Set, Math, Number, Object, JSON, String,
+    location:{hostname:'localhost'}, window:{devicePixelRatio:1},
+    document:{getElementById:element, addEventListener(){}},
+    setInterval(){}, fetch: url => Promise.resolve({json: () => Promise.resolve(url.endsWith('/state') ? state : compare)})});
+  vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], context);
+  await context.refresh();
+  return {element, html};
+}
+
+test('the approval screen lists a lost-link notice as a human decision and names the aircraft on its banner', async () => {
+  const world = {assets:{}, pads:{}, scoreboard:{spend_usd:0, human_approvals:0}, fleet_limit:450, events:[]};
+  const compare = {tick:431, recall_tick:null, worlds:{guarded:world, direct:structuredClone(world)}};
+  const state = {llm:{enabled:false, models:{}}, ledger:[], incidents:[], weather:{},
+    links:{'drone-02':{status:'lost', since_tick:400, last_seen_tick:399}, 'drone-01':{status:'ok', since_tick:0, last_seen_tick:431}},
+    awaiting_human:[{id:'p1', asset_id:'drone-02', action:'lost_link_notice', cost_usd:0, blast_radius:'schedule',
+                     rationale:'no telemetry since tick 400 <b>'}]};
+  const ui = await tower(state, compare);
+  const inbox = ui.element('inbox').innerHTML;
+  assert.match(inbox, /<b>drone-02<\/b> · 링크 두절 통보/);
+  assert.match(inbox, /no telemetry since tick 400 &lt;b&gt;/, '모델·런타임 문장은 마크업으로 실행되지 않습니다');
+  assert.match(inbox, /data-ok="p1"/);
+  const banner = ui.element('recall').innerHTML;
+  assert.match(banner, /drone-02 링크 두절 \(틱 400 부터\)/);
+  assert.doesNotMatch(banner, /drone-01/);
+  assert.equal(ui.element('recall').style.display, 'block');
+  // 아무도 안 끊겼고 카드도 없으면 배너도 없습니다.
+  const quiet = await tower({...state, links:{}, awaiting_human:[]}, compare);
+  assert.equal(quiet.element('recall').style.display, 'none');
+  assert.match(quiet.element('inbox').innerHTML, /없음/);
+});
+
+// 로컬에서는 관제 대역(Super 자리)과 기체 모델이 같은 4B id 입니다. 드론 신청서에 "super" 가 붙으면
+// 드론이 120B 를 부르는 것처럼 읽힙니다 — 기체 줄에는 그 기체에 실린 모델, 관제 줄은 따로.
+test('a drone request is tagged with the drone\'s own model even when the tower stand-in shares its id', () => {
+  const ui = scene();
+  const runtime = {ledger:[approval('m1', {proposal:{asset_id:'drone-01', action:'fly_route',
+      author:'nemotron-3-nano:4b', params:{legs:[start,...route], drafter:'astar'}},
+      decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}})],
+    llm:{enabled:true, host:'ollama', models:{nano:'', super:'nemotron-3-nano:4b', ultra:''}},
+    agents:{'drone-01':{model:'nemotron-3-nano:4b', host:'ollama', world:'guarded', last_seen_tick:1,
+      display:'Nemotron Nano 4B'}}, locks:{}};
+  ui.run('renderSnapshot', snapshot(), runtime);
+  const feed = ui.element('feed').innerHTML;
+  assert.match(feed, /drone-01<\/b> <span class="tier">Nano 4B<\/span>/, feed);
+  assert.doesNotMatch(feed, /class="tier">super</);
+  assert.equal(ui.element('llm-line').textContent,
+    'tower · Nemotron Nano 4B (Super stand-in) · ollama · drones · Nemotron Nano 4B ×1');
+  // 진짜 Super 가 관제에 있으면 대역 표시가 없습니다.
+  ui.run('renderSnapshot', snapshot(), {...runtime,
+    llm:{enabled:true, host:'nebius', models:{nano:'', super:'nvidia/nemotron-3-super-120b-a12b', ultra:''}}});
+  assert.match(ui.element('llm-line').textContent, /^tower · Nemotron Super 120B · nebius · drones/);
+});
+
+// 패널마다 접기·펼치기. 상태는 저장소에 남고, 저장소가 막혀도 화면은 돕니다.
+test('every panel minimizes and expands, the state persists, and a blocked storage breaks nothing', () => {
+  const saved = {};
+  const ui = scene({localStorage:{getItem:key => key === 'holdshort-panels' ? '{"keys":true}' : null,
+                                  setItem(key, value){ saved[key] = value; }}});
+  assert.equal(ui.run('isMinimized', 'keys'), true, '저장된 상태로 시작합니다');
+  ui.run('applyLanguage');
+  assert.equal(ui.element('keys').min, true);
+  for (const id of ['head', 'keys', 'legend', 'score', 'acts', 'banner', 'denial', 'advisory', 'lostlink']){
+    ui.run('setMinimized', id, true);
+    assert.equal(ui.run('isMinimized', id), true, id);
+    ui.run('setMinimized', id, false);
+    assert.equal(ui.run('isMinimized', id), false, id);
+  }
+  assert.deepEqual(JSON.parse(saved['holdshort-panels']).keys, false);
+  ui.run('setMinimized', 'banner', true);
+  const bulletin = {id:'n1', kind:'notam', text:'AREA BOUNDED BY 404310N0735920W SFC-400FT AGL 0907-0912Z',
+                    published_tick:525, until_tick:900};
+  ui.run('renderSnapshot', {...snapshot(), bulletins:[bulletin]}, {ledger:[], notices:[]});
+  assert.match(ui.element('banner').innerHTML, /data-min="banner" aria-expanded="false"[^>]*>\+</);
+  assert.match(ui.element('banner').innerHTML, /NOTAM/, '접혀도 내용은 그려 둡니다 — 펼치면 바로 보이게');
+  const blocked = scene({localStorage:{getItem(){ throw new Error('blocked'); }, setItem(){ throw new Error('blocked'); }}});
+  blocked.run('setMinimized', 'score', true);
+  assert.equal(blocked.run('isMinimized', 'score'), true);
+  blocked.run('renderSnapshot', snapshot(), {ledger:[], notices:[]});
+});
+
+test('a minimized refusal card opens again when a new refusal arrives', () => {
+  const ui = scene();
+  ui.run('setMinimized', 'denial', true);
+  ui.run('renderDenials', {ledger:[denial('fresh-1')]}, 0);
+  assert.equal(ui.run('isMinimized', 'denial'), false);
+});
+
+test('lines the runtime wrote itself name the tower, not an internal id', () => {
+  const ui = scene();
+  const entry = approval('i1', {proposal:{asset_id:'intake', action:'intake', author:'runtime', params:{}},
+    decision:{verdict:'auto', reason:'읽음', code:'intake_read', detail:{kind:'weather', read_by:'grammar'}}});
+  ui.run('renderSnapshot', snapshot(), {ledger:[entry], locks:{}});
+  const feed = ui.element('feed').innerHTML;
+  assert.match(feed, /<b>tower<\/b>/, feed);
+  assert.doesNotMatch(feed, /<b>intake<\/b>/);
+});
+

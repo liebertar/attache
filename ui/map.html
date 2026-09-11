@@ -11,120 +11,175 @@
         --guard:#3d8bff;--direct:#ff7a3d;--zone:#ff3b30;--warn:#e8b03a;--ok:#18b3a6}
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:#0a0e11;color:var(--text);
-       font:13px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif}
+       font:12px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",sans-serif}
   #map{position:absolute;inset:0}
-  .card{position:absolute;background:var(--panel);border:1px solid var(--line);
-        border-radius:10px;padding:11px 13px;backdrop-filter:blur(10px);
-        box-shadow:0 8px 28px rgba(0,0,0,.35)}
-  /* 상단 카드. 안의 것은 전부 카드 안에 있어야 합니다 — 버튼 하나가 선 밖으로 튀어나가 있었습니다. */
-  #head{top:12px;left:12px;width:324px;overflow:hidden}
-  #head h1{margin:0 0 3px;font-size:14px;letter-spacing:.2px}
-  #head p{margin:0;color:var(--dim);font-size:11.5px}
-  #head .row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
-  #score{top:12px;right:12px;width:290px}
-  table{width:100%;border-collapse:collapse;font-size:11.5px}
-  th{text-align:right;color:var(--dim);font-weight:600;padding:0 0 5px;font-size:10.5px}
-  th:first-child{text-align:left}
-  td{padding:4px 0;border-top:1px solid var(--line);text-align:right;
-     font-variant-numeric:tabular-nums;font-weight:600}
-  td:first-child{text-align:left;color:var(--dim);font-weight:400}
+  /* 카드 한 규격. 배경·테두리·모서리·여백·글자 크기는 여기서만 정합니다 — 카드마다 달라서 화면이
+     여러 도구를 겹쳐 놓은 것처럼 보였습니다. 글자는 제목 14 · 본문 12 · 메타 11 세 단계뿐입니다. */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;
+        backdrop-filter:blur(10px);box-shadow:0 6px 22px rgba(0,0,0,.3);font-size:12px;line-height:1.5}
+  .card[hidden]{display:none}
+  /* 패널 접기. 접으면 제목줄(.bar·.topline·.line1)만 남습니다. 버튼은 진짜 버튼(초점·키보드), 안내의 키 모양은 그림입니다. */
+  .card .bar{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .card .bar h2{margin:0}
+  .bar-title{font-size:11px;font-weight:500;color:var(--dim);letter-spacing:.6px;text-transform:uppercase}
+  .tools{display:flex;align-items:center;gap:6px}
+  button.min{flex:0 0 auto;width:18px;height:18px;padding:0;border:1px solid var(--line);border-radius:4px;
+             background:transparent;color:var(--dim);font:500 12px/1 system-ui,sans-serif;cursor:pointer}
+  button.min:hover{color:var(--text);border-color:var(--dim)}
+  button.min:focus-visible{outline:2px solid var(--ok);outline-offset:1px}
+  .line1 button.min{float:right;margin-left:8px}
+  /* !important: 패널마다 자기 배치(#legend>div 의 flex 등)가 더 구체적이라 접기가 져서 범례가 접힌 채 보였습니다. */
+  .card.min>:not(.bar):not(.line1):not(.topline){display:none!important}
+  .card.min{padding-top:6px;padding-bottom:6px}
+  .card.min .bar,.card.min .topline{margin:0}
+  #keys{font-size:13px;color:var(--text);padding:10px 14px}
+  /* 세로 직사각형: 한 줄에 조작 하나 — 왼쪽 키, 오른쪽 설명. 마우스 셋과 키보드 여섯 사이에 가는 선. */
+  #keys .kgrid{display:grid;grid-template-columns:auto auto;column-gap:14px;row-gap:7px;align-items:center;
+               margin-top:8px}
+  #keys .kk{display:inline-flex;align-items:center;gap:5px}
+  #keys .ksep{height:1px;background:var(--line);margin:1px 0}
+  #keys svg.mouse{width:14px;height:19px;color:var(--text);flex:0 0 auto}
+  #keys .kc{display:inline-block;min-width:22px;height:21px;padding:0 6px;border:1px solid var(--dim);
+            border-bottom-width:2px;border-radius:4px;font:600 12px/18px ui-monospace,SFMono-Regular,Menlo,monospace;
+            text-align:center;color:var(--text);cursor:default;user-select:none;box-sizing:border-box}
+  #keys .plus{color:var(--dim);font-size:12px}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  #banner .bar+div{border-top:0}
+  .card h1{margin:0;font-size:14px;font-weight:600;letter-spacing:.2px}
+  .card h2{margin:0 0 6px;font-size:11px;font-weight:500;color:var(--dim);letter-spacing:.6px;
+           text-transform:uppercase}
+  .meta{font-size:11px;color:var(--dim)}
+  b{font-weight:500}
+  a{color:var(--ok);text-decoration:none}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+  /* 세 기둥. 왼쪽(머리·키·범례), 가운데 아래(거절·권고·링크 두절), 오른쪽(점수·기록·공지).
+     기둥 안의 카드는 위아래로 쌓여 서로 겹칠 수 없고, 빈 카드는 자리도 차지하지 않습니다. */
+  #head{position:absolute;top:12px;left:12px;width:300px}
+  #head p{margin:8px 0 0}
+  #keys{position:absolute;top:50%;left:12px;transform:translateY(-50%);white-space:nowrap;
+        padding:8px 12px}
+  #keys div{padding:1px 0}
+  /* 범례는 출처 표기 바로 위. 출처 표기(아래 12px, 높이 26)와 6px 띄웁니다: 12 + 26 + 6 = 44. */
+  #legend{position:absolute;bottom:44px;left:12px;max-width:300px;line-height:1.8}
+  #legend>div:not(.meta){display:flex;flex-wrap:wrap;column-gap:12px}
+  #legend .li{white-space:nowrap}
+  #legend .meta{line-height:1.5;margin-top:3px}
+  #right{position:absolute;top:12px;right:12px;bottom:12px;width:290px;display:flex;
+         flex-direction:column;gap:10px;pointer-events:none}
+  #right>.card{pointer-events:auto;flex:0 0 auto;min-height:0}
+  /* 기록 카드만 줄어듭니다. #right>.card 보다 구체적이어야 합니다 — 전에는 #acts 만 적어 규칙이 져서
+     기록이 화면 아래로 빠져나갔습니다(1280×800 에서 864px 까지). */
+  #right>#acts{flex:0 1 auto;display:flex;flex-direction:column;overflow:hidden}
+  #feed{flex:1 1 auto;overflow:hidden;min-height:0}
+  #banner{margin-top:auto}
+  #banner div{padding:2px 0}
+  #banner div+div{border-top:1px solid var(--line)}
+  #banner i{color:var(--warn);font-style:italic}
+  /* 가운데 더미의 폭. 왼쪽 아래 출처 표기(12~340px, 글꼴이 바뀌어도 되게 364 로 잡음)와 오른쪽 확대
+     버튼(오른쪽에서 314~345px) 사이에 양쪽 12px 를 두고 가운데 섭니다: 반폭 ≤ 50% − 376px. */
+  #stack{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);
+         width:min(460px,calc(100% - 752px));display:flex;flex-direction:column;gap:8px;
+         pointer-events:none}
+  #stack>.card{pointer-events:auto;overflow-wrap:anywhere;border-left-width:3px;cursor:pointer}
+  #denial{border-left-color:var(--zone)}
+  #denial.pulled{border-left-color:var(--warn)}
+  #advisory{border-left-color:var(--warn)}
+  #lostlink{border-left-color:var(--zone)}
+  #lostlink div+div{margin-top:4px}
+  /* 지도 조작부. 확대 버튼은 오른쪽 기둥 왼편(구석은 공지 카드 자리), 출처 표기는 왼쪽 아래 범례 밑.
+     둘을 한 구석에 묶어 두면 펼쳐진 출처 표기(352px)가 가운데 카드 더미 밑으로 뻗어 겹쳤습니다.
+     색은 카드와 같은 판 — 흰 알약 둘이 어두운 화면에서 가장 밝은 것이었습니다. */
+  .maplibregl-ctrl-bottom-right{right:302px}
+  #map .maplibregl-ctrl-bottom-right .maplibregl-ctrl{margin:0 12px 12px 0}
+  #map .maplibregl-ctrl-bottom-left .maplibregl-ctrl{margin:0 0 12px 12px}
+  #map .maplibregl-ctrl-group{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    box-shadow:none;overflow:hidden}
+  #map .maplibregl-ctrl-group button+button{border-top:1px solid var(--line)}
+  #map .maplibregl-ctrl-group .maplibregl-ctrl-icon{filter:invert(.8)}
+  #map .maplibregl-ctrl-attrib{background:var(--panel);border:1px solid var(--line);color:var(--dim);
+    font-size:11px;line-height:18px}
+  #map .maplibregl-ctrl-attrib a{color:var(--dim)}
+  #map .maplibregl-ctrl-attrib-button{filter:invert(1)}
+  /* 점수판. 0 은 흐리게, 0 이 아닌 것만 빨강 — 눈이 가야 할 곳은 사고가 난 칸뿐입니다. */
+  table{width:100%;border-collapse:collapse}
+  th{text-align:right;color:var(--dim);font-weight:500;padding:0 0 5px 10px;font-size:11px;
+     white-space:nowrap}
+  th:first-child{text-align:left;padding-left:0}
+  td{padding:3px 0 3px 10px;border-top:1px solid var(--line);text-align:right;
+     font-variant-numeric:tabular-nums;font-weight:500}
+  td:first-child{text-align:left;color:var(--dim);font-weight:400;padding-left:0}
   .g{color:var(--guard)} .d{color:var(--direct)}
-  .zero{color:var(--ok)} .hit{color:var(--zone)}
-  #acts{right:12px;top:250px;width:290px;max-height:38vh;overflow:auto}
-  #acts h2,#head h2{margin:0 0 7px;font-size:10.5px;color:var(--dim);letter-spacing:.7px}
-  .ev{padding:5px 0;border-top:1px solid var(--line);font-size:11.5px;line-height:1.45}
+  .zero{color:var(--dim)} .hit{color:var(--zone)}
+  /* 기록. 최근 열 줄, 아래로 갈수록 흐려집니다. */
+  .ev{padding:5px 0;border-top:1px solid var(--line);line-height:1.45}
   .ev:first-child{border-top:0}
-  .ev b{font-weight:600}
-  .tag{display:inline-block;padding:0 5px;border-radius:4px;font-size:10px;
-       margin-right:5px;font-weight:600}
+  .ev:nth-child(n+5){opacity:.85}
+  .ev:nth-child(n+8){opacity:.6}
+  .ev[data-asset]{cursor:pointer}
+  .ev[data-asset]:hover{background:rgba(255,255,255,.03)}
+  /* 판정 표지. 글자는 메타와 같은 11 — 네 번째 크기를 만들지 않습니다. */
+  .tag{display:inline-block;padding:0 5px;border-radius:4px;font-size:11px;line-height:16px;margin-right:5px;
+       font-weight:600;letter-spacing:.3px;vertical-align:1px}
   .t-auto{background:rgba(24,179,166,.18);color:var(--ok)}
   .t-deny{background:rgba(255,59,48,.18);color:var(--zone)}
   .t-human{background:rgba(232,176,58,.18);color:var(--warn)}
-  .tier{display:inline-block;padding:0 4px;border-radius:3px;font-size:9.5px;font-weight:700;
-        letter-spacing:.4px;background:rgba(118,185,0,.18);color:#a6e05a;vertical-align:1px}
-  #legend{bottom:12px;left:12px;font-size:11.5px;color:var(--dim);line-height:1.9}
-  /* 키 안내. 버튼이 아니라 어떤 키를 같이 누르면 되는지를 적어 둔 판. 왼쪽 세로 중앙. */
-  #keys{top:50%;left:12px;transform:translateY(-50%);width:auto;padding:8px 11px;
-        font-size:11px;color:var(--dim)}
-  #keys h2{margin:0 0 5px;font-size:10.5px;color:var(--dim);letter-spacing:.7px}
-  #keys .key{display:flex;align-items:center;gap:8px;padding:2px 0;white-space:nowrap}
-  #keys .combo{display:inline-flex;align-items:center;gap:2px;min-width:104px;color:var(--text)}
-  #keys kbd{font:600 10.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text);
-        border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px;
-        background:rgba(255,255,255,.04)}
+  .t-lost{background:rgba(255,59,48,.18);color:#ff9d95}
+  .tier{display:inline-block;padding:0 4px;border-radius:3px;font-size:11px;line-height:16px;font-weight:600;
+        letter-spacing:.3px;background:rgba(118,185,0,.18);color:#a6e05a;vertical-align:1px}
   .k{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;
      vertical-align:-1px}
-  /* 공지 배너. 지도의 확대 버튼(오른쪽 아래 세로줄)과 출처 표기(맨 아랫줄) 위에 놓습니다 —
-     구석에 붙이면 둘이 배너의 마지막 줄을 가렸습니다. */
-  #banner{bottom:40px;right:56px;width:330px;border-color:var(--zone);display:none;
-          font-size:11.5px}
-  a{color:var(--ok);text-decoration:none}
-  .route-key{display:inline-block;width:22px;border-top:3px solid #29c76f;
-             margin-right:6px;vertical-align:3px}
+  /* 18px — 22 로 두면 "산출중 · 승인 · 거절" 세 항목이 범례 폭(300) 을 5px 넘어 두 줄이 됩니다. */
+  .route-key{display:inline-block;width:18px;border-top:3px solid #29c76f;
+             margin-right:5px;vertical-align:3px}
   .route-key.denied{border-color:var(--zone);border-top-style:dashed}
   .route-key.pending{border-color:#ffd23f;border-top-width:2px;border-top-style:dotted}
-  #denial{top:12px;left:50%;transform:translateX(-50%);width:min(420px,calc(100% - 650px));
-          border-color:var(--zone);border-left-width:4px;overflow-wrap:anywhere}
-  #denial[hidden]{display:none}
-  #denial,.ev[data-asset]{cursor:pointer}
-  .ev[data-asset]:hover{background:rgba(255,255,255,.03)}
-  #denial .line1{display:flex;align-items:center;gap:6px;font-size:12.5px}
-  #denial .line1 b{color:#ff9d95;font-weight:600}
-  #denial-what{color:var(--dim)}
-  #denial-why{margin-top:5px;font-size:12.5px;line-height:1.5}
-  .note{margin-top:4px;font-size:10.5px;color:var(--dim);line-height:1.5}
-  #head .topline{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  #lang{display:flex;gap:3px}
-  #lang button{background:transparent;border:1px solid var(--line);color:var(--dim);
-    border-radius:6px;padding:2px 7px;font:600 10.5px inherit;cursor:pointer;letter-spacing:.4px}
-  #lang button.on{background:rgba(61,139,255,.18);border-color:var(--guard);color:#bcd8ff}
-  /* 보기 전환은 한 덩어리 분할 버튼. 따로따로 놓으면 카드 폭을 넘칩니다. */
-  #show{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;flex:0 0 auto}
-  #show button{background:transparent;border:0;color:var(--dim);padding:3px 9px;
-    font:600 10.5px inherit;cursor:pointer;letter-spacing:.4px}
-  #show button+button{border-left:1px solid var(--line)}
-  #show button.on{background:rgba(61,139,255,.18);color:#bcd8ff}
-  #restart{background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:6px;
-    padding:2px 8px;font:600 10.5px inherit;cursor:pointer;letter-spacing:.4px;white-space:nowrap}
-  #restart::before{content:"↻ ";font-weight:400}
-  #restart:hover{border-color:var(--warn);color:#ffd98a}
-  #legend div{white-space:nowrap}
-  #legend .note{white-space:normal;max-width:330px}
-  .maplibregl-popup-content{background:var(--panel);color:var(--text);border:1px solid var(--line);
-    border-radius:10px;padding:10px 12px;font:12px/1.6 inherit;min-width:190px}
-  .maplibregl-popup-tip{border-top-color:var(--panel)!important;
-    border-bottom-color:var(--panel)!important}
-  .maplibregl-popup-close-button{color:var(--dim);font-size:16px;padding:2px 6px}
-  .pop h3{margin:0 0 6px;font-size:12.5px;display:flex;align-items:center;gap:6px}
-  .pop dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
-  .pop dt{color:var(--dim);font-size:11px}
-  .pop dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
-  /* 관제 권고. 화면 아래 가운데 — 범례(왼쪽)와 공지 배너(오른쪽) 사이. 정보 카드라 노란 테두리. */
-  #advisory{bottom:12px;left:50%;transform:translateX(-50%);width:min(470px,calc(100% - 740px));
-            border-color:var(--warn);border-left-width:4px;overflow-wrap:anywhere;cursor:pointer}
-  #advisory[hidden]{display:none}
-  #advisory .line1{display:flex;align-items:center;gap:6px;font-size:12.5px}
-  #advisory .line1 b{color:#ffd98a;font-weight:600}
-  #advisory-source{color:var(--dim);margin-left:auto;font-size:10.5px;letter-spacing:.4px}
-  #advisory-summary{margin-top:5px;font-size:12.5px;line-height:1.5}
-  #advisory-options{list-style:none;margin:6px 0 0;padding:0;font-size:11.5px;line-height:1.5}
+  .route-key.reserved{border-color:#29c76f;box-shadow:0 0 0 2px rgba(255,59,48,.45)}
+  .line1{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .line1 b{color:var(--text)}
+  .note{margin-top:4px;font-size:11px;color:var(--dim);line-height:1.5}
+  #denial-what,#advisory-source{color:var(--dim)}
+  #advisory-source{margin-left:auto;font-size:11px}
+  #denial-why,#advisory-summary{margin-top:5px}
+  #advisory-options{list-style:none;margin:6px 0 0;padding:0;font-size:11px;line-height:1.5}
   #advisory-options li{padding:2px 0 2px 16px;position:relative;color:var(--dim)}
   #advisory-options li::before{content:"○";position:absolute;left:0;color:var(--dim)}
   #advisory-options li.ok{color:var(--text)}
   #advisory-options li.no{text-decoration:line-through;opacity:.7}
   #advisory-options li.chosen{color:#ffd98a}
   #advisory-options li.chosen::before{content:"●";color:var(--warn)}
+  /* 버튼. 눈에 띄지 않게 — 시연 조작이지 화면의 주인공이 아닙니다. */
+  #head .topline{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  #lang{display:flex;gap:3px}
+  #lang button,#restart{background:transparent;border:1px solid var(--line);color:var(--dim);
+    border-radius:6px;padding:2px 7px;font:500 11px inherit;cursor:pointer;letter-spacing:.3px;
+    white-space:nowrap}
+  #lang button.on{border-color:var(--guard);color:#bcd8ff}
+  #restart::before{content:"↻ ";font-weight:400}
+  #restart:hover{border-color:var(--warn);color:#ffd98a}
+  #show{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex:0 0 auto}
+  #show button{background:transparent;border:0;color:var(--dim);padding:2px 8px;
+    font:500 11px inherit;cursor:pointer;letter-spacing:.3px}
+  #show button+button{border-left:1px solid var(--line)}
+  #show button.on{background:rgba(61,139,255,.18);color:#bcd8ff}
+  .maplibregl-popup-content{background:var(--panel);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:10px 12px;font:12px/1.6 inherit;min-width:190px}
+  .maplibregl-popup-tip{border-top-color:var(--panel)!important;
+    border-bottom-color:var(--panel)!important}
+  .maplibregl-popup-close-button{color:var(--dim);font-size:16px;padding:2px 6px}
+  .pop h3{margin:0 0 6px;font-size:12px;font-weight:500;display:flex;align-items:center;gap:6px}
+  .pop dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
+  .pop dt{color:var(--dim);font-size:11px}
+  .pop dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+  /* 좁은 화면. 가운데 자리가 안 나오면 더미는 왼쪽 기둥, 머리 카드 밑으로 갑니다(키 안내는 숨김). */
   @media(max-width:1050px){
-    #denial{top:155px;left:12px;transform:none;width:300px}
-    #advisory{left:12px;transform:none;width:330px;bottom:150px}
+    #keys{display:none}
+    #stack{left:12px;transform:none;width:300px;top:248px;bottom:auto}
   }
   @media(max-width:640px){
     #head{width:calc(100% - 24px)}
-    #score{top:155px;width:205px}
-    #acts{top:390px;width:205px;max-height:22vh}
-    #denial{top:auto;bottom:175px;width:calc(100% - 24px);z-index:2}
-    #legend{font-size:10px;max-width:calc(100% - 24px)}
-    #banner{bottom:175px;width:calc(100% - 24px)}
+    #right{top:auto;bottom:12px;width:205px;max-height:50vh}
+    #legend{max-width:calc(100% - 24px)}
+    #stack{bottom:auto;top:200px;width:calc(100% - 24px)}
   }
 </style>
 </head>
@@ -134,81 +189,82 @@
 <div class="card" id="head">
   <div class="topline">
     <h1 data-t="title"></h1>
-    <div id="lang"><button data-lang="en">EN</button><button data-lang="ko">KR</button></div>
+    <div class="tools"><div id="lang"><button data-lang="en">EN</button><button data-lang="ko">KR</button></div><button type="button" class="min" data-min="head" aria-expanded="true" aria-label="minimize" title="minimize">–</button></div>
   </div>
-  <div class="row" style="margin-top:7px">
-    <span class="note" style="margin:0" data-t="show"></span>
-    <div id="show"><button data-show="guarded">RUNTIME</button><button data-show="direct">DIRECT</button><button data-show="both">BOTH</button></div>
-  </div>
-  <p style="margin-top:7px" data-t="lede"></p>
-  <div class="row" style="margin-top:7px">
-    <span>tick <b id="tick">0</b> · <a href="index.html" data-t="approvals"></a></span>
+  <p class="meta" data-t="lede"></p>
+  <div class="row" style="margin-top:8px">
+    <span class="meta"><span id="round-tick">tick 0</span> · <a href="index.html" data-t="approvals"></a></span>
     <button id="restart" data-t="restart"></button>
   </div>
-  <p class="note" id="llm-line" style="margin-top:6px"></p>
+  <div class="row" style="margin-top:8px">
+    <span class="meta" data-t="show"></span>
+    <div id="show"><button data-show="guarded">RUNTIME</button><button data-show="direct">DIRECT</button><button data-show="both">BOTH</button></div>
+  </div>
+  <p class="meta" id="llm-line"></p>
 </div>
 
-
-
-<div class="card" id="score">
-  <table>
-    <thead><tr><th>&nbsp;</th><th class="g" data-t="guarded"></th>
-      <th class="d" data-t="direct"></th></tr></thead>
-    <tbody id="rows"></tbody>
-  </table>
+<!-- 조작 안내. 누르는 버튼이 아니라 그림으로 된 안내입니다 — 마우스 단추와 키 모양만 그리고, 초점·클릭이 없습니다.
+     화면 낭독기는 줄마다 숨긴 문장(.sr)을 읽습니다. -->
+<div class="card meta" id="keys">
+  <div class="bar"><span class="bar-title" data-t="keys_title"></span><button type="button" class="min" data-min="keys" aria-expanded="true" aria-label="minimize" title="minimize">–</button></div>
+  <span class="sr" data-t="keys_mouse"></span><span class="sr" data-t="keys_arrows"></span><span class="sr" data-t="keys_letters"></span>
+  <div class="kgrid" aria-hidden="true">
+    <span class="kk"><svg class="mouse" viewBox="0 0 12 16"><rect x="1" y="1" width="10" height="14" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M6 1.6V7.2" stroke="currentColor" stroke-width="1.2"/><path d="M5.4 1.7A4.4 4.4 0 0 0 1.6 6V7.2H5.4Z" fill="currentColor"/></svg></span><span data-t="k_pan"></span>
+    <span class="kk"><svg class="mouse" viewBox="0 0 12 16"><rect x="1" y="1" width="10" height="14" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="4.9" y="3" width="2.2" height="4.4" rx="1.1" fill="currentColor"/></svg></span><span data-t="k_zoom"></span>
+    <span class="kk"><svg class="mouse" viewBox="0 0 12 16"><rect x="1" y="1" width="10" height="14" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M6 1.6V7.2" stroke="currentColor" stroke-width="1.2"/><path d="M6.6 1.7A4.4 4.4 0 0 1 10.4 6V7.2H6.6Z" fill="currentColor"/></svg><span class="plus">/</span><span class="kc">Ctrl</span><span class="plus">+</span><span data-t="k_drag"></span></span><span data-t="k_orbit"></span>
+    <span class="ksep"></span><span class="ksep"></span>
+    <span class="kk"><span class="kc">←↑↓→</span></span><span data-t="k_pan"></span>
+    <span class="kk"><span class="kc">Shift</span><span class="plus">+</span><span class="kc">←↑↓→</span></span><span data-t="k_rotate_tilt"></span>
+    <span class="kk"><span class="kc">+</span><span class="kc">−</span></span><span data-t="k_zoom"></span>
+    <span class="kk"><span class="kc">N</span></span><span data-t="k_north"></span>
+    <span class="kk"><span class="kc">H</span></span><span data-t="k_home"></span>
+    <span class="kk"><span class="kc">1</span><span class="plus">–</span><span class="kc">4</span></span><span data-t="k_focus"></span>
+  </div>
 </div>
 
-<div class="card" id="acts">
-  <h2 data-t="ledger"></h2>
-  <div id="feed"></div>
+<!-- 범례. 지금 화면에 있는 것만 — 줄은 renderLegend 가 스냅샷을 보고 채웁니다. -->
+<div class="card meta" id="legend" hidden></div>
+
+<div id="right">
+  <div class="card" id="score" hidden>
+    <div class="bar"><span class="bar-title" data-t="score_title"></span><button type="button" class="min" data-min="score" aria-expanded="true" aria-label="minimize" title="minimize">–</button></div>
+    <table>
+      <thead><tr><th>&nbsp;</th><th class="g" data-t="guarded"></th>
+        <th class="d" data-t="direct"></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="card" id="acts" hidden>
+    <div class="bar"><h2 data-t="ledger"></h2><button type="button" class="min" data-min="acts" aria-expanded="true" aria-label="minimize" title="minimize">–</button></div>
+    <div id="feed"></div>
+  </div>
+  <!-- 공지·날씨·사고. 한 카드, 항목마다 한 줄. -->
+  <div class="card" id="banner" hidden></div>
 </div>
 
-<div class="card" id="legend">
-  <div><span class="route-key pending"></span><span data-t="lg_pending"></span>
-       <span class="route-key" style="margin-left:10px"></span><span data-t="lg_ok"></span>
-       <span class="route-key denied" style="margin-left:10px"></span><span data-t="lg_no"></span></div>
-  <div><span class="k" style="background:var(--zone)"></span><span data-t="lg_block"></span>
-       <span class="k" style="background:#18b3a6;margin-left:10px"></span><span data-t="lg_landing"></span></div>
-  <div><span class="k" style="background:#eee7ce"></span><span data-t="lg_depot"></span></div>
-  <div><span class="k" style="background:#c1121f"></span><span data-t="lg_nofly"></span>
-       <span data-t="lg_ceil" style="margin-left:10px"></span>
-       <span class="k" style="background:#ffb020;margin-left:6px"></span>30
-       <span class="k" style="background:#d8d92c"></span>61
-       <span class="k" style="background:#48c06a"></span>91
-       <span class="k" style="background:#2b8fe0"></span>122&nbsp;m</div>
-  <div class="note" data-t="lg_source"></div>
-</div>
-
-<div class="card" id="keys" aria-label="keyboard">
-  <h2 data-t="keys_title"></h2>
-  <div class="key"><span class="combo"><kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd></span><span data-t="keys_rotate"></span></div>
-  <div class="key"><span class="combo"><kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd></span><span data-t="keys_tilt"></span></div>
-  <div class="key"><span class="combo"><kbd>+</kbd><kbd>−</kbd></span><span data-t="keys_zoom"></span></div>
-  <div class="key"><span class="combo"><kbd>N</kbd></span><span data-t="keys_north"></span></div>
-  <div class="key"><span class="combo"><kbd>H</kbd></span><span data-t="keys_home"></span></div>
-  <div class="key"><span class="combo"><kbd>1</kbd>–<kbd>4</kbd></span><span data-t="keys_focus"></span></div>
-  <div class="key"><span class="combo"><kbd data-t="keys_drag"></kbd></span><span data-t="keys_orbit"></span></div>
-</div>
-
-<div class="card" id="banner"></div>
-<div class="card" id="denial" role="alert" aria-atomic="true" hidden>
-  <div class="line1"><span class="tag t-deny">거절</span><b id="denial-who"></b>
-    <span id="denial-what"></span></div>
-  <div id="denial-why"></div>
-  <div id="denial-more" class="note"></div>
-</div>
-<!-- 관제 권고. 연속 거절 뒤 런타임이 원장에 남긴 정보입니다. 아무것도 바꾸지 않습니다 — 결정은 운영사가. -->
-<div class="card" id="advisory" role="status" aria-atomic="true" hidden>
-  <div class="line1"><span class="tag t-human" id="advisory-tag"></span><b id="advisory-who"></b>
-    <span id="advisory-source"></span></div>
-  <div id="advisory-summary"></div>
-  <ul id="advisory-options"></ul>
-  <div id="advisory-note" class="note"></div>
+<!-- 가운데 아래 더미. 거절·회수 카드, 관제 권고, 링크 두절 — 위에서 아래로 쌓이고 서로 겹치지 않습니다. -->
+<div id="stack">
+  <div class="card" id="denial" role="alert" aria-atomic="true" hidden>
+    <div class="line1"><button type="button" class="min" data-min="denial" aria-expanded="true" aria-label="minimize" title="minimize">–</button><span class="tag t-deny">거절</span><b id="denial-who"></b>
+      <span id="denial-what"></span></div>
+    <div id="denial-why"></div>
+    <div id="denial-more" class="note"></div>
+  </div>
+  <!-- 관제 권고. 연속 거절 뒤 런타임이 원장에 남긴 정보입니다. 아무것도 바꾸지 않습니다 — 결정은 운영사가. -->
+  <div class="card" id="advisory" role="status" aria-atomic="true" hidden>
+    <div class="line1"><button type="button" class="min" data-min="advisory" aria-expanded="true" aria-label="minimize" title="minimize">–</button><span class="tag t-human" id="advisory-tag"></span><b id="advisory-who"></b>
+      <span id="advisory-source"></span></div>
+    <div id="advisory-summary"></div>
+    <ul id="advisory-options"></ul>
+    <div id="advisory-note" class="note"></div>
+  </div>
+  <!-- 링크 두절. 런타임이 그 기체의 4D 의도를 그대로 잡고 있다는 것 — 끊긴 동안 아무도 그 공간에 못 듭니다. -->
+  <div class="card" id="lostlink" role="alert" aria-atomic="true" hidden></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script type="module">
-import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, curveColumns, hex, droneBody, cargoStack, groundDisc, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
+import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, curveShell, curveColumns, hex, droneBody, cargoStack, groundDisc, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
 // 두 번째 스택을 같은 화면으로 보려고 ?rt=8010&sim=8110 처럼 포트를 바꿀 수 있습니다. 기본은 8000/8100.
 const query = typeof URLSearchParams === "function" ? new URLSearchParams(location.search || "") : new Map();
 const SIM = `http://${location.hostname}:${query.get("sim") || 8100}`;
@@ -226,18 +282,31 @@ const TEXT = {
     lede:'Same seed, same detector, same request writer. <span class="g">Blue</span> files to '
       + 'the runtime; <span class="d">orange</span> drives the autopilot directly.',
     approvals:"approval screen →", show:"Show", restart:"RESTART",
-    ledger:"What the runtime did", empty:"Nothing yet",
+    ledger:"What the runtime did",
     guarded:"RUNTIME", direct:"DIRECT",
     pad_conflicts:"Pad collisions", zone_incursions:"No-fly incursions",
     zone_dwell_ticks:"Ticks inside closed zone", post_recall_violations:"Acts after recall",
     unapproved_passenger_actions:"Unapproved passenger acts",
     unrecorded_actions:"Acts with no record",
     lg_pending:"PLANNING", lg_ok:"APPROVED", lg_no:"REJECTED",
-    lg_block:"What blocked it", lg_pad:"Charging bay", lg_depot:"Warehouse", lg_landing:"DRONE LANDING AREA", lg_bay:"BAY %s",
+    lg_block:"What blocked it", lg_depot:"Warehouse", lg_landing:"DRONE LANDING AREA", lg_bay:"BAY %s",
     lg_nofly:"No-fly grid", lg_source:"FAA UAS Facility Map · OpenStreetMap buildings — real data.",
-    keys_title:"KEYS", keys_rotate:"rotate", keys_tilt:"tilt", keys_zoom:"zoom", keys_north:"north up",
-    keys_home:"start view", keys_focus:"focus drone", keys_drag:"right-drag", keys_orbit:"orbit (mouse)",
-    lg_ceil:"Ceiling",
+    keys_mouse:"drag pan · scroll zoom · right-drag or Ctrl+drag orbit",
+    keys_arrows:"arrows pan · Shift+arrows rotate/tilt · +/- zoom",
+    keys_letters:"N north · H home · 1-4 focus drone",
+    keys_title:"controls", k_drag:"drag", k_pan:"pan", k_zoom:"zoom", k_orbit:"orbit", k_rotate_tilt:"rotate / tilt",
+    k_north:"north", k_home:"home", k_focus:"focus drone", legend_title:"legend", score_title:"scoreboard",
+    notices_title:"notices", lostlink_title:"lost link", minimize:"minimize", expand:"expand",
+    lg_ceil:"Ceiling", lg_zone:"Closed zone", lg_reserved:"RESERVED (lost link)",
+    round_tick:"round %s · tick %s",
+    // 기체 이름 아랫줄과 머리 카드의 모델 줄. 이름은 /state.agents 의 display 그대로, 없으면 규칙.
+    agents_line:"drones · %s", model_rules:"rules",
+    tower_line:"tower · %s · %s", tower_rules:"tower · rules", standin:"%s (Super stand-in)",
+    // 링크 두절. 런타임은 그 기체의 공간을 그대로 잡아 둡니다 — 카드·기록·이름표가 같은 말을 씁니다.
+    lost_link:"LOST LINK", ll_line:"since tick %s · space reserved",
+    link_lost:"link lost", link_restored:"link restored", lost_link_notice:"lost-link notice",
+    r_link_lost:"no telemetry since tick %s — the filed space stays reserved",
+    r_link_restored:"telemetry back — reserved space released",
     ph_drawing:"PLANNING…", ph_checking:"AWAITING VERDICT…",
     ph_refused:"REJECTED", ph_approved:"APPROVED",
     blk_building:"BUILDING %s m", blk_zone:"CLOSED ZONE", blk_grid:"FAA GRID · NO FLIGHT",
@@ -257,7 +326,7 @@ const TEXT = {
     blk_origin:"START %s m FROM THE AIRCRAFT", blk_destination:"END %s m FROM THE DESTINATION",
     d_withdraw:"WITHDRAWN",
     b_notam:"<b>NOTAM</b> (tick %s–%s) · %s — read by %s; approved routes through it are pulled back, new ones refused.",
-    b_notam_held:"<b>NOTAM</b> · %s — read by %s, waiting for a person before it applies.",
+    b_notam_held:"<b>NOTAM</b> · %s — read by %s, <i>waiting for a person</i> before it applies.",
     b_notam_confirmed:"<b>NOTAM</b> (tick %s–%s) · %s — confirmed by %s; applies when the window opens.",
     b_notam_raw:"<b>NOTAM</b> (tick %s–%s) · %s — not yet read by the runtime.",
     src_grammar:"the rule grammar", src_human:"a person", src_model:"the %s agent",
@@ -270,7 +339,7 @@ const TEXT = {
     p_guarded:"via runtime", p_direct:"direct control",
     p_state:"State", p_battery:"Battery", p_alt:"Altitude", p_job:"Delivery",
     p_route:"Approved legs", p_done:"Delivered", p_spend:"Spent", p_none:"none · straight",
-    llm_on:"Nemotron %s · via %s", llm_off:"rules only — no agent model configured",
+    llm_off:"rules only — no agent model configured",
     drafter_nano:"nano", drafter_astar:"A*", drafter_straight:"straight", drafter_model:"Agent",
     p_form:"Last form by", p_drafter:"Route by", p_judged:"Judged", by_rules:"rules",
     rule_source:"rule %s",
@@ -301,13 +370,14 @@ const TEXT = {
     // 정보 수집. 날씨는 이륙 정지(정책), 사고는 구역(공지). 누가 읽었는지가 배너에 같이 갑니다.
     weather_hold_takeoffs:"Takeoffs during a weather hold", incident_incursions:"Flights into an incident scene",
     b_weather:"<b>WEATHER HOLD</b> · %s · takeoffs held until tick %s — read by %s; aircraft in the air continue to land.",
-    b_weather_held:"<b>WEATHER</b> · %s — read by %s, waiting for a person before takeoffs are held.",
+    b_weather_held:"<b>WEATHER</b> · %s — read by %s, <i>waiting for a person</i> before takeoffs are held.",
     b_weather_raw:"<b>WEATHER</b> (tick %s–%s) · %s — not yet read by the runtime.",
     b_incident:"<b>%s</b> · %s m keep-out until tick %s — read by %s; routes through it are pulled back, new ones refused, landing areas inside unusable.",
-    b_incident_held:"<b>%s</b> · %s m keep-out — read by %s, waiting for a person before it applies.",
+    b_incident_held:"<b>%s</b> · %s m keep-out — read by %s, <i>waiting for a person</i> before it applies.",
     b_incident_raw:"<b>INCIDENT</b> (tick %s–%s) · %s — not yet read by the runtime.",
     b_intake_raw:"<b>INTAKE</b> · %s — not read by the runtime (%s).",
     intake:"information intake", weather_hold:"weather hold", lift_weather_hold:"lift the weather hold",
+    tower_word:"tower",
     publish_weather:"weather report", incident_keepout:"incident keep-out",
     r_intake_received:"received from %s", r_intake_read:"read by %s · %s", r_intake_unreadable:"not read (%s)",
     intake_source:"search source", r_intake_source_failed:"search source unreachable (%s)",
@@ -326,18 +396,29 @@ const TEXT = {
     lede:'같은 씨앗 · 같은 감지 코드 · 같은 신청서 작성기. <span class="g">파랑</span>은 '
       + '런타임에 신청하고 <span class="d">주황</span>은 조종장치를 직접 만집니다.',
     approvals:"승인 화면 →", show:"표시", restart:"처음부터",
-    ledger:"런타임이 한 일", empty:"아직 없음",
+    ledger:"런타임이 한 일",
     guarded:"런타임", direct:"직접",
     pad_conflicts:"착륙대 충돌", zone_incursions:"비행금지 구역 침범",
     zone_dwell_ticks:"구역 안에 머문 시간", post_recall_violations:"리콜 이후 금지 행동",
     unapproved_passenger_actions:"승객 영향 무단 실행",
     unrecorded_actions:"기록 없는 실행",
     lg_pending:"경로 산출중", lg_ok:"승인", lg_no:"거절",
-    lg_block:"막은 구역·건물", lg_pad:"충전대", lg_depot:"물류 창고", lg_landing:"드론 착륙장", lg_bay:"자리 %s",
+    lg_block:"막은 구역·건물", lg_depot:"물류 창고", lg_landing:"드론 착륙장", lg_bay:"자리 %s",
     lg_nofly:"비행금지 격자", lg_source:"FAA UAS Facility Map · OpenStreetMap 건물 — 실제 데이터.",
-    keys_title:"키", keys_rotate:"회전", keys_tilt:"기울이기", keys_zoom:"확대·축소", keys_north:"정북",
-    keys_home:"처음 화면", keys_focus:"기체로", keys_drag:"우클릭 드래그", keys_orbit:"돌려보기 (마우스)",
-    lg_ceil:"천장",
+    keys_mouse:"드래그 이동 · 스크롤 확대 · 우클릭 드래그 또는 Ctrl+드래그 돌려보기",
+    keys_arrows:"화살표 이동 · Shift+화살표 회전·기울이기 · +/- 확대·축소",
+    keys_letters:"N 정북 · H 처음 화면 · 1-4 기체로",
+    keys_title:"조작", k_drag:"드래그", k_pan:"이동", k_zoom:"확대·축소", k_orbit:"돌려보기", k_rotate_tilt:"회전·기울이기",
+    k_north:"정북", k_home:"처음 화면", k_focus:"기체로", legend_title:"범례", score_title:"점수판",
+    notices_title:"공지", lostlink_title:"링크 두절", minimize:"최소화", expand:"펼치기",
+    lg_ceil:"천장", lg_zone:"닫힌 구역", lg_reserved:"예약 유지 (링크 두절)",
+    round_tick:"%s판 · tick %s",
+    agents_line:"드론 · %s", model_rules:"규칙",
+    tower_line:"관제 · %s · %s", tower_rules:"관제 · 규칙", standin:"%s (Super 대역)",
+    lost_link:"링크 두절", ll_line:"틱 %s 부터 · 공간 예약 유지",
+    link_lost:"링크 두절", link_restored:"링크 복구", lost_link_notice:"링크 두절 통보",
+    r_link_lost:"틱 %s 부터 텔레메트리 없음 — 낸 경로의 공간은 그대로 잡아 둡니다",
+    r_link_restored:"텔레메트리 복구 — 잡아 둔 공간 해제",
     ph_drawing:"경로 산출중…", ph_checking:"판정 대기중…",
     ph_refused:"거절", ph_approved:"승인",
     blk_building:"건물 %s m", blk_zone:"닫힌 구역", blk_grid:"FAA 격자 · 비행 불가",
@@ -357,7 +438,7 @@ const TEXT = {
     blk_origin:"출발점이 기체에서 %s m", blk_destination:"끝점이 목적지에서 %s m",
     d_withdraw:"물림",
     b_notam:"<b>NOTAM</b> (tick %s–%s) · %s — %s이 읽음. 지나던 승인 경로는 회수되고 새 경로는 거절됩니다.",
-    b_notam_held:"<b>NOTAM</b> · %s — %s이 읽음. 사람이 확인해야 적용됩니다.",
+    b_notam_held:"<b>NOTAM</b> · %s — %s이 읽음. <i>사람이 확인해야 적용됩니다</i>.",
     b_notam_confirmed:"<b>NOTAM</b> (tick %s–%s) · %s — %s이 확인. 창이 열리면 걸립니다.",
     b_notam_raw:"<b>NOTAM</b> (tick %s–%s) · %s — 런타임이 아직 못 읽음.",
     src_grammar:"규칙 문법", src_human:"사람", src_model:"%s 에이전트",
@@ -370,7 +451,7 @@ const TEXT = {
     p_guarded:"런타임 경유", p_direct:"직접 조종",
     p_state:"상태", p_battery:"배터리", p_alt:"고도", p_job:"배달지",
     p_route:"승인된 경유점", p_done:"완료", p_spend:"누적 지출", p_none:"없음 · 직선",
-    llm_on:"Nemotron %s · %s 경유", llm_off:"규칙만 — 에이전트 모델 없음",
+    llm_off:"규칙만 — 에이전트 모델 없음",
     drafter_nano:"nano", drafter_astar:"A*", drafter_straight:"직선", drafter_model:"Agent",
     p_form:"신청서 작성", p_drafter:"경로 작성", p_judged:"판정", by_rules:"규칙",
     rule_source:"규칙 %s",
@@ -398,13 +479,14 @@ const TEXT = {
     r_notice_published:"사람이 확인 — 이제 걸림", r_notice_refused:"사람이 거부 — 안 걸림",
     weather_hold_takeoffs:"기상 대기 중 이륙", incident_incursions:"사고 현장 진입",
     b_weather:"<b>기상 대기</b> · %s · 틱 %s 까지 이륙 정지 — %s이 읽음. 떠 있는 기체는 그대로 내립니다.",
-    b_weather_held:"<b>날씨</b> · %s — %s이 읽음. 사람이 확인해야 이륙이 섭니다.",
+    b_weather_held:"<b>날씨</b> · %s — %s이 읽음. <i>사람이 확인해야 이륙이 섭니다</i>.",
     b_weather_raw:"<b>날씨</b> (tick %s–%s) · %s — 런타임이 아직 못 읽음.",
     b_incident:"<b>%s</b> · 반경 %s m 접근 금지, 틱 %s 까지 — %s이 읽음. 지나던 승인 경로는 회수되고 새 경로는 거절, 안의 착륙장은 못 씁니다.",
-    b_incident_held:"<b>%s</b> · 반경 %s m 접근 금지 — %s이 읽음. 사람이 확인해야 적용됩니다.",
+    b_incident_held:"<b>%s</b> · 반경 %s m 접근 금지 — %s이 읽음. <i>사람이 확인해야 적용됩니다</i>.",
     b_incident_raw:"<b>사고</b> (tick %s–%s) · %s — 런타임이 아직 못 읽음.",
     b_intake_raw:"<b>수집</b> · %s — 런타임이 못 읽음 (%s).",
     intake:"정보 수집", weather_hold:"기상 대기", lift_weather_hold:"기상 대기 풀기",
+    tower_word:"관제",
     publish_weather:"날씨 보고서", incident_keepout:"사고 접근 금지",
     r_intake_received:"%s 에서 받음", r_intake_read:"%s이 읽음 · %s", r_intake_unreadable:"못 읽음 (%s)",
     intake_source:"검색 출처", r_intake_source_failed:"검색 출처에 닿지 못함 (%s)",
@@ -429,10 +511,62 @@ try {
   showing = localStorage.getItem("attache-show") || "guarded";
 } catch (error) { void error; }
 const visible = world => showing === "both" || showing === world;
-const t = (key, ...args) => {
+// 함수 선언으로 둡니다 — 화면 말 검사(tests/test_map.mjs)가 전역에서 이 이름을 찾습니다.
+function t(key, ...args){
   const raw = TEXT[lang]?.[key] ?? TEXT.en[key] ?? key;
   return args.reduce((text, value) => text.replace("%s", value), raw);
-};
+}
+
+// 패널 접기. 상태는 브라우저에 남깁니다 — 저장소가 막혀 있어도(사생활 창 등) 화면은 그대로 돕니다.
+// 거절·권고·링크 두절 카드는 접어 두어도 그 종류의 새 사건이 오면 다시 펼칩니다.
+const PANELS = ["head", "keys", "legend", "score", "acts", "banner", "denial", "advisory", "lostlink"];
+const PANEL_STORE = "holdshort-panels";
+let minimized = {};
+try { minimized = JSON.parse(localStorage.getItem(PANEL_STORE) || "{}") || {}; }
+catch (error) { minimized = {}; }
+let lostShown = new Set();
+function isMinimized(id){
+  return Boolean(minimized[id]);
+}
+function paintMinButton(button, on){
+  button.textContent = on ? "+" : "–";
+  const label = t(on ? "expand" : "minimize");
+  button.setAttribute?.("aria-expanded", String(!on));
+  button.setAttribute?.("aria-label", label);
+  button.title = label;
+}
+function setMinimized(id, on, persist = true){
+  minimized[id] = Boolean(on);
+  const card = document.getElementById(id);
+  if (card){
+    if (card.classList) card.classList.toggle("min", minimized[id]);
+    else card.min = minimized[id];
+  }
+  for (const button of (document.querySelectorAll?.(`[data-min="${id}"]`) || []))
+    paintMinButton(button, minimized[id]);
+  if (!persist) return;
+  try { localStorage.setItem(PANEL_STORE, JSON.stringify(minimized)); } catch (error) { void error; }
+}
+// 런타임이 스스로 쓴 줄(정보 수집·기상 대기·공지)의 주체는 기체가 아니라 관제입니다. 내부 id 를 그대로
+// 쓰면 "intake information intake" 가 됐습니다.
+const RUNTIME_ASSETS = new Set(["intake", "fleet", "airspace"]);
+function assetWord(id){
+  return RUNTIME_ASSETS.has(id) ? t("tower_word") : id;
+}
+function minButton(id){
+  const on = isMinimized(id), label = t(on ? "expand" : "minimize");
+  return `<button type="button" class="min" data-min="${id}" aria-expanded="${!on}" ` +
+         `aria-label="${label}" title="${label}">${on ? "+" : "–"}</button>`;
+}
+/** 다시 그리는 카드(범례·공지·링크 두절)의 제목줄. 버튼은 문서 한 곳에서 받습니다(아래 click). */
+function panelBar(id, titleKey){
+  return `<div class="bar"><span class="bar-title">${t(titleKey)}</span>${minButton(id)}</div>`;
+}
+document.addEventListener?.("click", event => {
+  const button = event.target?.closest?.("[data-min]");
+  if (!button) return;
+  setMinimized(button.dataset.min, !isMinimized(button.dataset.min));
+});
 
 // 착륙대 충돌 행은 뺐습니다. 충전대 순환이 없어져 두 세계 다 0이 되는 행은 뜻이 없습니다.
 const ROWS = ["separation_losses", "site_conflicts", "zone_incursions", "zone_dwell_ticks",
@@ -444,12 +578,13 @@ const map = new maplibregl.Map({
   style: "https://tiles.openfreemap.org/styles/positron",
   // 지면 경로 없이도 공중 회랑이 읽히도록 가까이서 시작합니다.
   center: [-73.973, 40.718], zoom: 14.5, pitch: 45, bearing: -28,   // HOME_VIEW 와 같은 값
-  attributionControl: {compact: true},
+  attributionControl: false,
 });
 
-// 나침반을 끌면 회전·기울이기가 됩니다. 키보드는 MapLibre 기본값 그대로:
-// Shift+←/→ 회전, Shift+↑/↓ 기울이기, +/- 확대. 지도를 한 번 눌러 초점을 줘야 먹습니다.
+// 나침반을 끌면 회전·기울이기가 됩니다. 키보드는 아래 문서 keydown 에서 다 받습니다(왼쪽 안내판의 조합).
 map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), "bottom-right");
+// 출처 표기는 따로 왼쪽 아래(범례 밑). 확대 버튼과 한 구석에 두면 가운데 카드 더미와 겹칩니다 — CSS 참고.
+map.addControl(new maplibregl.AttributionControl({compact:true}), "bottom-left");
 
 const empty = () => ({type:"FeatureCollection", features:[]});
 // 폴링은 0.5초인데 화면은 60fps 입니다. 그 사이를 채워야 안 끊겨 보입니다.
@@ -534,10 +669,12 @@ map.on("load", () => {
   map.addLayer({id:"depot-marker", type:"circle", source:"depot",
     paint:{"circle-radius":8,"circle-color":"#eee7ce",
       "circle-stroke-color":"#18232b","circle-stroke-width":3}});
+  // 창고·자리 이름은 기체 이름표에 자리를 내줍니다(겹침 금지). 기체 이름표 레이어가 위에 있어 먼저 놓이고,
+  // 겹치는 창고·자리 이름만 빠집니다 — 전에는 옥상의 "BAY 2 · drone-02" 가 기체의 모델 줄을 덮었습니다.
   map.addLayer({id:"depot-label", type:"symbol", source:"depot",
     layout:{"text-field":"Delivery Warehouse", "text-size":13,
       "text-font":["Noto Sans Regular"],"text-offset":[0,-2],
-      "text-allow-overlap":true},
+      "text-allow-overlap":false},
     paint:{"text-color":"#fff4d5","text-halo-color":"#18232b","text-halo-width":2}});
 
   // 지정 착륙장. 배달은 여기로만 갑니다. 땅에 붙은 표지라 경로·기체 아래에 있습니다.
@@ -563,7 +700,7 @@ map.on("load", () => {
       "fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"]}}, firstLabel);
   map.addLayer({id:"seat-label", type:"symbol", source:"seats",
     layout:{"text-field":["get","name"], "text-size":10.5, "text-font":["Noto Sans Regular"],
-            "text-offset":[0,1.1], "text-anchor":"top", "text-allow-overlap":true},
+            "text-offset":[0,1.1], "text-anchor":"top", "text-allow-overlap":false},
     paint:{"text-color":"#fff4d5","text-halo-color":"#18232b","text-halo-width":1.6}});
 
   // 기체는 고도에 뜬 덩어리로 그립니다. MapLibre 는 심볼을 못 띄우므로 아이콘으로는
@@ -584,15 +721,18 @@ map.on("load", () => {
     map.addSource(id, {type:"geojson", data: empty()});
     map.addLayer({id:`${id}-icon`, type:"symbol", source:id,
       layout:{
-              // 이름 · 상태(상태마다 색) 그리고 아랫줄에 갈 고도. 멈춰 있으면 왜 멈춰 있는지가
-              // 여기서 읽혀야 합니다 — 싣는 중 3/6, 내리는 중 2, 승인 대기, 충전 45%.
+              // 윗줄: 이름 · 상태(상태마다 색). 멈춰 있으면 왜 멈춰 있는지가 여기서 읽혀야 합니다 —
+              // 싣는 중 3/6, 내리는 중 2, 승인 대기, 충전 45%, 링크 두절.
+              // 아랫줄: 이 기체를 모는 모델 · 갈 고도. 어느 모델이 낸 신청인지가 기체 옆에서 보입니다.
               "text-field":["format",
                 ["get","id"], {},
                 ["case",["==",["get","work"],""],"",
                         ["concat","  ·  ",["upcase",["get","work"]]]], {"text-color":["get","tone"]},
-                ["case",["==",["get","altitude"],""],"",
-                        ["concat","\n",["get","altitude"]]], {"text-color":"#c8d4de","font-scale":.9}],
+                ["case",["==",["get","sub"],""],"",
+                        ["concat","\n",["get","sub"]]], {"text-color":"#c8d4de","font-scale":.85}],
               "text-line-height":1.25,
+              // 기본 폭(10em)이면 아랫줄이 "Nemotron Nano / 4B · ↑ 111 m" 로 꺾였습니다. 줄은 \n 으로만 나눕니다.
+              "text-max-width":24,
               "text-size":["interpolate",["linear"],["zoom"],12,9.5,17,13,19,16],
               "text-offset":[0,1.6],"text-anchor":"top",
               "text-font":["Noto Sans Regular"],"text-allow-overlap":true},
@@ -663,7 +803,7 @@ function assetCard(world, v){
   if (guarded){
     const last = (lastRuntime?.ledger || []).find(e => e.proposal?.asset_id === v.id && e.outcome !== "pending");
     if (last){
-      rows.push([t("p_form"), tierOf(last.proposal.author) || t("by_rules")]);
+      rows.push([t("p_form"), tierOf(last.proposal.author, v.id) || t("by_rules")]);
       const drafter = ROUTED.includes(last.proposal.action) ? drafterWord(last.proposal.params, last.proposal.params?.legs) : "";
       if (drafter) rows.push([t("p_drafter"), drafter]);
       rows.push([t("p_judged"), reasonText(last)]);
@@ -686,6 +826,7 @@ function applyLanguage(){
     button.className = button.dataset.lang === lang ? "on" : "";
   for (const button of (document.querySelectorAll?.("#show button") || []))
     if (button.dataset.show) button.className = button.dataset.show === showing ? "on" : "";
+  for (const id of PANELS) setMinimized(id, isMinimized(id), false);
   if (latest) renderSnapshot(latest, lastRuntime);
 }
 
@@ -700,6 +841,9 @@ for (const button of (document.querySelectorAll?.("#lang button") || [])){
 // (MapLibre 기본 키 처리는 끄고 여기서 다 받습니다 — 둘 다 살아 있으면 한 번에 두 번 돕니다).
 map.keyboard?.disable?.();
 const HOME_VIEW = {center:[-73.973, 40.718], zoom:14.5, pitch:45, bearing:-28};
+// 화살표 한 번에 옮기는 화면 픽셀. 100 이면 줌 14.5 에서 한 블록쯤 — 누르는 맛이 있으면서 길을 안 잃습니다.
+const PAN_PX = 100;
+const ARROW = {arrowleft:[-1, 0], arrowright:[1, 0], arrowup:[0, -1], arrowdown:[0, 1]};
 function camera(what){
   if (what === "left") map.easeTo({bearing:map.getBearing() - 30, duration:400});
   else if (what === "right") map.easeTo({bearing:map.getBearing() + 30, duration:400});
@@ -708,11 +852,12 @@ function camera(what){
   else if (what === "north") map.easeTo({bearing:0, duration:500});
   else if (what === "home") map.flyTo({...HOME_VIEW, duration:900});
 }
-document.addEventListener?.("keydown", event => {
-  if (event.metaKey || event.ctrlKey || event.altKey) return;
+/** 키 하나를 지도 조작으로. 받은 키면 true — 호출한 쪽이 브라우저 기본 동작(스크롤)을 막습니다. */
+function handleKey(event){
+  if (event.metaKey || event.ctrlKey || event.altKey) return false;
   const tag = event.target?.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA") return;
-  const key = event.key.toLowerCase();
+  if (tag === "INPUT" || tag === "TEXTAREA") return false;
+  const key = String(event.key || "").toLowerCase();
   if (key === "n") camera("north");
   else if (key === "h") camera("home");
   else if (/^[1-4]$/.test(key)) focusAsset(`drone-0${key}`);
@@ -720,10 +865,15 @@ document.addEventListener?.("keydown", event => {
   else if (event.shiftKey && key === "arrowright") camera("right");
   else if (event.shiftKey && key === "arrowup") camera("up");
   else if (event.shiftKey && key === "arrowdown") camera("down");
+  // Shift 없는 화살표는 이동. 오른쪽 화살표면 오른쪽에 있던 것이 화면으로 들어옵니다.
+  else if (ARROW[key]) map.panBy([ARROW[key][0] * PAN_PX, ARROW[key][1] * PAN_PX], {duration:250});
   else if (key === "+" || key === "=") map.zoomIn({duration:300});
   else if (key === "-" || key === "_") map.zoomOut({duration:300});
-  else return;
-  event.preventDefault();
+  else return false;
+  return true;
+}
+document.addEventListener?.("keydown", event => {
+  if (handleKey(event)) event.preventDefault();
 });
 
 // 카드나 기록을 누르면 그 기체로 갑니다. 건물이 읽힐 만큼 가까이, 기체가 화면 가운데.
@@ -733,9 +883,15 @@ function focusAsset(id){
   map.flyTo({center:[v.lon, v.lat], zoom:16.4, pitch:58, bearing:map.getBearing(), duration:900});
 }
 document.getElementById("denial")?.addEventListener("click", event => {
+  if (event.target?.closest?.("[data-min]")) return;
   focusAsset(event.currentTarget.dataset.asset);
 });
 document.getElementById("advisory")?.addEventListener("click", event => {
+  if (event.target?.closest?.("[data-min]")) return;
+  focusAsset(event.currentTarget.dataset.asset);
+});
+document.getElementById("lostlink")?.addEventListener("click", event => {
+  if (event.target?.closest?.("[data-min]")) return;
   focusAsset(event.currentTarget.dataset.asset);
 });
 document.getElementById("feed")?.addEventListener("click", event => {
@@ -773,6 +929,7 @@ function draw(){
     return;
   }
   const ribbons = ribbons0, craft = [], cargo = [];
+  let anyLost = false;
   for (const world of ["guarded","direct"]){
     const features = [];
     for (const v of Object.values(latest.worlds[world].assets)){
@@ -784,9 +941,11 @@ function draw(){
       const heading = point[0] === ahead[0] && point[1] === ahead[1] ? v.heading ?? 0 :
         Math.atan2((ahead[0] - point[0]) * Math.cos(point[1] * Math.PI / 180),
           ahead[1] - point[1]) * 180 / Math.PI;
+      // 링크가 끊긴 기체. 런타임은 그 기체가 낸 공간을 그대로 잡고 있으므로 회랑도 그대로 남습니다.
+      const lost = world === "guarded" && linkLost(v.id);
       if (world === "guarded" && !staged.growing.has(v.id) &&
           m.curve?.coordinates.length > 1 &&
-          (v.route?.length || now < m.at + POLL_MS)){
+          (v.route?.length || lost || now < m.at + POLL_MS)){
         // 지나온 구간은 지웁니다. 남은 경로만 승인된 것이고, 다 그려두면 기체가
         // 어디까지 왔는지가 선에서 안 읽힙니다.
         const span = Math.max(0, Math.min(1, (now - m.at) / POLL_MS));
@@ -796,18 +955,27 @@ function draw(){
           corridorAlpha(v.id, 1);
           for (const piece of [...curveColumns(m.curve, flown, total), ...curveRibbon(m.curve, flown, total)])
             ribbons.push(extrusion(piece, {asset:v.id, phase:"approved"}));
+          // 예약된 채 끊긴 회랑은 깜빡이는 껍질을 두릅니다. 점선은 그대로 — 예약이 유지된다는 뜻입니다.
+          if (lost){
+            anyLost = true;
+            for (const piece of curveShell(m.curve, flown, total))
+              ribbons.push(extrusion(piece, {asset:v.id, phase:"shell"}));
+          }
         }
       }
       // 몇 미터로 갈 것인가. 승인된 경로의 고도이고, 지상에 있어도 승인만 있으면 보입니다.
       // 관제사가 보는 그 숫자입니다 — 경로와 고도가 같이 있어야 승인이 읽힙니다.
       const cruise = v.route?.length ? Number(v.route[0].alt_m) : Number(v.alt_m) > 1 ? Number(v.alt_m) : null;
+      const altitudeWord = cruise === null ? "" : `↑ ${Math.round(cruise)} m`;
       features.push({
         type:"Feature",
         geometry:{type:"Point", coordinates:point},
         properties:{id:v.id, heading,
-          // 멈춰서 무언가 하는 중이면 그게 무엇인지, 얼마나 남았는지 옆에 씁니다.
-          work: workLabel(v), tone: TONE[v.state] || "#c8d4de",
-          altitude: cruise === null ? "" : `↑ ${Math.round(cruise)} m`},
+          // 멈춰서 무언가 하는 중이면 그게 무엇인지, 얼마나 남았는지 옆에 씁니다. 링크가 끊겼으면 그것부터.
+          work: lost ? t("lost_link") : workLabel(v),
+          tone: lost ? "#ff9d95" : TONE[v.state] || "#c8d4de",
+          // 아랫줄: 모는 모델 · 갈 고도. 모델이 없으면 규칙이 몰고 있다는 뜻이라 그렇게 씁니다.
+          sub: [agentName(world, v.id), altitudeWord].filter(Boolean).join(" · ")},
       });
       const altitude = roofLifted(point[1], point[0], Number(v.alt_m ?? 0));
       if (visible(world)){
@@ -824,6 +992,48 @@ function draw(){
   map.getSource("flightpath")?.setData({type:"FeatureCollection", features:ribbons});
   map.getSource("craft")?.setData({type:"FeatureCollection", features:craft});
   map.getSource("cargo")?.setData({type:"FeatureCollection", features:cargo});
+  // 테두리는 가는 막대라 판보다 진해야 보입니다. .25 ~ .85 사이를 1.6초에 한 번 숨쉽니다.
+  shellAlpha(anyLost ? .25 + .6 * Math.abs(Math.sin(now / 500)) : 0);
+}
+
+/** 끊긴 회랑 껍질의 밝기. 한 겹의 레이어라 끊긴 기체가 여럿이어도 같이 숨쉽니다. */
+let shellLevel = -1;
+function shellAlpha(value){
+  if (!map.getSource("flightpath")) return;
+  const opacity = Math.round(value * 40) / 40;
+  if (!map.getLayer?.("flightpath-shell"))
+    map.addLayer({id:"flightpath-shell", type:"fill-extrusion", source:"flightpath",
+      filter:["==",["get","phase"],"shell"],
+      paint:{"fill-extrusion-color":"#ff3b30", "fill-extrusion-base":["get","base"],
+        "fill-extrusion-height":["get","height"], "fill-extrusion-opacity":opacity,
+        "fill-extrusion-opacity-transition":{duration:0}}}, "blocker");
+  else if (shellLevel !== opacity) map.setPaintProperty("flightpath-shell", "fill-extrusion-opacity", opacity);
+  shellLevel = opacity;
+}
+
+/** /state.links 가 그 기체를 끊겼다고 하는가. 필드가 없으면(옛 런타임) 아무도 안 끊긴 것입니다. */
+function linkLost(id){
+  return lastRuntime?.links?.[id]?.status === "lost";
+}
+
+/** 기체를 모는 모델의 화면 이름. 런타임 쪽은 /state.agents 의 display, 직접 쪽은 시뮬레이터가 아는
+ * 모델 id 를 다듬어서. 둘 다 없으면 규칙이 몰고 있는 것이라 그렇게 씁니다. */
+function agentName(world, id){
+  if (world === "guarded"){
+    const agent = lastRuntime?.agents?.[id];
+    if (agent) return agent.display || modelName(agent.model) || t("model_rules");
+    return t("model_rules");
+  }
+  return modelName(latest?.worlds?.direct?.assets?.[id]?.agent_model) || t("model_rules");
+}
+/** "nvidia/nemotron-3-super-120b-a12b" → "Nemotron Super 120B". 세대 번호와 활성 파라미터 꼬리는
+ * 화면에서 뜻이 없어 뺍니다. 모르는 id 는 단어 첫 글자만 올려서 그대로. */
+function modelName(raw){
+  const id = String(raw || "").split("/").at(-1);
+  if (!id) return "";
+  const words = id.split(/[-_:.\s]+/).filter(w => w && !/^\d+$/.test(w) && !/^a\d+b$/i.test(w));
+  return words.map(w => /^\d+(\.\d+)?[bm]$/i.test(w) ? w.toUpperCase()
+                          : w[0].toUpperCase() + w.slice(1)).join(" ");
 }
 
 /** 점이 고리 안에 있나. 교차 횟수 홀짝 — 바닥 다각형 하나 고르는 데는 이걸로 충분합니다. */
@@ -946,6 +1156,7 @@ async function poll(){
       renderFeed(rt.value);
       renderDenials(rt.value, performance.now());
       renderAdvisories(rt.value, performance.now());
+      renderLinks(rt.value);
     }
   } catch (error) { console.error("지도 갱신 실패", error); }
   finally { setTimeout(poll, Math.max(0, POLL_MS - (performance.now() - started))); }
@@ -960,7 +1171,7 @@ function renderSnapshot(data, runtime){
     map.getSource("flightpath")?.setData(empty());
   }
   latest = data;
-  document.getElementById("tick").textContent = data.tick;
+  document.getElementById("round-tick").textContent = t("round_tick", data.round ?? "—", data.tick);
 
   const now = performance.now();
   for (const world of ["guarded","direct"]){
@@ -1041,9 +1252,11 @@ function renderSnapshot(data, runtime){
     `<tr><td>${t(key)}</td>
          <td class="${g[key]?'hit':'zero'}">${g[key] ?? 0}</td>
          <td class="${d[key]?'hit':'zero'}">${d[key] ?? 0}</td></tr>`).join("");
+  document.getElementById("score").hidden = !(g || d);
 
-  if (runtime) { renderFeed(runtime); renderDenials(runtime, now); renderAdvisories(runtime, now); }
+  if (runtime) { renderFeed(runtime); renderDenials(runtime, now); renderAdvisories(runtime, now); renderLinks(runtime); }
   paintDepotBuilding();
+  renderLegend(data, zoneFeatures.length > 0);
 
   // 지금 걸려 있는 공지. 무슨 규칙이 언제 도착했고 무엇을 막는지 그대로 씁니다.
   // 공지는 문장으로 옵니다. 런타임이 읽어서 구역으로 만든 것(notices)이 있으면 그것을 쓰고,
@@ -1076,8 +1289,53 @@ function renderSnapshot(data, runtime){
   }
   for (const item of intake.filter(i => !i.kind && i.why).slice(-3))
     lines.push(t("b_intake_raw", safe(item.text || item.id), safe(item.why)));
-  banner.style.display = lines.length ? "block" : "none";
-  banner.innerHTML = lines.join("<br>");
+  banner.hidden = !lines.length;
+  banner.innerHTML = panelBar("banner", "notices_title") + lines.map(line => `<div>${line}</div>`).join("");
+}
+
+/** 범례. 지금 화면에 있는 것만 줄을 얻습니다 — 격자가 안 실렸으면 천장 색도 없습니다. */
+function renderLegend(data, zoned){
+  const legend = document.getElementById("legend");
+  if (!legend) return;
+  const world = data.worlds?.guarded || {};
+  // 항목 하나 = 안 끊기는 한 덩어리. 줄은 항목 사이에서만 넘어갑니다 — 한 줄로 고정했더니
+  // 창고·착륙장·닫힌 구역이 한꺼번에 있을 때 카드 폭(300)을 넘어 "Closed zo" 로 잘렸습니다.
+  const item = inner => `<span class="li">${inner}</span>`;
+  const key = (cls, word) => item(`<span class="route-key ${cls}"></span>${word}`);
+  const swatch = (colour, word) => item(`<span class="k" style="background:${colour}"></span>${word}`);
+  const row = items => `<div>${items.join("")}</div>`;
+  const rows = [row([key("pending", t("lg_pending")), key("", t("lg_ok")), key("denied", t("lg_no"))])];
+  const lost = Object.values(lastRuntime?.links || {}).some(l => l?.status === "lost");
+  rows.push(row([swatch("var(--zone)", t("lg_block")), ...(lost ? [key("reserved", t("lg_reserved"))] : [])]));
+  const places = [];
+  if (world.depot_coords) places.push(swatch("#eee7ce", t("lg_depot")));
+  if (world.landing_areas?.length) places.push(swatch("#18b3a6", t("lg_landing")));
+  if (zoned) places.push(swatch("#ff3b30", t("lg_zone")));
+  if (places.length) rows.push(row(places));
+  if (world.bands?.length){
+    const step = (colour, value) => `<span class="k" style="background:${colour}"></span>${value}`;
+    rows.push(row([swatch("#c1121f", t("lg_nofly")), item(`${t("lg_ceil")} ` + [step("#ffb020", "30"),
+      step("#d8d92c", "61"), step("#48c06a", "91"), step("#2b8fe0", "122&nbsp;m")].join(" "))]));
+    rows.push(`<div class="meta">${t("lg_source")}</div>`);
+  }
+  legend.innerHTML = panelBar("legend", "legend_title") + rows.join("");
+  legend.hidden = !rows.length;
+}
+
+/** 링크 두절 카드. 끊긴 기체마다 한 줄 — 언제부터, 그리고 그 공간이 예약된 채라는 것. 복구되면 사라집니다. */
+function renderLinks(runtime){
+  const card = document.getElementById("lostlink");
+  if (!card) return;
+  const lost = Object.entries(runtime?.links || {}).filter(([, l]) => l?.status === "lost");
+  card.hidden = !lost.length;
+  if (card.dataset) card.dataset.asset = lost[0]?.[0] || "";
+  // 새로 끊긴 기체가 생기면 접어 둔 카드도 다시 펼칩니다.
+  const fresh = lost.some(([id]) => !lostShown.has(id));
+  lostShown = new Set(lost.map(([id]) => id));
+  if (fresh) setMinimized("lostlink", false, false);
+  card.innerHTML = panelBar("lostlink", "lostlink_title") + lost.map(([id, l]) =>
+    `<div class="line1"><span class="tag t-lost">${t("lost_link")}</span><b>${safe(id)}</b>`
+    + `<span class="meta">${t("ll_line", l.since_tick ?? l.last_seen_tick ?? "—")}</span></div>`).join("");
 }
 
 /** "WEATHER HOLD · gusts 14 m/s > 12" 에서 앞머리를 뗀 근거만. 배너가 제 말로 앞머리를 씁니다. */
@@ -1110,12 +1368,23 @@ const ROUTED = ["fly_route", "reserve_pad"];
 
 // 누가 썼고 무엇으로 그렸는가. 원장에는 모델 id 가 그대로 남고, 화면에는 티어 한 단어만.
 // 규칙이 쓴 것은 아무 표시도 안 합니다 — 표시가 없으면 규칙입니다.
-function tierOf(author){
+function tierOf(author, assetId){
   if (!author || author === "rules" || author === "runtime") return "";
+  // 기체가 쓴 신청서에는 그 기체에 실린 모델 이름을 붙입니다. 관제 쪽 대역 모델과 id 가 같아도
+  // (로컬에서는 둘 다 4B) 드론 줄에 "super" 가 붙으면 안 됩니다 — 기체는 Super 를 부르지 않습니다.
+  const agent = assetId ? lastRuntime?.agents?.[assetId] : null;
+  if (agent?.model && author === agent.model) return shortModel(agent.display || modelName(agent.model));
   const models = lastRuntime?.llm?.models || {};
-  for (const [tier, id] of Object.entries(models))
-    if (id && author === id) return tier;
+  const aircraft = Boolean(assetId && (agent || latest?.worlds?.guarded?.assets?.[assetId]));
+  if (aircraft)
+    return models.nano && author === models.nano ? "nano" : (shortModel(modelName(author)) || t("drafter_model"));
+  for (const tier of ["super", "ultra", "nano"])
+    if (models[tier] && author === models[tier]) return tier;
   return t("drafter_model");
+}
+/** 표 한 칸에 들어갈 짧은 이름. "Nemotron Nano 4B" → "Nano 4B". */
+function shortModel(name){
+  return String(name || "").replace(/^Nemotron\s+/i, "");
 }
 function drafterWord(params, legs){
   const d = String(params?.drafter || "");
@@ -1141,11 +1410,33 @@ function approvedWord(decision, params){
 function renderLlmLine(runtime){
   const line = document.getElementById("llm-line");
   if (!line) return;
-  const llm = runtime?.llm;
-  line.textContent = llm?.enabled
-    ? t("llm_on", Object.entries(llm.models || {}).filter(([, id]) => id).map(([tier]) => tier).join(" · "),
-        llm.host || "api")
-    : t("llm_off");
+  const llm = runtime?.llm || {};
+  const models = llm.models || {};
+  // 기체마다 어느 모델이 모는지. 같은 모델이면 한 번에 "×4", 섞였으면 각각.
+  const counts = new Map();
+  for (const agent of Object.values(runtime?.agents || {})){
+    const name = agent?.display || modelName(agent?.model) || t("model_rules");
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  const droneModels = [...counts.keys()].some(name => name !== t("model_rules"));
+  if (!llm.enabled && !droneModels){
+    line.textContent = t("llm_off");
+    return;
+  }
+  // 관제(런타임)가 부르는 모델과 기체가 쓰는 모델은 다른 자리입니다. 로컬에서는 둘 다 4B 라도
+  // 한 줄에 섞으면 드론이 Super 를 쓰는 것처럼 읽혔습니다.
+  const towerId = llm.enabled ? (models.super || models.ultra || "") : "";
+  const parts = [towerId ? t("tower_line", towerName(towerId), llm.host || "api") : t("tower_rules")];
+  if (droneModels)
+    parts.push(t("agents_line", [...counts].map(([name, n]) => `${name} ×${n}`).join(" · ")));
+  else if (llm.enabled && models.nano)
+    parts.push(t("agents_line", modelName(models.nano)));
+  line.textContent = parts.join(" · ");
+}
+/** 관제 자리의 모델 이름. 진짜 Super·Ultra 가 아니면(로컬 대역) 대역이라고 씁니다. */
+function towerName(id){
+  const name = modelName(id);
+  return /super|ultra/i.test(id) ? name : t("standin", name);
 }
 
 function renderDenials(runtime, now){
@@ -1171,10 +1462,9 @@ function renderDenials(runtime, now){
   const tag = document.querySelector("#denial .tag");
   tag.textContent = withdrawn ? t("d_withdraw") : pulled ? t("d_recall") : t("d_reject");
   tag.className = pulled ? "tag t-human" : "tag t-deny";
-  document.getElementById("denial").style.borderColor =
-    pulled ? "var(--warn)" : "var(--zone)";
   document.getElementById("denial-who").textContent = e.proposal.asset_id;
   const card = document.getElementById("denial");
+  card.className = pulled ? "card pulled" : "card";
   if (card.dataset) card.dataset.asset = e.proposal.asset_id;
   document.getElementById("denial-what").textContent = t(e.proposal.action);
   // 런타임이 값으로 남긴 것을 조립합니다. 문장을 다시 뜯지 않습니다.
@@ -1189,6 +1479,7 @@ function renderDenials(runtime, now){
                  fresh.length > 1 ? t("d_more", fresh.length - 1) : ""];
   document.getElementById("denial-more").textContent = notes.filter(Boolean).join(" · ");
   document.getElementById("denial").hidden = false;
+  setMinimized("denial", false, false);
   denialUntil = now + DENIAL_MS;
 }
 
@@ -1226,6 +1517,7 @@ function renderAdvisories(runtime, now){
       o.legal ? t("adv_legal") : t("adv_illegal")}${o.why && !o.legal ? ` — ${safe(o.why)}` : ""}</li>`).join("");
   document.getElementById("advisory-note").textContent = t("adv_note");
   card.hidden = false;
+  setMinimized("advisory", false, false);
   advisoryUntil = now + ADVISORY_MS;
 }
 
@@ -1339,6 +1631,8 @@ function reasonText(entry){
     case "advisory": return t("r_advisory", optionLabel((params.options || []).find(o => o.id === x.chosen)
                                                         || {id:x.chosen})) + (x.source === "super" ? " · super" : "");
     case "notice_unreadable": return t("r_notice_unreadable", x.why || "");
+    case "link_lost": return t("r_link_lost", x.since_tick ?? x.last_seen_tick ?? params.since_tick ?? "—");
+    case "link_restored": return t("r_link_restored");
     case "notice_published": return t("r_notice_published");
     case "notice_refused": return t("r_notice_refused");
     case "": return d.reason;
@@ -1456,6 +1750,8 @@ function expireDenials(now){
 
 const TAG = {auto:["t-auto","t_auto"], denied:["t-deny","t_denied"],
              human:["t-human","t_human"], queued:["t-human","t_queued"]};
+// 기록 카드에 남기는 줄 수. 그 이상은 원장 파일과 보고서의 일입니다.
+const FEED_LINES = 10;
 
 // 디버그 핸들. 밖(playwright)에서 화면 상태를 읽기만 합니다. 여기로 쓰지 않습니다.
 if (typeof window !== "undefined")
@@ -1475,18 +1771,24 @@ function renderFeed(runtime){
     const word = t(key);
     const who = d.approved_by ? ` · ${d.approved_by}` : "";
     const how = d.arbiter && String(d.arbiter).startsWith("ultra") ? " · ultra" : "";
-    const tier = tierOf(p.author);
+    const tier = tierOf(p.author, p.asset_id);
     const wrote = tier ? ` <span class="tier">${safe(tier)}</span>` : "";
     const drafter = ROUTED.includes(p.action) ? drafterWord(p.params, p.params?.legs) : "";
     const drew = drafter && drafter !== t("drafter_straight") ? ` · ${safe(drafter)}` : "";
     const why = d.detail?.arbiter_reason ? `<div class="note">${safe(d.detail.arbiter_reason)}</div>` : "";
     lines.push(`<div class="ev" data-asset="${safe(p.asset_id)}"><span class="tag ${cls}">${word}</span>
-      <b>${p.asset_id}</b>${wrote} ${t(p.action)}${drew}
-      <div style="color:var(--dim)">${reasonText(entry)}${who}${how}</div>${why}</div>`);
-    if (lines.length >= 12) break;
+      <b>${safe(assetWord(p.asset_id))}</b>${wrote} ${t(p.action)}${drew}
+      <div class="meta">${reasonText(entry)}${who}${how}</div>${why}</div>`);
+    if (lines.length >= FEED_LINES) break;
   }
-  document.getElementById("feed").innerHTML = lines.join("")
-    || `<div class="ev" style="color:var(--dim)">${t("empty")}</div>`;
+  // 빈 기록은 빈 상자입니다. 첫 결정이 오면 그때 카드가 생깁니다.
+  const feed = document.getElementById("feed");
+  feed.innerHTML = lines.join("");
+  document.getElementById("acts").hidden = !lines.length;
+  // 카드가 화면보다 길면 아래 끝을 흐려서 잘린 줄이 잘린 것으로 안 보이게 합니다.
+  const fade = feed.scrollHeight > feed.clientHeight ? "linear-gradient(#000 calc(100% - 40px), transparent)" : "";
+  feed.style.maskImage = fade;
+  feed.style.webkitMaskImage = fade;
   renderLlmLine(runtime);
 }
 </script>

@@ -96,6 +96,8 @@ const ACTIONS = {
   publish_notice: "공역 공지 (사람이 확인해야 걸림)",
   publish_weather: "날씨 보고서 (사람이 확인해야 이륙 정지)",
   lift_weather_hold: "기상 대기 풀기 (승인하면 지금, 거부하면 창이 닫힐 때까지)",
+  // 링크 두절. 런타임은 끊긴 기체의 4D 의도를 그대로 잡아 둡니다 — 그 공간을 풀지는 사람이 정합니다.
+  lost_link_notice: "링크 두절 통보 (잡아 둔 공간을 유지할지 풀지 사람이 정함)",
 };
 
 function drawMap(canvas, snap){
@@ -195,12 +197,18 @@ async function refresh(){
     for (const inc of rt?.incidents || [])
       notes.push(`${safe(inc.name)} — 반경 ${Math.round(Number(inc.radius_m) || 0)} m 접근 금지, ` +
         `틱 ${safe(inc.until_tick)} 까지${inc.held ? " (사람 확인 대기)" : ""}.`);
+    // 링크가 끊긴 기체. 텔레메트리가 없어도 낸 경로의 공간은 예약된 채입니다 — 카드는 아래 승인 대기에.
+    for (const [id, link] of Object.entries(rt?.links || {}))
+      if (link?.status === "lost")
+        notes.push(`${safe(id)} 링크 두절 (틱 ${safe(link.since_tick ?? link.last_seen_tick ?? "—")} 부터) — ` +
+          `낸 경로의 공간은 그대로 잡아 둡니다.`);
     banner.style.display = notes.length ? "block" : "none";
     banner.innerHTML = notes.join("<br>");   // 조각마다 이미 safe() 를 지났습니다
 
     if (rt){
+      // 비어 있지 않은 첫 모델. 로컬 대역은 nano 가 비고 super 만 차 있어서, [0] 을 쓰면 빈칸이었습니다.
       document.getElementById("llm").textContent =
-        rt.llm.enabled ? String(Object.values(rt.llm.models)[0] || "") : "규칙 기반 (키 없음)";
+        rt.llm.enabled ? String(Object.values(rt.llm.models || {}).find(Boolean) || "") : "규칙 기반 (키 없음)";
       inbox(rt.awaiting_human || []);
       const tail = (rt.ledger || []).filter(e => e.outcome !== "pending").slice(0,12);
       document.getElementById("ledger").innerHTML = tail.length
