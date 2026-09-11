@@ -28,11 +28,13 @@ MPH_TO_MPS = 0.44704
 KMH_TO_MPS = 1.0 / 3.6
 SM_TO_M = 1609.34
 
-# 사고 반경. 모델이 지어낸 값은 이 안이어야 하고, 문장에 없으면 기본값입니다.
+# Incident radius. A model's value must fall inside these bounds; if the text gives none, the
+# default applies.
 DEFAULT_INCIDENT_RADIUS_M = 150.0
 MIN_INCIDENT_RADIUS_M = 50.0
 MAX_INCIDENT_RADIUS_M = 500.0
-# 모델이 구조화한 날씨에 거는 범위. 허리케인도 60 m/s 안이고, 시정 50 km 는 맑은 날의 끝입니다.
+# Bounds on weather a model structured. Even a hurricane stays under 60 m/s, and 50 km
+# visibility is as clear as a day gets.
 MAX_WIND_MPS = 60.0
 MAX_GUST_MPS = 80.0
 MAX_VISIBILITY_M = 50_000.0
@@ -41,12 +43,13 @@ INCIDENT_KINDS = ("fire", "collapse", "explosion", "police", "gas_leak")
 
 
 class UnknownPlace(ValueError):
-    """모델이 말한 자리가 지명 사전에 없습니다. 양식은 맞았지만 그 곳은 없는 곳입니다."""
+    """The model named a place that isn't in the gazetteer. The form was valid, but no such
+    place exists."""
 
-# ---------- 날씨 문법 ----------
-# "WIND 240 AT 18 GUST 28 KT" (풀어 쓴 METAR), "24018G28KT" (METAR),
-# "winds 25 mph gusting to 40 mph" (예보 산문). 단위가 있어야 숫자입니다 — 단위 없는 숫자는
-# 바람이 아닙니다.
+# ---------- weather grammar ----------
+# "WIND 240 AT 18 GUST 28 KT" (spelled-out METAR), "24018G28KT" (METAR),
+# "winds 25 mph gusting to 40 mph" (forecast prose). A number needs a unit — a unitless number
+# is not wind.
 WIND_SPELLED = re.compile(
     r"\bWIND\s+(?:\d{3}|VRB)\s+AT\s+(\d{1,3})(?:\s*(KTS?|KNOTS?|MPS|M/S))?"
     r"(?:\s+GUST(?:S|ING)?\s+(?:TO\s+)?(\d{1,3})(?:\s*(KTS?|KNOTS?|MPS|M/S))?)?\b",
@@ -61,8 +64,9 @@ GUST_PROSE = re.compile(
 VIS_SPELLED = re.compile(
     r"\bVIS(?:IBILITY)?\s+(?:OF\s+|AROUND\s+|BELOW\s+|UNDER\s+)?(\d+(?:/\d+)?(?:\.\d+)?)\s*"
     r"(SM|KM|MI|MILES?|M|METRES?|METERS?)\b", re.IGNORECASE)
-# METAR 의 4자리 시정(m)은 바람 그룹 뒤에 홀로 섭니다. 뒤에 "-" 나 "Z" 가 붙으면 그것은 시각 창
-# ("KT 0930-0940Z")이지 시정이 아닙니다 — 그렇게 읽으면 없는 시정 위반으로 이륙이 섭니다.
+# A METAR's 4-digit visibility (m) stands alone after the wind group. Followed by "-" or "Z" it
+# is a time window ("KT 0930-0940Z"), not visibility — read it as visibility and takeoffs stop
+# over a visibility breach that doesn't exist.
 VIS_METAR = re.compile(r"\b(\d+(?:/\d+)?)SM\b|(?:KT|MPS)\s+(\d{4})(?=\s|$)")
 PRECIP_WORDS = re.compile(
     r"(?<![A-Z])([+-]?(?:SH|TS|FZ)?(?:RA|SN|DZ|GR|GS|PL|SG|FG|BR|TS))(?![A-Z])"
@@ -96,7 +100,7 @@ def _metres(value: str, unit: str) -> float:
 
 @dataclass
 class WeatherReport:
-    """문법(또는 모델)이 읽어 낸 날씨. 전부 m/s 와 m 입니다."""
+    """Weather read by the grammar (or a model). All in m/s and m."""
 
     wind_mps: float | None = None
     gust_mps: float | None = None
@@ -118,7 +122,7 @@ def _rounded(value: float | None, digits: int = 1) -> float | None:
 
 
 def parse_weather(text: str, clock: Clock | None = None) -> WeatherReport | None:
-    """날씨 문장을 숫자로. 바람이나 시정 중 하나는 읽혀야 보고서입니다. 못 읽으면 None."""
+    """Weather text to numbers. It's a report only if wind or visibility reads; else None."""
     if not text or not text.strip():
         return None
     clock = clock or Clock()
@@ -126,7 +130,7 @@ def parse_weather(text: str, clock: Clock | None = None) -> WeatherReport | None
     wind = gust = visibility = None
     spelled = WIND_SPELLED.search(body)
     metar = WIND_METAR.search(body)
-    # 단위는 바람 뒤("AT 10 M/S GUST 13")나 돌풍 뒤("AT 18 GUST 28 KT") 어느 쪽에 와도 됩니다.
+    # The unit may follow the wind ("AT 10 M/S GUST 13") or the gust ("AT 18 GUST 28 KT").
     if spelled is not None and not (spelled.group(2) or spelled.group(4)):
         spelled = None
     if spelled is not None:
@@ -163,12 +167,13 @@ def parse_weather(text: str, clock: Clock | None = None) -> WeatherReport | None
                          text=text.strip())
 
 
-# ---------- 사고 문법 ----------
+# ---------- incident grammar ----------
 INCIDENT_WORDS = re.compile(
     r"\b(fire|blaze|collapse[d]?|explosion|explod\w*|police|gas\s+leak)\b", re.IGNORECASE)
 INCIDENT_NAMES = {"blaze": "fire", "collapsed": "collapse", "explod": "explosion",
                   "gas leak": "gas_leak"}
-# 주소는 "AT <번지> <거리>" 로 옵니다. 그 뒤의 마침표·쉼표·반경·시각 앞에서 끊습니다.
+# Addresses come as "AT <number> <street>", cut before any period, comma, radius or time that
+# follows.
 ADDRESS_PHRASE = re.compile(
     r"\b(?:AT|ON)\s+(\d{1,5}[A-Za-z]?\s+[A-Za-z0-9.'\- ]+?)"
     r"(?=\s*[.,;:()]|\s+(?:RADIUS|KEEP|CLEAR|WITHIN|TICKS?|FROM|UNTIL|IN\s+MANHATTAN|MANHATTAN|"
@@ -178,7 +183,7 @@ RADIUS_PHRASE = re.compile(
     r"\b(\d{2,4})\s*(?:M|METRES?|METERS?)\s+RADIUS\b|\bRADIUS\s+(?:OF\s+)?(\d{2,4})\s*"
     r"(?:M|METRES?|METERS?)\b|\bWITHIN\s+(\d{2,4})\s*(?:M|METRES?|METERS?)\b", re.IGNORECASE)
 
-# 주소 정규화. "250 W 47th St" 와 "250 West 47th Street" 는 같은 곳입니다.
+# Address normalisation: "250 W 47th St" and "250 West 47th Street" are the same place.
 ABBREVIATIONS = {
     "st": "street", "ave": "avenue", "av": "avenue", "blvd": "boulevard", "rd": "road",
     "pl": "place", "sq": "square", "dr": "drive", "ln": "lane", "pkwy": "parkway",
@@ -193,12 +198,12 @@ def normalise_address(label: str) -> str:
 
 @dataclass
 class Gazetteer:
-    """주소 → 좌표, 건물 id → 중심. 모델이 말한 곳은 여기 있어야 곳입니다."""
+    """Address → coordinates, building id → centre. A place a model names must be in here."""
 
     addresses: list[dict] = field(default_factory=list)
     buildings: dict[str, list[tuple[float, float]]] = field(default_factory=dict)
-    # 건물을 따로 싣지 않고 공역(런타임이 시뮬레이터에서 받은 3만 동)에 물을 때.
-    # id → 다각형 또는 None.
+    # For asking the airspace (the 30,000 buildings the runtime got from the simulator)
+    # instead of loading buildings separately. id → polygon or None.
     lookup: object = None
 
     def __post_init__(self):
@@ -209,7 +214,7 @@ class Gazetteer:
         key = normalise_address(label)
         found = self._by_label.get(key)
         if found is None:
-            # 뒤에 붙는 동네 이름은 주소가 아닙니다.
+            # A trailing neighbourhood name is not part of the address.
             for tail in (" manhattan", " new york", " ny", " nyc"):
                 if key.endswith(tail):
                     found = self._by_label.get(key[: -len(tail)].strip())
@@ -231,12 +236,12 @@ class Gazetteer:
 
 @dataclass
 class IncidentReport:
-    """읽어 낸 사고 하나: 무엇이, 어디에(중심), 얼마나 넓게, 언제까지."""
+    """One incident read from text: what, where (centre), how wide, until when."""
 
     kind: str
     centre: tuple[float, float]
     radius_m: float = DEFAULT_INCIDENT_RADIUS_M
-    place: str = ""                 # 사람이 읽는 자리 이름(주소 또는 건물 이름)
+    place: str = ""                 # human-readable place name (address or building name)
     building_id: str | None = None
     from_tick: int | None = None
     until_tick: int | None = None
@@ -244,7 +249,7 @@ class IncidentReport:
 
     @property
     def name(self) -> str:
-        """화면·거절 사유에 오르는 이름. "FIRE · 250 West 47th Street"."""
+        """Name shown on screen and in refusal reasons: "FIRE · 250 West 47th Street"."""
         return f"{self.kind.replace('_', ' ').upper()} · {self.place}"
 
     def polygon(self) -> list[tuple[float, float]]:
@@ -267,9 +272,9 @@ def _incident_kind(word: str) -> str:
 
 def parse_incident(text: str, gazetteer: Gazetteer, clock: Clock | None = None,
                    hints: dict | None = None) -> IncidentReport | None:
-    """사고 문장을 자리로. 종류 + (주소 또는 건물 id)가 있어야 하고, 그 자리가 지명 사전에 있어야
-    합니다. hints 는 문장과 같이 온 구조화 값(address·building_id·radius_m) — 문장에 없을 때만
-    봅니다.
+    """Incident text to a place. Needs a kind + (an address or a building id), and the place
+    must be in the gazetteer. hints are structured values that came with the text (address,
+    building_id, radius_m) — used only when the text lacks them.
     """
     if not text or not text.strip():
         return None
@@ -316,7 +321,8 @@ def _radius_from(body: str) -> float | None:
 
 
 def hint_number(value, default: float) -> float:
-    """문장과 같이 온 구조화 값 하나. 수가 아니면 기본값 — 힌트 하나가 항목을 깨뜨리지 않습니다."""
+    """One structured value that came with the text. Not a number → the default; one bad hint
+    doesn't break the item."""
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -324,11 +330,12 @@ def hint_number(value, default: float) -> float:
     return default if number != number else number
 
 
-# ---------- 검사 ----------
+# ---------- checks ----------
 
 def weather_problems(report: WeatherReport) -> list[str]:
-    """날씨 보고서에 거는 범위 검사. 누가 읽었든 겁니다 — 문법이 "WIND 240 AT 900 KT" 를 읽어 냈다면
-    그것은 관측이 아니라 오독이고, 오독으로 이륙을 세우면 안 됩니다."""
+    """Range checks on a weather report, whoever read it — if the grammar read
+    "WIND 240 AT 900 KT", that is a misreading, not an observation, and a misreading must not
+    stop takeoffs."""
     problems = []
     if report.wind_mps is None and report.gust_mps is None and report.visibility_m is None:
         problems.append("바람도 시정도 없음")
@@ -347,8 +354,9 @@ def weather_problems(report: WeatherReport) -> list[str]:
 
 def incident_problems(report: IncidentReport,
                       bbox: tuple[float, float, float, float] | None) -> list[str]:
-    """사고에 거는 범위 검사. 자리는 지명 사전이 이미 보증했고, 여기서는 종류·반경·상자·창만.
-    문법이 읽은 것에도 겁니다 — "KEEP CLEAR 9999 M RADIUS" 는 맨해튼을 닫는 문장입니다."""
+    """Range checks on an incident. The gazetteer already vouched for the place; this checks
+    only kind, radius, box and window. Grammar reads are checked too — "KEEP CLEAR 9999 M
+    RADIUS" is a sentence that closes Manhattan."""
     problems = []
     if report.kind not in INCIDENT_KINDS:
         problems.append(f"모르는 사고 종류 {report.kind!r}")
@@ -376,7 +384,7 @@ def distance_m(a: tuple[float, float], b: tuple[float, float]) -> float:
     return (north * north + east * east) ** 0.5
 
 
-# ---------- 모델이 읽는 쪽 ----------
+# ---------- the model-read side ----------
 
 INTAKE_SYSTEM = (
     "You read one piece of text gathered for a drone tower in New York City: a weather "
@@ -399,7 +407,7 @@ INTAKE_SYSTEM = (
 
 @dataclass
 class Compiled:
-    """모델의 답을 코드가 읽은 결과. kind 는 weather | incident | notice | none."""
+    """A model's answer as read by code. kind is weather | incident | notice | none."""
 
     kind: str
     weather: WeatherReport | None = None
@@ -409,7 +417,7 @@ class Compiled:
 
 def from_intake_form(form: dict, gazetteer: Gazetteer, clock: Clock, text: str,
                      hints: dict | None = None) -> Compiled | None:
-    """모델의 JSON 을 같은 보고서 양식으로. 양식이 아니면 None. 범위 검사는 따로 겁니다."""
+    """Model JSON into the same report shapes; None if not a form. Range checks are separate."""
     if not isinstance(form, dict):
         return None
     kind = str(form.get("kind") or "").strip().lower()
@@ -480,31 +488,33 @@ def _tick(value, clock: Clock) -> int | None:
 
 
 def _clean(value) -> str:
-    """모델이 지은 문자열에서 표시 문자를 뗍니다 — 화면에 오르는 값입니다."""
+    """Strip markup characters from a model-written string — the value goes on screen."""
     text = "".join(ch for ch in str(value or "") if ch not in "<>&\"'`")
     return " ".join(text.split())[:120]
 
 
-# ---------- 사전 브리핑: 그날 그 자리의 위험을 읽는 문법 ----------
-# 관제탑이 Tavily 로 받아 오는 쪽(공식 공지·기사)에서 읽어 내는 것은 넷입니다: 타워크레인(높이 +
-# 주소), 행사(장소 + 시간 창), 공원 폐쇄(착륙장 이름 + 시간 창), 비행 제한(반경 + 중심 + 시간 창).
-# 다섯째(기상 주의보)는 규칙이 되지 않고 정보로만 실립니다 — 이륙 정지는 관제탑 피드(METAR)의
-# 일입니다. 문법이 못 읽는 산문은 Super 가 같은 양식을 채우고, 어느 쪽이 읽었든 코드가 범위를
-# 검사합니다. 여기서 나오는 것은 판정이 아니라 '읽은 것' 입니다.
+# ---------- pre-flight briefing: grammars for the day's hazards, place by place ----------
+# From what the runtime fetches through Tavily (official notices, news), four things are read:
+# tower cranes (height + address), events (venue + time window), park closures (landing site
+# name + time window) and flight restrictions (radius + centre + time window). A fifth, weather
+# advisories, becomes information only, never a rule — stopping takeoffs is the job of the
+# METAR feed. Prose the grammar can't read goes to Super to fill the same form, and whoever
+# read it, code checks the ranges. What comes out here is 'what was read', not a judgement.
 
 MIN_CRANE_M = 10.0
-MAX_CRANE_M = 400.0            # 세계에서 가장 높은 타워크레인도 이 안입니다
+MAX_CRANE_M = 400.0            # even the world's tallest tower crane fits under this
 MIN_BRIEF_RADIUS_M = 50.0
-MAX_BRIEF_RADIUS_M = 5000.0    # 이보다 큰 원은 서비스 영역 전체라 코드가 그리지 않습니다
+MAX_BRIEF_RADIUS_M = 5000.0    # bigger covers the whole service area; code won't draw it
 DEFAULT_EVENT_RADIUS_M = 300.0
 FT_TO_M = 0.3048
 NM_TO_M_BRIEF = 1852.0
 SM_TO_M_BRIEF = 1609.34
-# 화면·원장에 남기는 근거 문장 길이.
+# Length of the evidence text kept on screen and in the ledger.
 EVIDENCE_CHARS = 240
 
 BRIEFING_KINDS = ("crane", "event", "closure", "restriction", "weather", "none")
-# 이 말들이 하나도 없으면 모델에게 물을 것도 없습니다 — 기단과 무관한 글입니다.
+# With none of these words there is nothing to ask a model — the text has nothing to do with
+# the fleet.
 BRIEFING_WORDS = re.compile(
     r"\b(crane|closed|closure|closing|parade|marathon|race|festival|street\s+fair|rally|march|"
     r"protest|concert|fireworks|motorcade|game|ceremony|vigil|tfr|flight\s+restriction|notam|"
@@ -528,8 +538,9 @@ ADVISORY_WORDS = re.compile(
     r"tornado\s+(?:warning|watch)|winter\s+storm\s+(?:warning|watch)|flood\s+warning)\b",
     re.IGNORECASE)
 
-# 주소는 문장 아무 데나 있습니다("A tower crane at 2701 Broadway will…"). 지명 사전이 아는
-# 것만 자리가 됩니다 — 읽어 낸 문자열이 아니라 사전이 준 좌표가 규칙의 중심입니다.
+# An address can sit anywhere in a sentence ("A tower crane at 2701 Broadway will…"). Only
+# addresses the gazetteer knows become places — the rule is centred on the gazetteer's
+# coordinates, not on the string that was read.
 STREET_TAIL = (r"(?:Street|St|Avenue|Ave|Av|Boulevard|Blvd|Parkway|Pkwy|Place|Pl|Drive|Dr|"
                r"Road|Rd|Plaza|Square|Sq|Lane|Ln|Terrace|Ter|Court|Ct|Broadway|Bowery)")
 ADDRESS_ANY = re.compile(
@@ -555,7 +566,8 @@ RADIUS_PATTERNS = (
 CEILING_FT = re.compile(
     r"(?:up\s+to\s+(?:and\s+including\s+)?|below\s+|surface\s+to\s+|sfc\s*[-–]\s*)"
     r"(\d{2,5})\s*(?:ft|feet)\b", re.IGNORECASE)
-# 좌표. FAA 본문의 DDMMSS(기존 COORD), 도·분·초 기호, 십진수 세 가지가 실제로 옵니다.
+# Coordinates. Three forms really occur: DDMMSS in FAA text (the existing COORD),
+# degree-minute-second symbols, and decimal degrees.
 COORD_DMS = re.compile(
     r"(\d{1,3})\s*[°:]\s*(\d{1,2})\s*['′:]\s*(\d{1,2}(?:\.\d+)?)\s*[\"″]?\s*([NSEW])",
     re.IGNORECASE)
@@ -586,21 +598,24 @@ SENTENCES = re.compile(
 
 
 class UnknownWindow(ValueError):
-    """시간 창이 없거나 말이 안 됩니다. 창이 없는 규칙은 영원한 규칙이라 걸 수 없습니다."""
+    """The time window is missing or makes no sense. A rule without a window would last
+    forever, so it can't be applied."""
 
 
-# ---------- 뉴욕 지방시 ----------
+# ---------- New York local time ----------
 
 def eastern_offset_hours(when) -> int:
-    """그날 뉴욕의 UTC 차(-4 여름, -5 겨울). tzdata 가 없는 이미지에서도 돌아야 해서 규칙으로.
+    """New York's UTC offset that day (-4 summer, -5 winter). Computed by rule because it has
+    to run in images without tzdata.
 
-    미국 동부: 3월 둘째 일요일 02:00 지방시부터 11월 첫째 일요일 02:00 까지가 여름시각입니다.
+    US Eastern: daylight time runs from 02:00 local on the second Sunday of March to 02:00 on
+    the first Sunday of November.
     """
     day = when.date() if isinstance(when, datetime.datetime) else when
     march = datetime.date(day.year, 3, 8)
-    start = march + datetime.timedelta(days=(6 - march.weekday()) % 7)      # 둘째 일요일
+    start = march + datetime.timedelta(days=(6 - march.weekday()) % 7)      # second Sunday
     november = datetime.date(day.year, 11, 1)
-    end = november + datetime.timedelta(days=(6 - november.weekday()) % 7)  # 첫째 일요일
+    end = november + datetime.timedelta(days=(6 - november.weekday()) % 7)  # first Sunday
     return -4 if start <= day < end else -5
 
 
@@ -628,15 +643,15 @@ def _from_iso(value) -> datetime.datetime | None:
     return parsed.replace(tzinfo=datetime.UTC)
 
 
-# ---------- 시간 창 ----------
+# ---------- time windows ----------
 
 @dataclass
 class Window:
-    """언제부터 언제까지. UTC 입니다. end 가 없으면 '해제 전까지'."""
+    """From when until when, in UTC. No end means 'until lifted'."""
 
     start: datetime.datetime | None = None
     end: datetime.datetime | None = None
-    daily: bool = False          # 날짜 범위 + 하루 시간대(공사 시간 등)
+    daily: bool = False          # date range + daily hours (construction hours, say)
     text: str = ""
 
     def to_dict(self) -> dict:
@@ -649,7 +664,7 @@ def _month_of(word: str) -> int:
 
 
 def _dates_in(text: str, year: int) -> list[datetime.date]:
-    """본문이 말한 날짜들, 나온 순서대로. 연도가 없으면 브리핑하는 해로 읽습니다."""
+    """Dates in the text, in order of appearance. A date with no year takes the briefing's."""
     found: list[datetime.date] = []
     span = DATE_SPAN.search(text)
     if span is not None:
@@ -686,7 +701,7 @@ def _dates_in(text: str, year: int) -> list[datetime.date]:
 
 
 def _times_in(text: str) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
-    """(Zulu 시각들, 지방시 시각들). 둘 다 나온 순서대로."""
+    """(Zulu times, local times), each in order of appearance."""
     zulu = [(int(match.group(1)) % 24, int(match.group(2)))
             for match in TIME_ZULU.finditer(text)]
     local = []
@@ -701,11 +716,12 @@ def _times_in(text: str) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
 
 
 def read_window(text: str, day: datetime.date) -> Window | None:
-    """본문의 시간 창을 UTC 로. 못 읽으면 None — 창 없는 규칙은 만들지 않습니다.
+    """The text's time window in UTC. None if unreadable — no rule is made without a window.
 
-    FAA 쪽처럼 '날짜 + HHMM UTC' 가 짝으로 오면 그 사이가 통째로 창입니다. 날짜 범위와 하루
-    시간대가 따로 오면(공사 7 AM~6 PM, 9월 14일부터 11월 30일까지) 브리핑하는 날의 그 시간대가
-    창입니다. 날짜만 있으면 그 날 하루, 시간만 있으면 오늘 그 시간입니다.
+    When 'date + HHMM UTC' come in pairs, as in FAA text, everything between them is the
+    window. When a date range and daily hours come separately (construction 7 AM-6 PM, from
+    September 14 to November 30), the window is those hours on the briefing day. A date alone
+    means that whole day; a time alone means that time today.
     """
     body = " ".join(str(text or "").split())
     if not body:
@@ -741,12 +757,12 @@ def read_window(text: str, day: datetime.date) -> Window | None:
     else:
         return None
     if end <= start:
-        end += datetime.timedelta(days=1)      # 자정을 넘긴 창
+        end += datetime.timedelta(days=1)      # window crosses midnight
     return Window(start, end, daily=bool(dates) and last > first, text=body[:EVIDENCE_CHARS])
 
 
 def _utc_stamps(body: str, year: int) -> list[datetime.datetime]:
-    """'<날짜> … HHMM UTC' 짝들. FAA 의 시작·종료 줄이 이 모양으로 옵니다."""
+    """'<date> … HHMM UTC' pairs. FAA start and end lines come in this shape."""
     pattern = re.compile(
         r"(" + MONTH_NAME + r"\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*\d{4})?|\d{4}-\d{2}-\d{2}|"
         r"\d{1,2}/\d{1,2}/\d{2,4})[^,;.\n]{0,24}?\b(\d{1,2}:?\d{2})\s*(?:z|utc|zulu)\b",
@@ -765,11 +781,12 @@ def _utc_stamps(body: str, year: int) -> list[datetime.datetime]:
     return stamps
 
 
-# ---------- 읽은 것 ----------
+# ---------- what was read ----------
 
 @dataclass
 class Hazard:
-    """브리핑이 읽어 낸 위험 하나. 자리는 지명 사전·착륙장 목록이 준 좌표입니다."""
+    """One hazard read by the briefing. Its position comes from the gazetteer or the landing
+    site list."""
 
     kind: str
     place: str = ""
@@ -777,17 +794,17 @@ class Hazard:
     radius_m: float | None = None
     height_m: float | None = None
     ceiling_m: float | None = None
-    landing_area: str | None = None       # 폐쇄된 착륙장 id
-    address: str = ""                     # 지명 사전이 준 표준 주소
+    landing_area: str | None = None       # id of the closed landing site
+    address: str = ""                     # canonical address from the gazetteer
     window: Window | None = None
-    detail: str = ""                      # 한 줄 요약. 코드가 짓습니다
-    evidence: str = ""                    # 근거 문장
-    note: str = ""                        # 코드가 덧붙이는 말(그리지 못한 큰 링 등)
-    numbers: dict = field(default_factory=dict)   # 기상 주의보의 숫자
+    detail: str = ""                      # one-line summary, written by code
+    evidence: str = ""                    # evidence text
+    note: str = ""                        # remark added by code (a ring too big to draw, etc.)
+    numbers: dict = field(default_factory=dict)   # weather advisory figures
 
     @property
     def rule_kind(self) -> str | None:
-        """이 위험이 만드는 규칙의 종류. 없으면 정보일 뿐입니다."""
+        """Kind of rule this hazard makes; None means it is information only."""
         return self.kind if self.kind in ("crane", "event", "closure", "restriction") else None
 
     def to_dict(self) -> dict:
@@ -820,7 +837,7 @@ class Hazard:
             note=str(raw.get("note") or ""), numbers=dict(raw.get("numbers") or {}))
 
 
-# 착륙장 이름의 다른 표기. 공지는 공식 이름을 쓰고 우리 목록은 짧은 이름을 씁니다.
+# Other names for landing sites. Notices use official names; our list uses short ones.
 LANDING_ALIASES = {
     "la-tompkins": ["Tompkins Square Park"],
     "la-washington": ["Washington Square Park"],
@@ -839,12 +856,12 @@ LANDING_ALIASES = {
     "la-battery": ["The Battery"],
     "la-morningside": ["Morningside Park"],
 }
-# 이름 뒤에 이 말이 붙으면 그 공원 얘기가 아닙니다("Battery Park City" 는 동네입니다).
+# A name followed by this isn't about the park ("Battery Park City" is a neighbourhood).
 NOT_THE_PARK = re.compile(r"\s+cit(?:y|ies)\b", re.IGNORECASE)
 
 
 def landing_names(area: dict) -> list[str]:
-    """이 착륙장을 부르는 이름들. 긴 것부터 — 짧은 이름이 긴 이름을 가로채면 안 됩니다."""
+    """Names for this landing site, longest first — a short name must not steal a longer one."""
     name = str(area.get("name") or "")
     names = {name, *LANDING_ALIASES.get(str(area.get("id") or ""), [])}
     if name and not name.lower().endswith("park"):
@@ -853,7 +870,7 @@ def landing_names(area: dict) -> list[str]:
 
 
 def find_landing_area(text: str, landing_areas: list[dict]) -> tuple[dict, str] | None:
-    """본문이 이름을 댄 착륙장. 가장 긴 이름이 이깁니다."""
+    """The landing site the text names. The longest name wins."""
     body = " ".join(str(text or "").split())
     best = None
     for area in landing_areas or []:
@@ -880,7 +897,7 @@ def _sentence_with(text: str, pattern: re.Pattern) -> str:
 
 
 def _address_in(text: str, gazetteer: Gazetteer) -> dict | None:
-    """본문의 주소 중 지명 사전이 아는 첫 번째. 사전에 없는 주소는 자리가 아닙니다."""
+    """First address in the text that the gazetteer knows. An unknown address is no place."""
     for match in ADDRESS_ANY.finditer(text or ""):
         found = gazetteer.address(match.group(1))
         if found is not None:
@@ -900,7 +917,7 @@ def _height_m(text: str) -> float | None:
 
 
 def _radius_m_all(text: str) -> list[float]:
-    """본문이 말한 반경 전부(m). TFR 은 안쪽 핵과 바깥 링을 같이 적기도 합니다."""
+    """Every radius the text gives (m). A TFR may list an inner core and an outer ring."""
     found = []
     for pattern in RADIUS_PATTERNS:
         for match in pattern.finditer(text or ""):
@@ -920,7 +937,7 @@ def _radius_m_all(text: str) -> list[float]:
 
 
 def _centre_in(text: str) -> tuple[float, float] | None:
-    """본문의 좌표. FAA 의 DDMMSS, 도분초 기호, 십진수 순으로 봅니다."""
+    """Coordinates in the text, tried in order: FAA DDMMSS, DMS symbols, decimal degrees."""
     body = text or ""
     found = COORD.search(body)
     if found is not None:
@@ -948,13 +965,14 @@ def _ceiling_m(text: str) -> float | None:
     return None if match is None else float(match.group(1)) * FT_TO_M
 
 
-# ---------- 문법 넷 ----------
+# ---------- the four grammars ----------
 
 def read_crane(text: str, gazetteer: Gazetteer, day: datetime.date) -> Hazard | None:
-    """타워크레인: 높이 + 주소. 크레인은 세워져 있는 동안 늘 거기 있으므로 하루 시간대는 안 봅니다.
+    """Tower crane: height + address. A crane stands there the whole time it is up, so daily
+    hours are ignored.
 
-    크레인이 필요한 이유는 자료에 없기 때문입니다 — 심사자가 쓰는 건물 자료(OSM)에도, FAA 격자에도
-    어제 세운 크레인은 없습니다. 공지에는 있습니다.
+    Cranes matter because the data doesn't have them — a crane put up yesterday is in neither
+    the building data judgement uses (OSM) nor the FAA grid. Notices have it.
     """
     if CRANE_WORDS.search(text or "") is None:
         return None
@@ -968,7 +986,8 @@ def read_crane(text: str, gazetteer: Gazetteer, day: datetime.date) -> Hazard | 
     window = read_window(text, day)
     dates = _dates_in(text, day.year)
     if window is not None and dates:
-        # 작업 시간은 크레인이 서 있는 시간이 아닙니다. 세워진 날부터 내리는 날까지입니다.
+        # Working hours aren't when the crane stands: it stands from the day it goes up to the
+        # day it comes down.
         window = Window(eastern_to_utc(dates[0], 0, 0), eastern_to_utc(dates[-1], 23, 59),
                         text=window.text)
     return Hazard(
@@ -979,7 +998,8 @@ def read_crane(text: str, gazetteer: Gazetteer, day: datetime.date) -> Hazard | 
 
 
 def read_closure(text: str, landing_areas: list[dict], day: datetime.date) -> Hazard | None:
-    """공원 폐쇄: 우리 착륙장 이름 + 시간 창. 착륙장은 공원과 부두라 폐쇄가 곧 착륙 불가입니다."""
+    """Park closure: one of our landing site names + a time window. Landing sites are parks
+    and piers, so a closure means no landing."""
     if CLOSURE_WORDS.search(text or "") is None:
         return None
     sentence = _sentence_with(text, CLOSURE_WORDS)
@@ -998,7 +1018,7 @@ def read_closure(text: str, landing_areas: list[dict], day: datetime.date) -> Ha
 
 def read_event(text: str, gazetteer: Gazetteer, landing_areas: list[dict],
                day: datetime.date) -> Hazard | None:
-    """행사: 장소 + 시간 창. 사람이 모이는 자리 위로는 날지 않습니다(Part 107.39 와 같은 이유)."""
+    """Event: venue + time window. No flying over gatherings (the same reason as Part 107.39)."""
     if EVENT_WORDS.search(text or "") is None:
         return None
     sentence = _sentence_with(text, EVENT_WORDS)
@@ -1025,7 +1045,7 @@ def read_event(text: str, gazetteer: Gazetteer, landing_areas: list[dict],
 
 
 def read_restriction(text: str, day: datetime.date) -> Hazard | None:
-    """비행 제한: 반경 + 중심 + 시간 창. FAA 의 TFR 상세 쪽이 이 모양으로 옵니다."""
+    """Flight restriction: radius + centre + time window, the shape of an FAA TFR detail page."""
     if RESTRICTION_WORDS.search(text or "") is None:
         return None
     centre = _centre_in(text)
@@ -1051,7 +1071,7 @@ def read_restriction(text: str, day: datetime.date) -> Hazard | None:
 
 
 def read_advisory(text: str, day: datetime.date) -> Hazard | None:
-    """기상 주의보. 규칙은 만들지 않습니다 — 이륙 정지는 관측(METAR)이 하는 일입니다."""
+    """Weather advisory. Makes no rule — stopping takeoffs is the observation's (METAR) job."""
     if ADVISORY_WORDS.search(text or "") is None:
         return None
     report = parse_weather(text)
@@ -1071,7 +1091,7 @@ def read_advisory(text: str, day: datetime.date) -> Hazard | None:
 
 def read_hazard(text: str, gazetteer: Gazetteer, landing_areas: list[dict],
                 day: datetime.date) -> Hazard | None:
-    """문법으로 읽어 봅니다: 제한 → 크레인 → 폐쇄 → 행사 → 기상. 못 읽으면 None."""
+    """Try the grammars: restriction → crane → closure → event → weather. None if none reads."""
     body = " ".join(str(text or "").split())
     if not body:
         return None
@@ -1089,14 +1109,15 @@ def read_hazard(text: str, gazetteer: Gazetteer, landing_areas: list[dict],
 
 
 def worth_a_model(text: str) -> bool:
-    """문법이 못 읽은 글을 Super 에게 물을 가치가 있나. 낱말 하나도 안 걸리면 남의 얘기입니다."""
+    """Is text the grammars couldn't read worth asking Super? If not one word matches, it's
+    about something else."""
     return BRIEFING_WORDS.search(text or "") is not None
 
 
-# ---------- 검사(코드가 판정합니다) ----------
+# ---------- checks (code judges) ----------
 
 def hazard_problems(hazard: Hazard, bbox: tuple[float, float, float, float] | None) -> list[str]:
-    """읽어 낸 위험에 거는 범위 검사 전부. 누가 읽었든 겁니다."""
+    """Every range check on a hazard that was read, whoever read it."""
     problems = []
     if hazard.kind not in BRIEFING_KINDS:
         problems.append(f"모르는 종류 {hazard.kind!r}")
@@ -1127,7 +1148,7 @@ def hazard_problems(hazard: Hazard, bbox: tuple[float, float, float, float] | No
     return problems
 
 
-# ---------- 모델이 읽는 쪽 ----------
+# ---------- the model-read side ----------
 
 BRIEFING_SYSTEM = (
     "You read one page a drone tower gathered for its pre-flight briefing over New York City "
@@ -1149,11 +1170,13 @@ BRIEFING_SYSTEM = (
 
 def from_briefing_form(form: dict, gazetteer: Gazetteer, landing_areas: list[dict],
                        day: datetime.date, text: str = "") -> Hazard | None:
-    """모델(또는 Tavily 의 research)이 채운 양식을 같은 Hazard 로. 양식이 아니면 None.
+    """A form filled by a model (or Tavily's research) into the same Hazard. None if it isn't
+    a form.
 
-    자리는 모델의 말이 아니라 지명 사전·착륙장 목록에서 찾습니다 — 모델이 좌표를 지어내도
-    사전에 없는 곳은 곳이 아닙니다. 좌표를 직접 받는 것은 비행 제한뿐이고, 그것도 서비스 영역
-    상자 검사를 지나야 합니다.
+    Places come from the gazetteer and the landing site list, not from the model's words —
+    whatever coordinates a model invents, a place the gazetteer lacks is no place. Only flight
+    restrictions take coordinates directly, and even those must pass the service-area box
+    check.
     """
     if not isinstance(form, dict):
         return None
@@ -1213,7 +1236,7 @@ def from_briefing_form(form: dict, gazetteer: Gazetteer, landing_areas: list[dic
 
 
 def _form_window(form: dict, day: datetime.date) -> Window | None:
-    """양식의 start·end. timezone 이 local 이면 뉴욕 지방시로 읽습니다."""
+    """The form's start and end. With timezone local, they're read as New York local time."""
     local = str(form.get("timezone") or "").strip().lower() == "local"
     start, end = _form_time(form.get("start"), day, local), _form_time(form.get("end"), day, local)
     if start is None and end is None:

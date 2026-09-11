@@ -10,8 +10,9 @@ from dataclasses import dataclass
 from shared.llm.client import LlmTier, TieredLlm, parse_choice, parse_json_object
 from shared.models import BLAST_RANK, Proposal
 
-# 돈 이야기는 없습니다. 예산은 이미 authority 가 봤고, 여기서 다시 꺼내면 모델이 싼 쪽을
-# 고르는 것을 안전 판단처럼 적게 됩니다. 남은 것은 누가 먼저 자원을 받아야 하느냐뿐입니다.
+# No money here. authority has already checked the budget; bringing it up again would record
+# the model picking the cheaper option as if it were a safety judgement. All that is left is
+# who gets the resource first.
 SYSTEM = (
     "You are an arbiter for an uncrewed fleet. Several requests want the same single "
     "resource at the same time. Every one of them has already passed the safety checks; "
@@ -26,11 +27,11 @@ REASON_LIMIT = 140
 class Choice:
     proposal: Proposal
     how: str            # single | rule:… | ultra:<model id>
-    reason: str = ""    # 모델이 말한 한 줄. 규칙이 골랐으면 비어 있습니다
+    reason: str = ""    # the model's one-line reason; empty when the rule picked
 
 
 def by_rule(candidates: list[Proposal], telemetry: dict) -> tuple[Proposal, str]:
-    """영향 범위가 큰 쪽, 그다음 배터리가 낮은 쪽, 그다음 먼저 신청한 쪽."""
+    """Wider blast radius first, then lower battery, then earlier filing."""
 
     def key(proposal: Proposal):
         asset = telemetry.get(proposal.asset_id, {})
@@ -45,7 +46,7 @@ def by_rule(candidates: list[Proposal], telemetry: dict) -> tuple[Proposal, str]
 
 
 def parse_verdict(text: str, option_count: int) -> tuple[int, str] | None:
-    """{"choice": n, "reason": "…"} 또는 번호 하나. 문장이거나 범위 밖이면 None."""
+    """{"choice": n, "reason": "…"} or a bare number. None for prose or an out-of-range pick."""
     form = parse_json_object(text)
     if form is not None and "choice" in form:
         try:

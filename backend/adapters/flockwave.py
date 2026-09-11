@@ -21,14 +21,15 @@ import uuid
 FLOCKWAVE_VERSION = "1.0"
 DEFAULT_PORT = 5001
 
-# 착륙 패드 좌표. 실제 배치에서는 버티포트 좌표가 들어갑니다.
+# Landing pad coordinates. A real deployment puts vertiport coordinates here.
 PAD_COORDS = {
     "pad:P1": (37.50725, 127.07750),
     "pad:P2": (37.50725, 127.08850),
 }
 CRUISE_AMSL_M = 90.0
 
-# 우리 동작 이름 → Flockwave 메시지. 여기 없는 것은 지상 설비라 기체 명령이 없습니다.
+# Our action name → Flockwave message. Anything not listed is ground equipment, which has no
+# aircraft command.
 SIMPLE_COMMANDS = {
     "land": "UAV-LAND",
     "depart": "UAV-TAKEOFF",
@@ -45,7 +46,7 @@ class FlockwaveAdapter:
     def __init__(self, host: str, port: int = DEFAULT_PORT,
                  uav_ids: dict[str, str] | None = None,
                  timeout_s: float = 5.0):
-        """uav_ids: {"drone-01": "SIM-00", ...} — 우리 이름과 Skybrush 기체 이름의 대응."""
+        """uav_ids: {"drone-01": "SIM-00", ...} — maps our names to Skybrush aircraft names."""
         self.host = host
         self.port = port
         self.uav_ids = uav_ids or {}
@@ -61,14 +62,14 @@ class FlockwaveAdapter:
         threading.Thread(target=self._read_forever, daemon=True).start()
         threading.Thread(target=self._poll_forever, daemon=True).start()
 
-    # ---------- 연결 ----------
+    # ---------- connection ----------
 
     def _connect(self) -> None:
         self._socket = socket.create_connection((self.host, self.port), timeout=self.timeout_s)
         self._socket.settimeout(None)
 
     def _send(self, body: dict) -> dict | None:
-        """봉투를 보내고 refs 로 돌아온 응답을 기다립니다."""
+        """Sends an envelope and waits for the reply that refers back to it via refs."""
         message = _envelope(body)
         inbox: queue.Queue = queue.Queue(maxsize=1)
         with self._guard:
@@ -108,7 +109,7 @@ class FlockwaveAdapter:
         try:
             message = json.loads(line)
         except json.JSONDecodeError:
-            return  # 스펙이 말한 대로, 못 읽는 줄은 버리고 다음 줄부터 다시
+            return  # as the spec says: drop an unreadable line and resume from the next one
         body = message.get("body") or {}
         if body.get("type") == "UAV-INF":
             self._absorb_status(body.get("status") or {})
@@ -136,7 +137,7 @@ class FlockwaveAdapter:
                 self._send({"type": "UAV-INF", "ids": list(self.uav_ids.values())})
             time.sleep(0.5)
 
-    # ---------- 텔레메트리 ----------
+    # ---------- telemetry ----------
 
     def telemetry(self) -> dict:
         with self._guard:
@@ -152,7 +153,7 @@ class FlockwaveAdapter:
     def _to_asset(asset_id: str, entry: dict) -> dict:
         position = entry.get("position") or []
         battery = entry.get("battery") or []
-        # BatteryInfo 는 [decivolt] 또는 [decivolt, percentage] 입니다
+        # BatteryInfo is [decivolt] or [decivolt, percentage]
         percentage = float(battery[1]) if len(battery) > 1 else 100.0
         altitude = (position[2] / 1000.0) if len(position) > 2 else 0.0
         return {
@@ -170,7 +171,7 @@ class FlockwaveAdapter:
             "state": "landed" if altitude < 1.0 else "cruising",
         }
 
-    # ---------- 명령 ----------
+    # ---------- commands ----------
 
     def execute(self, asset_id: str, action: str, params: dict, ledger_id: str,
                 blast: str = "none", approved_by: str | None = None) -> dict:
@@ -192,7 +193,8 @@ class FlockwaveAdapter:
         elif action in SIMPLE_COMMANDS:
             body = {"type": SIMPLE_COMMANDS[action], "ids": [uav_id]}
         else:
-            # 충전기와 착륙료는 자동조종 소관이 아닙니다. 런타임이 원장에만 남깁니다.
+            # Chargers and landing fees are not the autopilot's business. The runtime only
+            # records them in the ledger.
             return {"ok": True, "note": f"{action} is ground equipment, no vehicle command"}
 
         reply = self._send(body)
@@ -200,7 +202,7 @@ class FlockwaveAdapter:
 
     @staticmethod
     def _read_result(reply: dict | None, uav_id: str) -> dict:
-        """서버가 거절할 수 있습니다. 승인은 우리가, 수락은 기체가 합니다."""
+        """The server may refuse. We approve; the aircraft accepts."""
         if reply is None:
             return {"ok": False, "error": "Skybrush did not answer"}
         body = reply.get("body") or {}
@@ -214,10 +216,11 @@ class FlockwaveAdapter:
 
     def signal(self, signals: list[str] | None = None,
                duration_ms: int = 5000) -> dict | None:
-        """기단 전체에 신호를 켭니다. 화면에서 어느 쪽인지 눈으로 찾을 때 씁니다.
+        """Turns on a signal across the whole fleet, to spot which fleet is which on screen.
 
-        스펙상 signals 는 색이 아니라 장치 이름입니다("sound", "light"). 색까지 지정하려면
-        조명 프로그램을 따로 올려야 합니다. 두 기단을 가르는 확실한 수단은 이름과 위치입니다.
+        Per the spec, signals are device names ("sound", "light"), not colours. Picking a
+        colour needs a separate light program uploaded. The reliable way to tell the two fleets
+        apart is name and position.
         """
         if not self.uav_ids:
             return None

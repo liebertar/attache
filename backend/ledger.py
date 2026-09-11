@@ -23,11 +23,12 @@ class Ledger:
 
     def close_entry(self, entry: LedgerEntry, outcome: str,
                     decision: Decision | None = None, context: dict | None = None) -> None:
-        """실행이 끝난 뒤의 결정문을 다시 담습니다.
+        """Store the decision again as it stands after execution.
 
-        열 때 찍은 사본은 아직 실행 전 상태입니다. 그대로 닫으면 원장이
-        "결과는 done 인데 실행은 안 했다"고 적힙니다. 기록이 거짓이면 기록이 아닙니다.
-        실행하면서 알게 된 맥락(만들어진 의도 id)은 닫는 줄에 더합니다.
+        The copy taken at open is still the pre-execution state. Closing with it would make
+        the ledger read "outcome done, but never executed". A record that lies is no record.
+        Context learned while executing (the id of the intent it created) is added to the
+        closing line.
         """
         if decision is not None:
             entry.decision = decision.to_dict()
@@ -48,7 +49,10 @@ class Ledger:
             return list(reversed(self._recent[-limit:]))
 
     def read_all(self) -> list[dict]:
-        """파일의 전부, 적힌 순서대로. 보고서는 기억이 아니라 파일에서 만듭니다 — 기억은 200줄뿐."""
+        """The whole file, in the order written.
+
+        Reports are built from the file, not from memory: memory holds only 200 lines.
+        """
         with self._lock:
             if not self.path.exists():
                 return []
@@ -59,5 +63,5 @@ class Ledger:
             try:
                 out.append(json.loads(line))
             except json.JSONDecodeError:
-                continue    # 반쯤 적힌 마지막 줄. 보고서 하나 때문에 원장을 못 읽어서는 안 됩니다
+                continue    # half-written last line; a report must not make the ledger unreadable
         return out

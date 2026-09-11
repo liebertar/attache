@@ -10,8 +10,8 @@ from backend.ledger import Ledger
 from backend.locks import LockTable
 from shared.models import Decision, Proposal, Verdict
 
-# 잡은 자원은 기체가 실제로 떠날 때 풉니다. 싣기 시작할 때(depart) 풀었더니 다음 기체가
-# 아직 이륙장에 있는 기체 위로 내려앉을 수 있었습니다.
+# Held resources are released when the aircraft actually leaves. Releasing them when loading
+# starts (depart) let the next aircraft come down on top of one still sitting on the pad.
 RELEASING_ACTIONS = {"fly_route", "divert_ground"}
 
 
@@ -27,8 +27,9 @@ class Committer:
         self.locks = locks
         self.ledger = ledger
         self.authority = authority
-        # 실행이 성공한 직후, 원장을 닫기 전에 부릅니다. 런타임이 의도(4D)를 여기서 만들거나 끝내고,
-        # 돌려준 맥락(intent_id)이 닫는 줄에 실립니다. 커밋 경로는 하나여야 해서 훅으로 둡니다.
+        # Called right after a successful execution, before the ledger entry closes. The
+        # runtime creates or ends the (4D) intent here, and the context it returns (intent_id)
+        # goes on the closing line. A hook, because there must be exactly one commit path.
         self.on_committed = None
 
     def commit(self, proposal: Proposal, decision: Decision,

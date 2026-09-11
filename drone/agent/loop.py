@@ -36,39 +36,46 @@ from shared.llm.client import LlmTier, TieredLlm
 from shared.route import Router
 
 FALLBACK_PADS = ["pad:launch"]
-# 몇 초마다 런타임에 자기를 다시 알리나. 런타임은 AGENT_STALE_TICKS(기본 600틱, 0.2 s/틱에서 2분)
-# 동안 소식이 없으면 목록에서 뺍니다 — 프로세스가 죽었는데 화면이 그 모델 이름을 계속 달면
-# 거짓말입니다.
+# How often (s) the agent re-announces itself to the runtime. The runtime drops an agent it
+# hasn't heard from for AGENT_STALE_TICKS (default 600 ticks, 2 min at 0.2 s/tick) — once the
+# process has died, a screen still showing its model name would be lying.
 REGISTER_PERIOD_S = 30.0
-# 등록이 받아들여지지 않았을 때(런타임이 없거나, 세계를 받기 전이라 503) 다시 알리기까지(초).
-# 30초를 기다리면 시작하고 반 분 동안 화면의 기체에 모델 이름이 없습니다.
+# Seconds before re-announcing when registration wasn't accepted (no runtime yet, or 503
+# because it hasn't received the world). Waiting 30 s leaves aircraft on screen without a model
+# name for the first half minute.
 REGISTER_RETRY_S = 3.0
-# 거절당한 뒤 다시 그리기까지. 화면이 거절을 보여주는 시간
+# Delay from a refusal to the redraw. Equal to how long the screen shows a refusal
 # (frontend/map-route.mjs stageLife('rejected'):
-# 그리기 2.4 + 판정 0.6 + 붉게 1.6 + 흐려짐 1.0 = 5.6초)과 같습니다. 운영사가 거절 사유를
-# 읽고 나서 다시 그리는 시간이고, 이게 있어야 거절 표시와 승인 표시가 실제 시간에서 겹치지
-# 않아 시뮬레이터가 승인 하나만큼만(CLEARANCE_TICKS) 기다리면 됩니다.
+# draw 2.4 + judge 0.6 + red 1.6 + fade 1.0 = 5.6 s). It is the operator's time to read the
+# refusal reason before redrawing, and it keeps the refusal and approval displays from
+# overlapping in real time, so the simulator only has to wait one approval's worth
+# (CLEARANCE_TICKS).
 REDRAW_DELAY_S = 5.6
-# 교차 거절의 해결 사다리. 먼저 같은 길을 이만큼 높여서(상대 회랑은 수직 ±25m 라 30m 면 비켜 감),
-# 안 되면 상대 회랑이 빌 때까지 출발을 미뤄서. 지연은 새 거절이 다른 틱을 말할 때마다 최대
-# 이 횟수만 다시 냅니다 — 틱은 앞으로만 가므로 끝이 있고, 그 뒤는 A* 재작성 → 반려입니다.
+# Resolution ladder for crossing refusals. First raise the same route by this much (the other
+# corridor spans ±25 m vertically, so 30 m clears it); failing that, delay departure until the
+# other corridor is free. A delay is refiled at most this many times, once per new refusal
+# naming a different tick — ticks only move forward, so it ends; after that comes an A* redraw
+# → decline.
 ALTITUDE_SHIFT_M = 30.0
 MAX_DELAY_TRIES = 3
 ROUTE_REFUSALS = ("airspace", "traffic")
-# 후보를 그리고 고르는 데 최대 이만큼(초)까지 기다립니다. 안전줄일 뿐입니다 — 계획기는 빈 기억에서
-# 맨해튼 한 판이 40~50초, 그 뒤로는 대개 1초 안이고 모델은 10초 예산입니다. 여기에 걸리면 이번
-# 차례는 접고 다음 차례에 처음부터 다시 냅니다.
+# Longest wait (s) for drawing and choosing candidates. Just a safety line — the planner takes
+# 40-50 s for a Manhattan run from an empty memo, usually under 1 s after that, and the model
+# has a 10 s budget. Hitting it abandons this turn and refiles from scratch next turn.
 CHOICE_WAIT_S = 300.0
-# 고를 때 런타임 상태(공지·기상·다른 기체의 창)를 읽는 데 주는 시간. 없으면 (c) 후보 없이 고릅니다.
+# Time allowed to read runtime state (notices, weather, other aircraft's windows) when
+# choosing. Without it, the pick is made with no (c) candidate.
 STATE_TIMEOUT_S = 3.0
-# 공역 사본을 받는 데 주는 시간(초). /airspace 는 건물 3만 4천 동이라 크고, 네 기체가 한꺼번에
-# 받습니다. 기본 5초로는 잘렸고, 잘린 것을 빈 사본으로 받아 계획기가 건물 없는 도시를 그렸습니다.
+# Time (s) allowed to fetch the airspace copy. /airspace is large (34,000 buildings) and four
+# aircraft fetch it at once. The default 5 s cut it off, the truncated reply was taken as an
+# empty copy, and the planner drew a city with no buildings.
 AIRSPACE_TIMEOUT_S = 60.0
 
 
 @dataclass
 class PendingDraft:
-    """거절 순간에 작업 스레드로 보낸 초안 하나. 마감(monotonic)까지만 기다립니다."""
+    """One draft handed to a worker thread when a refusal arrived. Waited on only until its
+    deadline (monotonic)."""
 
     future: Future
     drafter: ModelDrafter
@@ -80,7 +87,7 @@ class PendingDraft:
 
 
 class GuardedAgent:
-    """신청서를 냅니다. 그게 전부입니다."""
+    """Submits filings. That is all it does."""
 
     def __init__(self, asset_id: str, runtime_url: str, proposer: Proposer,
                  llm: TieredLlm | None = None):
@@ -97,41 +104,45 @@ class GuardedAgent:
         self.redraw_s = float(os.getenv("REDRAW_DELAY_S", str(REDRAW_DELAY_S)))
         self.banned_retry_s = float(os.getenv("BANNED_RETRY_S", "20"))
         self.planner = OperatorPlanner()
-        # 모델이 그리는 경로 초안. 모델이 없으면 None 이고 A* 만 씁니다. 어느 쪽이 그렸든
-        # 판정은 런타임이 합니다 — 초안은 신청서에 legs 로 실릴 뿐입니다.
+        # Route drafts drawn by the model. None without a model, and then only A* is used.
+        # Whoever drew it, the runtime judges — a draft just rides in the filing as legs.
         self.service_bbox = None
         self.drafter = self._build_drafter()
-        # 후보 중 하나를 고르는 이 기체의 모델. 신청서를 쓰는 것과 같은 모델(NANO)입니다 — 화면의
-        # model_ok 는 신청서와 이 고르기를 누가 썼는지로 정합니다(ModelHealth).
+        # This aircraft's model for picking one candidate: the same model (NANO) that writes
+        # filings — the screen's model_ok depends on who wrote the filings and these picks
+        # (ModelHealth).
         self.chooser = RouteChooser(self.llm)
-        # 초안은 거절이 오는 순간 작업 스레드에서 시작합니다. 화면이 거절을 보여주는 5.6초를
-        # 모델이 그리는 시간과 겹치려고요 — 예전에는 5.6초를 다 기다린 뒤에 물어서 그만큼 더
-        # 섰습니다. 초안은 한 기체에 한 번에 하나만 걸립니다. 지난 초안이 아직 서버에 걸려
-        # 있으면 이번 거절은 A* 로 갑니다(뒤에 줄을 세우지 않습니다). 스레드는 데몬입니다 —
-        # ThreadPoolExecutor 의 작업 스레드는 인터프리터가 끝날 때 무조건 기다려서, Ctrl-C 가
-        # 서버에 걸린 초안(최대 60초)이 돌아올 때까지 안 끝났습니다.
+        # A draft starts on a worker thread the moment a refusal arrives, so the model's drawing
+        # time overlaps the 5.6 s the screen shows the refusal — it used to ask only after the
+        # full 5.6 s and stood still that much longer. One draft per aircraft at a time: if the
+        # last draft is still pending on the server, this refusal goes to A* (no queueing
+        # behind it). The thread is a daemon — the interpreter always waits for
+        # ThreadPoolExecutor workers at exit, so Ctrl-C didn't finish until a draft pending on
+        # the server (up to 60 s) came back.
         self._draft: PendingDraft | None = None
-        # 돌고 있는 후보 고르기(Future)와, 이번 차례의 신청서 흔적·초안 횟수.
+        # The candidate pick in flight (Future), plus this turn's filing trace and draft count.
         self._choice = None
         self._form: dict | None = None
         self._draft_attempts = 0
-        # 모델에게 물어 그 답을 쓴 횟수와, 물었지만 규칙이 대신 쓴 횟수(신청서·경로 고르기만).
-        # 등록(ModelHealth)이 이것으로 화면에 모델 이름을 달지 rules 를 달지 정합니다.
+        # How often the model was asked and its answer used, and how often it was asked but the
+        # rules answered instead (filings and route picks only). Registration (ModelHealth)
+        # uses these to decide between the model name and rules on screen.
         self.model_answers = 0
         self.model_misses = 0
         self.airspace_revision = None
-        # 우리 기체가 다니고 싶은 높이. 허용 천장이 더 낮으면 런타임이 거절하고,
-        # 그때 계획기가 구간마다 낮춰서 다시 그립니다.
+        # The height our aircraft wants to fly. If the allowed ceiling is lower, the runtime
+        # refuses, and the planner then redraws with each leg lowered.
         self.preferred_alt_m = float(os.getenv("CRUISE_ALT_M", str(Router.cruise_alt_default())))
 
     def _count_form(self, trace: dict | None) -> None:
-        """신청서 하나. 모델이 없어서 규칙이 쓴 것(no model)은 물은 적이 없으니 세지 않습니다."""
+        """Count one filing. One the rules wrote for lack of a model (no model) never asked
+        anything, so it isn't counted."""
         if not trace or trace.get("fallback_reason") == "no model":
             return
         self._count(bool(trace.get("used")))
 
     def _count_choice(self, choice) -> None:
-        """경로 고르기 하나. 모델에게 묻지 않고 규칙이 고른 것은 세지 않습니다."""
+        """Count one route pick. Picks the rules made without asking the model aren't counted."""
         if choice is not None and (choice.asked or choice.by_model):
             self._count(choice.by_model)
 
@@ -167,9 +178,9 @@ class GuardedAgent:
         return None
 
     def _file_with_route(self, proposal, telemetry: dict, form: dict | None = None):
-        """일단 최단 직선으로 냅니다. 규정에 안 맞으면 런타임이 어디가 문제인지 알려주고, 그때
-        계획기가 규정 안의 후보를 셋까지 그리고 이 기체의 모델이 그중 하나를 고릅니다.
-        고른 길도 런타임이 다시 판정합니다 — 승인은 우리가 하는 게 아닙니다."""
+        """File the shortest straight line first. If it breaks the rules, the runtime says
+        where, then the planner draws up to three legal candidates and this aircraft's model
+        picks one. The runtime judges the pick again — approval isn't ours to give."""
         self._form = form if form is not None else _rules_form(proposal)
         self._draft_attempts = 0
         here = (telemetry.get("lat"), telemetry.get("lon"))
@@ -178,8 +189,9 @@ class GuardedAgent:
             return self._file(proposal.to_dict(), None)
 
         if float(telemetry.get("alt_m") or 0.0) > 1.0:
-            # 나는 중에 경로를 잃었습니다(회수). 떠 있는 시간이 곧 잡음이라 직선 의식도 고르기도
-            # 없이 우리 공역 사본으로 바로 우회로를 그려 냅니다 — A* 는 밀리초에 답합니다.
+            # Lost the route in flight (recall). Time spent hovering is pure noise, so skip the
+            # straight-line ritual and the pick and draw a detour straight from our airspace
+            # copy — A* answers in milliseconds.
             legs = self.planner.draw(here, goal)
             if not legs:
                 return self._nothing_legal(proposal, telemetry, here, None, None, None)
@@ -192,38 +204,40 @@ class GuardedAgent:
         if not decision or decision.get("policy_hit") not in ROUTE_REFUSALS:
             return decision
         if decision.get("policy_hit") == "traffic":
-            # 다른 기체의 회랑과 겹칩니다. 길은 맞으니 높이나 시각을 바꿔 봅니다.
+            # Overlaps another aircraft's corridor. The route is fine, so try another height or
+            # time.
             decision = self._resolve_traffic(proposal, proposal.params["legs"], decision,
                                              airborne=False, route=straight)
             if not decision or decision.get("policy_hit") not in ROUTE_REFUSALS:
                 return decision
-        # 다시 그리라고 했습니다. 계획기는 거절이 온 지금 바로 후보를 그리고 모델이 그중 하나를
-        # 고릅니다(작업 스레드). 화면이 거절을 보여주는 5.6초가 그 시간을 덮습니다 — 기체는
-        # 지상에서 일하는 중이라 그대로 있습니다.
+        # Told to redraw. The planner draws candidates now, as the refusal arrives, and the
+        # model picks one (worker thread). The 5.6 s the screen shows the refusal covers that
+        # time — the aircraft is busy on the ground and stays put.
         refused_at = time.monotonic()
         if decision.get("policy_hit") == "airspace":
             self.planner.note_refusal(decision.get("forbids"))
         pending = self._start_choice(here, goal, telemetry, decision)
         time.sleep(self.redraw_s)
         if pending is None:
-            return decision      # 지난 고르기가 아직 돌고 있습니다. 이번 차례는 접습니다
+            return decision      # the last pick is still running; skip this turn
         outcome = self._collect_choice(pending, refused_at)
         self._count_choice(outcome.choice if outcome else None)
         airborne_now, moved_to = self._position_now()
         if airborne_now:
-            return decision      # 그새 떴습니다. 지상에서 그린 길은 뜻이 없어 이번 차례는 접습니다
+            return decision      # airborne now: a route drawn on the ground is moot; skip turn
         return self._file_candidates(proposal, telemetry, here, goal, moved_to, outcome, decision)
 
     def _file_candidates(self, proposal, telemetry: dict, here, goal, moved_to,
                          outcome: Outcome, refusal):
-        """모델이 고른 것부터 냅니다. 거절되면 남은 후보를 차례로, 그것도 다 거절되면 초안을.
+        """File the model's pick first. If refused, the remaining candidates in turn; if all
+        are refused, the draft.
 
-        후보는 전부 우리 사본의 판정을 통과한 길이지만, 런타임의 사본이 더 새것일 수 있고(방금
-        닫힌 구역), 시각까지 보는 교차 판정은 여기서 못 합니다. 그래서 거절이 곧 '틀린 후보' 는
-        아니고, 남은 것을 내보는 것이 맞습니다.
+        Every candidate passed judgement on our copy, but the runtime's copy may be newer (a
+        zone that just closed), and the crossing check, which also looks at times, can't be
+        done here. So a refusal doesn't mean 'wrong candidate', and filing the rest is right.
         """
         if moved_to is not None and _distance_m(here, moved_to) > TRAFFIC_LATERAL_M:
-            # 기다리는 사이 멀리 움직였습니다. 옛 자리에서 그린 후보는 다른 길입니다.
+            # Moved far while waiting; candidates drawn from the old spot are a different route.
             legs = self.planner.draw(moved_to, goal)
             if not legs:
                 return self._nothing_legal(proposal, telemetry, here, None, None, refusal)
@@ -251,7 +265,8 @@ class GuardedAgent:
 
     def _after_candidates(self, proposal, telemetry: dict, here, goal, moved_to,
                           outcome: Outcome, decision):
-        """후보가 하나도 안 통했습니다(또는 하나도 없습니다). 이제 모델 초안이 마지막 수단입니다."""
+        """No candidate got through (or there were none). The model's draft is now the last
+        resort."""
         chosen = outcome.choice
         choice = (choice_part(outcome.candidates, chosen.chosen, chosen.reason)
                   if chosen is not None else None)
@@ -261,17 +276,19 @@ class GuardedAgent:
             return self._file_legs(proposal, legs, drew, route_part("draft", choice, draft),
                                    airborne=False)
         if outcome.candidates:
-            # 규정 안의 길은 있었고 런타임이 전부 거절했습니다. 이번 차례는 여기서 접고 다음
-            # 차례에 처음부터 다시 냅니다(그때는 상대가 지나갔거나 구역이 풀렸을 수 있습니다).
+            # Legal routes existed and the runtime refused them all. Abandon this turn and
+            # refile from scratch next turn (by then the other aircraft may have passed or the
+            # zone lifted).
             return decision
         return self._nothing_legal(proposal, telemetry, here, choice, draft, decision)
 
     def _nothing_legal(self, proposal, telemetry: dict, here, choice, draft, decision):
-        """우리 사본에는 규정을 지키면서 갈 수 있는 길이 없습니다."""
+        """Our copy has no route that keeps to the rules."""
         if proposal.action != "fly_route" or self.planner.start_blocked(here, telemetry):
-            # 이륙장에 갈 길이 없는 것과 주문을 못 받는 것은 다른 일입니다.
-            # 예전에는 충전대가 막혔다고 배달을 반려하고 있었습니다.
-            # 출발점이 막힌 것(닫힌 구역 안)도 주문의 문제가 아닙니다 — 나갈 때까지 기다립니다.
+            # Having no route to the pad is not the same as being unable to take the order.
+            # We used to decline deliveries because the charger was blocked.
+            # A blocked start (inside a closed zone) isn't the order's problem either — wait
+            # until we're out.
             return decision
         return self._file({**proposal.to_dict(), "action": "decline_job", "cost_usd": 0.0,
                            "blast_radius": "none", "params": {}, "resource": None,
@@ -280,9 +297,10 @@ class GuardedAgent:
 
     def _file_legs(self, proposal, legs: list[dict], drafter: str, route: dict,
                    airborne: bool, extra: dict | None = None):
-        """경로 하나를 신청합니다. 누가 그렸는지는 신청서에 남고, 런타임은 그 값을 읽지 않습니다."""
-        # 앞 신청의 route_choice 는 앞 신청 것입니다. 초안·A* 신청에 남으면 고르지 않은 길에
-        # '고른 것' 이 붙습니다.
+        """File one route. Who drew it is recorded in the filing; the runtime doesn't read
+        that value."""
+        # The previous filing's route_choice belongs to that filing. Left on a draft or A*
+        # filing, it would label a route nobody picked as 'the pick'.
         kept = {key: value for key, value in proposal.params.items() if key != "route_choice"}
         proposal.params = {**kept, "legs": legs, "drafter": drafter,
                            "draft_attempts": self._draft_attempts, **(extra or {})}
@@ -290,40 +308,44 @@ class GuardedAgent:
                  "rationale": f"{proposal.rationale} · 재작성 {len(legs)}구간"}
         decision = self._file(filed, route)
         if decision and decision.get("policy_hit") == "traffic":
-            # 낸 길이 남의 회랑과 겹칩니다. 길은 맞으니 높이나 시각을 바꿔 봅니다.
+            # The filed route overlaps another aircraft's corridor. The route is fine, so try
+            # another height or time.
             decision = self._resolve_traffic(proposal, legs, decision, airborne, route)
         return decision
 
     def _file(self, payload: dict, route: dict | None):
-        """신청 하나를 냅니다. 모든 신청에 model_trace 가 실립니다 — 화면 카드가 읽는 라벨이고,
-        런타임의 판정은 그것을 읽지 않습니다(판정이 보는 것은 legs 입니다)."""
+        """Submit one filing. Every filing carries model_trace — a label the screen card
+        reads; the runtime's judgement doesn't read it (judgement looks at legs)."""
         params = {**(payload.get("params") or {}),
                   "model_trace": model_trace(self._form, route)}
         return self._send({**payload, "params": params})
 
     def _send(self, payload: dict):
-        """신청서 한 장을 런타임에 보냅니다. 전선은 여기 하나입니다 — 오프라인 하네스
-        (tests/test_two_worlds.py)가 이것만 같은 프로세스 호출로 바꿔 끼우고 흐름은
-        그대로 씁니다."""
+        """Send one filing to the runtime. This is the only wire — the offline harness
+        (tests/test_two_worlds.py) swaps just this for an in-process call and keeps the rest
+        of the flow."""
         return post_json(f"{self.runtime_url}/proposals", payload)
 
     def _runtime_state(self) -> dict:
-        """런타임 /state 한 번. 못 읽으면 빈 것 — 후보 (c) 와 모델이 읽을 맥락이 빠질 뿐입니다."""
+        """One read of the runtime's /state. Empty if unreadable — that only drops candidate
+        (c) and the model's context."""
         return get_json(f"{self.runtime_url}/state", timeout=STATE_TIMEOUT_S) or {}
 
     def _position_now(self) -> tuple[bool, tuple[float, float] | None]:
-        """초안을 기다린 뒤의 기체 자리. (떠 있나, 지금 자리 또는 모르면 None)."""
+        """Aircraft position after waiting on a draft: (airborne?, current position or None)."""
         now = self.telemetry()
         if now.get("lat") is None or now.get("lon") is None:
             return False, None
         return float(now.get("alt_m") or 0.0) > 1.0, (float(now["lat"]), float(now["lon"]))
 
     def _anchored(self, legs: list[dict], here, moved_to, goal) -> list[dict] | None:
-        """초안을 기다리는 20~60초 사이에 기체가 움직였으면 첫 점을 지금 자리로 옮깁니다.
+        """If the aircraft moved during the 20-60 s draft wait, move the first point to where
+        it is now.
 
-        런타임은 첫 점이 기체 자리에서 TRAFFIC_LATERAL_M 보다 멀면 거절합니다(실주행: 이전 승인
-        경로로 뜨는 동안 초안이 돌아와 자리 70m 옆의 옛 출발점으로 냈다가 거절). 그보다 멀리
-        옮겨졌으면 옛 자리에서 그린 선은 다른 길이라 A* 로 다시 그립니다.
+        The runtime refuses a first point more than TRAFFIC_LATERAL_M from the aircraft (live
+        run: a draft came back while the aircraft was taking off on its previously approved
+        route, was filed from the old start 70 m away, and was refused). If it moved further
+        than that, a line drawn from the old spot is a different route, so A* redraws it.
         """
         gap = _distance_m(here, moved_to)
         if gap < 1.0:
@@ -334,12 +356,15 @@ class GuardedAgent:
 
     def _resolve_traffic(self, proposal, legs: list[dict], refusal: dict, airborne: bool,
                          route: dict | None = None):
-        """교차 거절의 해결 사다리. 고도 +30m → 출발 지연. 마지막 답을 돌려줍니다.
+        """Resolution ladder for a crossing refusal: altitude +30 m → delayed departure.
+        Returns the last answer.
 
-        길은 맞고 시각이 문제입니다. 먼저 같은 길을 30m 높여 냅니다(모든 구간이 천장 아래일 때만).
-        그것도 겹치면 상대 회랑이 비는 틱(거절이 알려 준 blocked_until_tick)까지 출발을 미뤄
-        냅니다. 조종장치가 그 틱까지 지상에서 준비된 채 기다리고, 화면에는 누구를 기다리는지 씁니다.
-        떠 있는 기체는 미룰 수 없습니다(지상 대기가 아니라 공중 정지가 되므로). 고도만 시도합니다.
+        The route is right; the timing is the problem. First refile the same route 30 m higher
+        (only if every leg stays under the ceiling). If that still overlaps, refile with
+        departure delayed to the tick the other corridor clears (blocked_until_tick, from the
+        refusal). The autopilot waits ready on the ground until that tick, and the screen says
+        whom it is waiting for. An airborne aircraft can't be delayed (that would be a hover in
+        the air, not a ground hold), so only altitude is tried.
         """
         detail = refusal.get("detail") or {}
         other = detail.get("blocked_asset") or refusal.get("forbids")
@@ -378,11 +403,13 @@ class GuardedAgent:
         return decision
 
     def _start_choice(self, here, goal, telemetry: dict, refusal: dict):
-        """거절이 온 순간, 작업 스레드에서 후보를 그리고 모델에게 고르게 합니다. 안 시키면 None.
+        """As a refusal arrives, draw candidates on a worker thread and have the model pick.
+        None if not started.
 
-        런타임 /state 를 한 번 읽어 (c) 후보가 비켜 갈 것(다른 기체의 승인 회랑·걸린 구역)과
-        모델이 읽을 맥락(기상·공지·다른 기체의 창·남은 정차)을 만듭니다. /state 를 못 읽어도
-        후보는 나옵니다 — (c) 가 빠지고 (a)(b) 중에서 고를 뿐입니다. 판정 자료가 아닙니다.
+        Reads the runtime's /state once to build what candidate (c) keeps clear of (other
+        aircraft's approved corridors, active zones) and the model's context (weather, notices,
+        other aircraft's windows, remaining stops). Candidates still come without /state — (c)
+        is dropped and the pick is between (a) and (b). This is not judgement data.
         """
         if self._choice is not None and not self._choice.done():
             return None
@@ -403,10 +430,12 @@ class GuardedAgent:
         return self._choice
 
     def _collect_choice(self, pending, refused_at: float) -> Outcome:
-        """후보와 고른 것을 거둡니다. 못 거두면 빈 것 — 그다음은 초안, 그다음은 반려입니다.
+        """Collect the candidates and the pick. Empty if that fails — next comes the draft,
+        then a decline.
 
-        계획기가 오래 걸릴 수 있습니다(빈 기억에서 맨해튼 한 판 40~50초). 그동안 기체는 지상에서
-        기다립니다 — 오늘 A* 가 그랬던 것과 같고, 화면에는 '거절 뒤 다시 그리는 중' 으로 보입니다.
+        The planner can take a while (40-50 s for a Manhattan run from an empty memo). The
+        aircraft waits on the ground meanwhile — as it already did with A* — and the screen
+        shows it as 'redrawing after a refusal'.
         """
         try:
             left = max(0.0, refused_at + CHOICE_WAIT_S - time.monotonic())
@@ -415,12 +444,13 @@ class GuardedAgent:
             return outcome
         except DraftTimeout:
             print(f"[{self.asset_id}] route choice did not finish in time", flush=True)
-        except Exception as error:  # noqa: BLE001 - 고르기가 죽어도 다음 차례에 다시 냅니다
+        except Exception as error:  # noqa: BLE001 - a failed pick is refiled next turn
             print(f"[{self.asset_id}] route choice failed: {error!r}", flush=True)
         return Outcome()
 
     def _log_choice(self, outcome: Outcome) -> None:
-        """후보와 고른 것 한 줄. 무엇 중에서 어떻게 골랐는지가 실주행 기록에 남아야 잽니다."""
+        """One line for the candidates and the pick. What was chosen from what, and how, has
+        to be in the live-run log to be measured."""
         ids = ",".join(candidate["id"] for candidate in outcome.candidates) or "-"
         choice = outcome.choice
         how = "" if choice is None else (
@@ -431,12 +461,13 @@ class GuardedAgent:
               f"{how}", flush=True)
 
     def _last_resort_draft(self, here, goal, refusal: dict | None):
-        """후보가 하나도 안 통했습니다. 그제서야 모델에게 새로 그려 보라고 합니다.
+        """No candidate got through. Only now is the model asked to draw a new route.
 
-        예전에는 거절이 오는 순간 이것부터 시켰습니다. 지금은 후보 고르기가 그 자리를 쓰고,
-        초안은 후보가 전부 거절된 뒤에만 갑니다 — 기체마다 모델 서버 슬롯이 하나뿐이라 두 질문을
-        같이 걸면 고르기가 초안(최대 60초) 뒤에 줄을 서고, 그만큼 기체가 더 서 있습니다.
-        돌려주는 것: (초안 legs 또는 None, 화면 카드에 실을 draft 기록 또는 None, 그린 이).
+        This used to be the first thing done when a refusal arrived. Now the candidate pick
+        takes that slot and the draft goes only after every candidate is refused — each
+        aircraft has one model server slot, so asking both at once queues the pick behind the
+        draft (up to 60 s) and the aircraft stands still that much longer.
+        Returns (draft legs or None, draft record for the screen card or None, who drew it).
         """
         pending = self._start_draft(here, goal, refusal or {}, time.monotonic())
         if pending is None:
@@ -445,8 +476,8 @@ class GuardedAgent:
         try:
             legs = pending.future.result(timeout=max(0.0, pending.deadline - time.monotonic()))
         except DraftTimeout:
-            pass          # 예산 끝. 초안은 버립니다.
-        except Exception as error:  # noqa: BLE001 - 초안이 죽어도 기체는 다음 차례에 다시 냅니다
+            pass          # out of budget; drop the draft
+        except Exception as error:  # noqa: BLE001 - a dead draft is refiled next turn
             print(f"[{self.asset_id}] draft failed: {error!r}", flush=True)
         drafter = pending.drafter
         self._draft_attempts = drafter.last_attempts
@@ -454,20 +485,22 @@ class GuardedAgent:
                                 drafter.last_breach, bool(legs)), drafter.name
 
     def _start_draft(self, here, goal, refusal: dict, refused_at: float) -> PendingDraft | None:
-        """모델에게 초안 하나를 시킵니다(작업 스레드). 시키지 않으면 None.
+        """Ask the model for one draft (worker thread). None if not asked.
 
-        모델은 거절 사유를 읽고 초안을 냅니다. 초안은 양식·상자·고도·길이 검사와 우리 공역
-        사본의 판정을 지나야 하고(전부 드래프터 안, 같은 스레드), 두 번 안 되면 None 입니다.
-        어느 쪽이든 런타임이 다시 판정하므로, 모델이 엉뚱한 선을 그려도 실행되는 일은 없습니다.
-        교차 거절 뒤에는 묻지 않습니다 — 모델은 다른 기체를 모르고, 고쳐야 할 것은 길이 아니라
-        시각입니다(그건 사다리가 합니다).
-        마감은 시작 시각 + 초안 예산 하나. 드래프터는 두 질문을 합쳐 그 안에서만 묻습니다.
+        The model reads the refusal reason and drafts a route. The draft has to pass the form,
+        box, altitude and length checks and judgement on our airspace copy (all inside the
+        drafter, same thread); after two failures it's None. Either way the runtime judges
+        again, so a wild line from the model never gets flown.
+        Not asked after a crossing refusal — the model doesn't know about other aircraft, and
+        what needs fixing is the time, not the route (the ladder handles that).
+        Deadline: start time + one draft budget. The drafter fits both questions inside it.
         """
         drafter = self.drafter
         if drafter is None or refusal.get("policy_hit") == "traffic":
             return None
         if self.draft_in_flight:
-            # 지난 거절의 초안이 아직 서버에 걸려 있습니다. 그 뒤에 또 세우면 둘 다 늦습니다.
+            # The last refusal's draft is still pending on the server. Queueing another behind
+            # it makes both late.
             return None
         context = {"reason": refusal.get("reason"), "forbids": refusal.get("forbids")}
         deadline = refused_at + drafter.timeout_s
@@ -476,26 +509,28 @@ class GuardedAgent:
         return self._draft
 
     def _in_background(self, work, *args) -> Future:
-        """데몬 스레드 하나에서 work(*args) 를 돌리고 Future 로 돌려줍니다."""
+        """Run work(*args) on one daemon thread and return a Future."""
         future: Future = Future()
 
         def run() -> None:
             try:
                 future.set_result(work(*args))
-            except BaseException as error:  # noqa: BLE001 - 결과로 넘겨 본 스레드가 처리합니다
+            except BaseException as error:  # noqa: BLE001 - passed on; the main thread handles it
                 future.set_exception(error)
 
         threading.Thread(target=run, daemon=True, name=f"draft-{self.asset_id}").start()
         return future
 
     def _refresh_airspace(self, revision) -> bool:
-        """우리 공역 사본이 낡았습니다(구역이 닫히거나 풀림). 새로 받아 그 사본으로 그립니다.
+        """Our airspace copy is stale (a zone closed or lifted). Fetch a new one and draw from
+        it.
 
-        못 받으면(시간 초과·런타임 없음·빈 답) 지난 사본을 그대로 두고 판본도 적지 않습니다 —
-        다음 차례에 다시 받습니다. 예전에는 못 받은 것을 빈 사본으로 바꿔 끼우고 판본까지 적어서,
-        판본이 또 바뀔 때까지 계획기가 건물 없는 도시를 그렸습니다: 실주행에서 모닝사이드까지
-        '직선 4구간 70 m' 후보가 나왔고, 런타임은 옥상 22 m 건물 위 48 m(이격 50 m 필요)로
-        전부 거절했습니다.
+        If the fetch fails (timeout, no runtime, empty reply), keep the old copy and don't
+        record the revision — fetch again next turn. It used to swap in an empty copy on
+        failure and record the revision too, so until the revision changed again the planner
+        drew a city with no buildings: in a live run a 'straight, 4 legs, 70 m' candidate to
+        Morningside came out, and the runtime refused all of them at 48 m above a 22 m roof
+        (50 m clearance required).
         """
         world = get_json(f"{self.runtime_url}/airspace", timeout=AIRSPACE_TIMEOUT_S) or {}
         if not world.get("volumes"):
@@ -505,7 +540,8 @@ class GuardedAgent:
         self.planner = OperatorPlanner()
         self.planner.load(world["volumes"])
         self.pads = world.get("pads", {})
-        # 서비스 영역 = 착륙장·이륙장 모음의 경계 상자. 모델 초안이 이 밖으로 나가면 버립니다.
+        # Service area = bounding box of the landing sites and pads. A model draft that leaves
+        # it is dropped.
         corners = ([(a["lat"], a["lon"]) for a in world.get("landing_areas", [])]
                    + [(p["lat"], p["lon"]) for p in self.pads.values()])
         self.service_bbox = service_bbox(corners) or self.service_bbox
@@ -528,23 +564,25 @@ class GuardedAgent:
         )
         self._count_form(self.proposer.last_trace)
         if time.time() < self.cooldown.get(proposal.action, 0.0):
-            return  # 방금 거절당한 걸 계속 들이밀지 않습니다
+            return  # don't keep pushing what was just refused
         self.cooldown[proposal.action] = time.time() + self.repeat_s
-        # 신청서를 누가 썼는지(모델·규칙과 그 이유)가 이 차례의 모든 신청에 실립니다.
+        # Who wrote the filing (model or rules, and why) rides on every filing this turn.
         decision = self._file_with_route(proposal, telemetry, self.proposer.last_trace)
         if decision and decision.get("verdict") in ("denied", "human", "queued"):
             self.cooldown[proposal.action] = time.time() + self.denial_s
         route_refusal = bool(decision) and decision.get("policy_hit") in ROUTE_REFUSALS
         if decision and decision.get("verdict") == "denied" and decision.get("policy_hit") \
                 and not route_refusal:
-            # 지시(감항성 지시 등)로 막힌 행동입니다. 지시가 풀렸는지는 다시 내봐야 알지만,
-            # 매번 내면 화면이 거절 표시로 도배됩니다. 가끔만 다시 냅니다.
+            # An action blocked by a directive (an airworthiness directive, say). Only refiling
+            # tells whether it was lifted, but refiling every time plasters the screen with
+            # refusals. Refile only now and then.
             self.cooldown[proposal.action] = time.time() + self.banned_retry_s
         if decision and decision.get("verdict") == "denied":
             if decision.get("policy_hit"):
-                # 강제점이 있으면 무엇이 금지됐는지 그 자리에서 알게 됩니다.
-                # 자원이 막힌 것을 행동이 막힌 것으로 잘못 배우면 영영 신청을 못 합니다.
-                # 길·시각이 막힌 것(공역·교차)은 행동이 막힌 게 아니라 여기서 배우지 않습니다.
+                # With an enforcement point, we learn on the spot what was forbidden.
+                # Mistaking a blocked resource for a blocked action means never filing again.
+                # A blocked route or time (airspace, crossing) isn't a blocked action, so it
+                # isn't learned here.
                 if not route_refusal:
                     self.banned.add(decision.get("forbids") or proposal.action)
             elif proposal.resource:
@@ -553,12 +591,13 @@ class GuardedAgent:
 
 
 def _rules_form(proposal) -> dict:
-    """신청서 흔적 없이 불린 경우(시험·직접 호출). 규칙이 쓴 것으로 적습니다."""
+    """Called without a filing trace (tests, direct calls): record it as written by the rules."""
     return form_part("", "", proposal.action, proposal.rationale, 0, False, "rules")
 
 
 def _next_best(candidate: dict, refusal: dict | None) -> Choice:
-    """고른 것이 거절된 뒤 다음 후보를 낼 때의 '고름'. 이건 모델이 아니라 규칙입니다."""
+    """The 'pick' when the next candidate is filed after the chosen one was refused. The rules
+    make it, not the model."""
     why = (refusal or {}).get("policy_hit") or "refused"
     return Choice(candidate["id"], f"rules: the previous candidate was refused ({why})",
                   path="rules")
@@ -576,8 +615,9 @@ def _report(asset_id: str, mode: str, proposal, outcome) -> None:
 
 
 def build_llm() -> TieredLlm:
-    # 기체 쪽은 6초만 기다립니다. 답이 없으면 규칙이 신청서를 쓰고 A* 가 길을 그립니다.
-    # 거절 표시(5.6초)보다 오래 기다리면 화면에서 기체가 멈춘 것처럼 보입니다.
+    # The aircraft side waits only 6 s. Without an answer the rules write the filing and A*
+    # draws the route. Waiting longer than the refusal display (5.6 s) makes the aircraft look
+    # frozen on screen.
     return TieredLlm(models={
         "nano": os.getenv("MODEL_NANO", ""),
         "super": os.getenv("MODEL_SUPER", ""),
@@ -586,12 +626,14 @@ def build_llm() -> TieredLlm:
 
 
 def identity(asset_id: str, llm: TieredLlm, model_ok: bool | None = None) -> dict:
-    """런타임에 알리는 자기소개. 이 프로세스가 신청서를 무엇으로 쓰는지(모델·서버)뿐입니다.
+    """Self-introduction sent to the runtime: only what this process writes filings with
+    (model, server).
 
-    부를 수 없는 모델은 적지 않습니다 — 서버 주소가 없거나, 키 없는 Nebius 면 모든 호출이 실패하고
-    신청서는 규칙이 씁니다. 그때 화면이 모델 이름을 달면 거짓말이라 model 을 비우고 host 는 off
-    입니다. 설정은 멀쩡한데 답이 안 오는 것은 model_ok(ModelHealth)가 말합니다 — False 면
-    런타임은 이름 대신 rules 라고 답니다.
+    A model that can't be called isn't listed — with no server address, or Nebius without a
+    key, every call fails and the rules write the filings. A model name on screen would then
+    be a lie, so model is left empty and host is off. A sound configuration that gets no
+    answers is reported by model_ok (ModelHealth) — when False, the runtime shows rules
+    instead of the name.
     """
     model = llm.model_for(LlmTier.NANO) if llm.enabled else ""
     host = llm.host if llm.host in ("ollama", "nebius", "other") else "off"
@@ -607,19 +649,22 @@ def identity(asset_id: str, llm: TieredLlm, model_ok: bool | None = None) -> dic
 
 
 class ModelHealth:
-    """이 기체의 모델이 요즘 이 기체의 판단(신청서·경로 고르기)을 쓰고 있나. 등록할 때마다 한 번.
+    """Is this aircraft's model currently making its decisions (filings, route picks)?
+    Evaluated once per registration.
 
-    지난 등록 뒤로 모델에게 물어 그 답을 쓴 적이 한 번이라도 있으면 True, 물었는데 전부 규칙이
-    대신 썼으면(시간 초과·양식 아닌 답·없는 후보) False, 그 사이에 물은 적이 없으면 지난 판단
-    그대로입니다. 처음에는 None(아직 모름) — 런타임은 설정된 모델 이름을 믿고 답니다.
+    True if, since the last registration, the model was asked and its answer used even once;
+    False if it was asked but the rules answered every time (timeout, non-form answer, unknown
+    candidate); unchanged if it wasn't asked in between. None at first (unknown) — the runtime
+    trusts the configured model name and shows it.
 
-    경로 초안은 세지 않습니다. 초안은 모든 후보가 거절된 뒤의 마지막 수단이라 잘 안 통하는 게
-    정상입니다. 예전처럼 LLM 통계를 통째로 보면, 초안 실패만 쌓인 창에서 신청서는 전부 모델이
-    썼는데도 화면이 rules 로 바뀌었습니다(2026-09-11 실측, drone-01·03).
+    Route drafts aren't counted. A draft is the last resort after every candidate is refused,
+    so it often failing is normal. Looking at the LLM stats as a whole, as before, flipped the
+    screen to rules in a window full of draft failures even though the model wrote every
+    filing (measured 2026-09-11, drone-01 and 03).
     """
 
     def __init__(self, counts):
-        self.counts = counts          # () -> (모델의 답을 쓴 횟수, 물었지만 규칙이 쓴 횟수)
+        self.counts = counts          # () -> (model answers used, asked but rules answered)
         self.state: bool | None = None
         self._counted = (0, 0)
 
@@ -634,11 +679,13 @@ class ModelHealth:
 
 
 class Registration:
-    """POST /agents/register. 받아들여지면 REGISTER_PERIOD_S 마다, 아니면 REGISTER_RETRY_S 뒤에.
+    """POST /agents/register: every REGISTER_PERIOD_S once accepted, otherwise after
+    REGISTER_RETRY_S.
 
-    자기 스레드에서 돕니다(start). 신청(step)과 한 줄에 두면 런타임이 느릴 때 등록이 신청을
-    3초씩 붙잡습니다 — 등록은 화면 라벨이고 신청이 먼저입니다. 알릴 내용은 보낼 때마다
-    describe() 로 새로 만듭니다: 모델이 요즘 답하는지는 바뀝니다.
+    Runs on its own thread (start). On the same line as filing (step), a slow runtime would
+    make registration hold up filings 3 s at a time — registration is a screen label and
+    filings come first. The payload is rebuilt with describe() on every send: whether the
+    model has been answering changes.
     """
 
     def __init__(self, runtime_url: str, describe, period_s: float = REGISTER_PERIOD_S,
@@ -663,7 +710,7 @@ class Registration:
     def send(self, now: float | None = None) -> bool:
         self.sent_at = time.monotonic() if now is None else now
         self.payload = self.describe()
-        # 짧게 기다립니다. 등록은 화면 라벨이지 판정이 아닙니다.
+        # Short wait: registration is a screen label, not judgement.
         answer = post_json(self.url, self.payload, timeout=3.0)
         self.accepted = bool(answer and answer.get("ok"))
         return self.accepted

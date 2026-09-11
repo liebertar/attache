@@ -20,15 +20,17 @@ from shared.geo import (
 
 FEET_TO_M = 0.3048
 NM_TO_M = 1852.0
-# 반지름 공지는 다각형으로 옮깁니다. 판정은 다각형만 알고, 16각형이면 반지름 오차가 2% 입니다.
+# A radius notice becomes a polygon: judgement only knows polygons, and a 16-gon is off the
+# radius by 2%.
 RADIUS_SIDES = 16
 
-# 모델이 구조화한 공지에 거는 검사. 문법으로 읽은 공지에는 안 겁니다 — 규제기관이 큰 구역을
-# 닫으면 그건 닫힌 것입니다. 모델이 지어낸 것은 이 상자 안, 이 넓이 안이어야 하고 사람이 봅니다.
+# Checks on notices a model structured. Not applied to grammar-read notices — when a regulator
+# closes a large area, it is closed. What a model produces must fit this box and this area,
+# and a person reviews it.
 MIN_VERTICES = 3
 MAX_VERTICES = 32
 MAX_AREA_M2 = 4_000_000.0          # 4 km²
-MAX_FLOOR_M = DEFAULT_CEILING_M    # 바닥이 Part 107 상한보다 높으면 드론과 무관한 공지입니다
+MAX_FLOOR_M = DEFAULT_CEILING_M    # floor above the Part 107 cap: not a drone notice
 MAX_CEILING_M = 1524.0             # 5,000 ft
 
 COORD = re.compile(r"(\d{6}(?:\.\d+)?)([NS])(\d{7}(?:\.\d+)?)([EW])")
@@ -43,7 +45,7 @@ BOUNDED = re.compile(r"\bAREA\s+BOUNDED\s+BY\b", re.IGNORECASE)
 
 @dataclass
 class Clock:
-    """틱과 Zulu 시각 사이. 판마다 틱 0 이 어느 시각인지 정해져 있어야 창을 옮길 수 있습니다."""
+    """Between ticks and Zulu time. Windows convert only if each run fixes the time of tick 0."""
 
     epoch_z: str = "0900"
     seconds_per_tick: float = 0.8
@@ -51,7 +53,7 @@ class Clock:
     def tick_of(self, hhmm: str) -> int:
         minutes = _minutes(hhmm) - _minutes(self.epoch_z)
         if minutes < 0:
-            minutes += 24 * 60      # 자정을 넘긴 창
+            minutes += 24 * 60      # window crosses midnight
         return int(round(minutes * 60.0 / self.seconds_per_tick))
 
     def zulu_of(self, tick: int) -> str:
@@ -68,7 +70,7 @@ def _minutes(hhmm: str) -> int:
 
 @dataclass
 class Notice:
-    """문법이 읽어 낸 것. Volume 하나와 시간 창입니다."""
+    """What the grammar read: one Volume and a time window."""
 
     polygon: list[tuple[float, float]]
     floor_m: float = 0.0
@@ -90,7 +92,7 @@ class Notice:
 
 
 def parse_dms(token: str) -> tuple[float, float]:
-    """DDMMSS[NS]DDDMMSS[EW] → (lat, lon). 초는 소수도 받습니다."""
+    """DDMMSS[NS]DDDMMSS[EW] → (lat, lon). Seconds may be decimal."""
     match = COORD.fullmatch(token.strip())
     if match is None:
         raise ValueError(f"좌표가 아닙니다: {token!r}")
@@ -111,7 +113,7 @@ def _dms(digits: str, degree_width: int) -> float:
 
 
 def format_dms(lat: float, lon: float) -> str:
-    """(lat, lon) → DDMMSS[NS]DDDMMSS[EW]. 초 단위로 반올림합니다 — 공지의 해상도가 그렇습니다."""
+    """(lat, lon) → DDMMSS[NS]DDDMMSS[EW], rounded to the second — a notice's resolution."""
 
     def part(value: float, width: int, positive: str, negative: str) -> str:
         hemisphere = positive if value >= 0 else negative
@@ -124,11 +126,12 @@ def format_dms(lat: float, lon: float) -> str:
 
 
 def parse_notice(text: str, clock: Clock | None = None) -> Notice | None:
-    """문법으로 읽습니다. 못 읽으면 None — 추측하지 않습니다.
+    """Read with the grammar. None if unreadable — no guessing.
 
-    읽는 것: 'AREA BOUNDED BY <좌표>...' 또는 '<r>NM RADIUS OF <좌표>', 'SFC-400FT AGL' 같은
-    고도 띠, '0907-0912Z' 같은 Zulu 창(시계로 틱으로) 또는 'TICK 525-900'. 앞에 '이름:' 이 오면
-    이름입니다. 그 밖의 문장은 이 함수의 몫이 아닙니다.
+    Reads: 'AREA BOUNDED BY <coords>...' or '<r>NM RADIUS OF <coords>', an altitude band such
+    as 'SFC-400FT AGL', a Zulu window such as '0907-0912Z' (converted to ticks by the clock)
+    or 'TICK 525-900'. A leading 'name:' is the name. Any other sentence is not this
+    function's business.
     """
     if not text or not text.strip():
         return None
@@ -193,7 +196,7 @@ def circle(centre: tuple[float, float], radius_m: float,
 
 
 def area_m2(polygon: list[tuple[float, float]]) -> float:
-    """신발끈 공식. 구역이 작아서 평면으로 봐도 됩니다."""
+    """Shoelace formula. Zones are small, so treating them as flat is fine."""
     total = 0.0
     for index, (lat_a, lon_a) in enumerate(polygon):
         lat_b, lon_b = polygon[(index + 1) % len(polygon)]
@@ -219,10 +222,11 @@ def shape_problems(polygon) -> list[str]:
 
 
 def validate(notice: Notice, bbox: tuple[float, float, float, float] | None) -> list[str]:
-    """모델이 구조화한 공지에 거는 검사 전부. 하나라도 걸리면 적용도 보류도 안 합니다.
+    """All checks on a model-structured notice. Any failure: neither applied nor held.
 
-    bbox 는 (lat_min, lon_min, lat_max, lon_max) — 서비스 영역. 모델이 그린 다각형은 이 안에
-    있어야 합니다. 없으면(착륙장 목록이 아직 없으면) 상자 검사는 못 하고 나머지만 봅니다.
+    bbox is (lat_min, lon_min, lat_max, lon_max) — the service area. A polygon the model drew
+    must lie inside it. Without it (no landing site list yet), the box check is skipped and
+    only the rest run.
     """
     problems = shape_problems(notice.polygon)
     if problems:
@@ -245,7 +249,7 @@ def validate(notice: Notice, bbox: tuple[float, float, float, float] | None) -> 
     return problems
 
 
-# ---------- 모델이 읽는 쪽 ----------
+# ---------- the model-read side ----------
 
 COMPILE_SYSTEM = (
     "You turn one airspace notice written in prose into a structured restriction. You do not "
@@ -260,7 +264,7 @@ COMPILE_SYSTEM = (
 
 
 def from_model_form(form: dict, clock: Clock, text: str) -> Notice | None:
-    """모델의 JSON 을 같은 Notice 로. 양식이 아니면 None. 검사(validate)는 따로 겁니다."""
+    """A model's JSON into the same Notice; None if not a form. Checks (validate) are separate."""
     if not isinstance(form, dict) or not isinstance(form.get("polygon"), list):
         return None
     try:
@@ -271,8 +275,9 @@ def from_model_form(form: dict, clock: Clock, text: str) -> Notice | None:
         until_tick = _tick_field(form.get("until"), clock)
     except (TypeError, ValueError, IndexError):
         return None
-    # 이름은 화면(승인 카드·배너)에 그대로 오릅니다. 모델이 지은 문자열이라 표시 문자는 여기서
-    # 뺍니다 — 화면도 이스케이프하지만, 어느 화면에 오르든 모델 출력이 마크업이 돼서는 안 됩니다.
+    # The name goes straight onto the screen (approval card, banner). It's a model-written
+    # string, so markup characters are stripped here — the screen escapes too, but whatever
+    # screen it lands on, model output must never become markup.
     name = "".join(ch for ch in str(form.get("name") or "") if ch not in "<>&\"'`")
     return Notice(polygon=polygon, floor_m=floor_m, ceiling_m=ceiling_m, reference="AGL",
                   from_tick=from_tick, until_tick=until_tick,

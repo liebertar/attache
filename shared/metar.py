@@ -22,32 +22,33 @@ from shared.tavily import ERROR_CHARS, FetchStatus
 
 METAR_URL = "https://aviationweather.gov/api/data/metar"
 SOURCE = "metar"
-# 관측소 하나의 JSON 을 몇 초 기다리나. 세계 스레드 밖이라 길어도 틱은 안 멈춥니다.
+# Seconds to wait for a station's JSON. This runs off the world thread, so a long wait never
+# stalls a tick.
 DEFAULT_TIMEOUT_S = 10.0
-# 몇 초마다 묻나. METAR 는 시간마다(특별 관측은 사이사이) 나오니 5 분이면 충분합니다.
+# Poll interval (s). METARs come hourly (specials in between), so 5 minutes is plenty.
 DEFAULT_PERIOD_S = 300.0
 
 
 class MetarFailed(Exception):
-    """한 주기가 실패했습니다 — 닿지 못함, 거절, 늦음, 깨진 답."""
+    """One cycle failed — unreachable, refused, too slow, or a broken reply."""
 
 
 @dataclass
 class Observation:
-    """관측 하나를 접수 문장으로 옮기는 데 필요한 것만. 단위는 원문대로(kt, SM)입니다."""
+    """Only what's needed to turn one observation into intake text. Units as given (kt, SM)."""
 
     station: str
-    obs_time: int                    # 관측 시각(epoch 초). 항목 id 가 됩니다 — 같은 관측은 한 번만
+    obs_time: int                    # epoch s; also the item id, so an observation counts once
     wind_kt: float | None
     gust_kt: float | None
     visibility_sm: float | None
     wind_dir: str                    # "220" | "VRB" | ""
-    weather: str = ""                # 현상 코드(RA, BR …). 문법이 강수로 읽습니다
+    weather: str = ""                # weather codes (RA, BR …); the grammar reads precipitation
     raw: str = ""
 
     def text(self) -> str:
-        """문법이 읽는 어투. 시각은 넣지 않습니다 — 판의 시계(틱 0 = 0900Z)와 실제 시각은
-        다릅니다."""
+        """In the phrasing the grammar reads. No time — the run's clock (tick 0 = 0900Z) and
+        real time differ."""
         parts = [self.station]
         if self.wind_kt is not None:
             direction = self.wind_dir if self.wind_dir in ("VRB",) or self.wind_dir.isdigit() \
@@ -71,7 +72,8 @@ class Observation:
 
 
 def _fraction(value: float) -> str:
-    """시정을 문법이 읽는 꼴로. 정수면 정수, 1/2·1/4·3/4 는 분수, 나머지는 소수 한 자리."""
+    """Visibility in the form the grammar reads: whole numbers as is, 1/2, 1/4 and 3/4 as
+    fractions, anything else to one decimal."""
     if float(value).is_integer():
         return f"{int(value)}"
     for numerator, denominator in ((1, 4), (1, 2), (3, 4), (1, 8), (3, 8), (5, 8), (7, 8)):
@@ -81,7 +83,8 @@ def _fraction(value: float) -> str:
 
 
 def _number(value) -> float | None:
-    """수가 아니면 None. "10+"(10 SM 이상)는 10, "1/2" 는 0.5, "M1/4"(1/4 미만)는 0.25."""
+    """None if not a number. "10+" (10 SM or more) is 10, "1/2" is 0.5, "M1/4" (under 1/4)
+    is 0.25."""
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -101,7 +104,8 @@ def _number(value) -> float | None:
 
 
 def parse_observation(raw: dict) -> Observation | None:
-    """aviationweather.gov 의 관측 하나 → Observation. 바람도 시정도 없으면 None(읽을 것이 없음)."""
+    """One aviationweather.gov observation → Observation. None with neither wind nor
+    visibility (nothing to read)."""
     if not isinstance(raw, dict):
         return None
     station = str(raw.get("icaoId") or "").strip().upper()
@@ -138,7 +142,7 @@ class MetarClient:
 
     @classmethod
     def from_env(cls, stations: list[str]) -> "MetarClient | None":
-        """관측소가 없거나 METAR=off 면 None — 출처가 꺼진 것이고 아무것도 묻지 않습니다."""
+        """None with no stations or METAR=off — the source is off and asks nothing."""
         if os.getenv("METAR", "on").strip().lower() in ("off", "0", "false", "no"):
             return None
         if not [s for s in stations if s.strip()]:
@@ -147,7 +151,7 @@ class MetarClient:
                    float(os.getenv("METAR_TIMEOUT_S") or DEFAULT_TIMEOUT_S))
 
     def fetch(self) -> list[dict]:
-        """관측소 전부를 한 번에. 닿지 못하거나 깨진 답이면 MetarFailed."""
+        """All stations at once. MetarFailed if unreachable or the reply is broken."""
         query = urllib.parse.urlencode({"ids": ",".join(self.stations), "format": "json"})
         self.calls += 1
         try:
@@ -177,9 +181,11 @@ class MetarClient:
 
 
 class MetarPoller:
-    """주기마다 관측을 받아 넘깁니다. 자기 스레드에서 — 세계 스레드는 네트워크를 기다리지 않습니다.
+    """Each cycle, fetches observations and hands them over — on its own thread, so the world
+    thread never waits on the network.
 
-    deliver(items, status) — 항목이 없어도 상태는 넘깁니다(tavily.IntakePoller 와 같은 약속).
+    deliver(items, status) — the status is handed over even with no items (the same promise
+    as tavily.IntakePoller).
     """
 
     def __init__(self, client: MetarClient, period_s: float, deliver):
@@ -214,6 +220,6 @@ class MetarPoller:
                              failures=self.client.failures)
         try:
             self.deliver(found, status)
-        except Exception as problem:  # noqa: BLE001 — 넘기다 죽어도 다음 주기는 돕니다
+        except Exception as problem:  # noqa: BLE001 — a failed handover doesn't stop the next cycle
             print(f"metar deliver: {problem!r}", flush=True)
         return found

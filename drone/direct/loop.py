@@ -21,8 +21,8 @@ from shared.http import get_json, post_json
 from shared.route import Router
 
 PADS = ["pad:launch"]
-PAD_COORDS = {   # 운영사가 자기 기지 좌표는 압니다
-    "pad:launch": (40.701783, -73.969168),   # 마당 동쪽 비상 착륙대 (sim.world.PADS)
+PAD_COORDS = {   # the operator knows its own base's coordinates
+    "pad:launch": (40.701783, -73.969168),   # emergency pad east of the yard (sim.world.PADS)
 }
 
 
@@ -37,7 +37,7 @@ class DirectAgent:
         self.bulletin_period_s = bulletin_period_s
         self.transport = transport
         self.spend = 0.0
-        self._round = None          # 시뮬레이터가 판을 새로 시작하면 따라갑니다
+        self._round = None          # follows the simulator when it starts a new round
         self.banned_actions: set[str] = set()
         self.cooldown: dict[str, float] = {}
         self.repeat_s = float(os.getenv("REPEAT_COOLDOWN_S", "2"))
@@ -54,10 +54,10 @@ class DirectAgent:
             host, port = os.environ["FLOCKWAVE_HOST"], int(os.getenv("FLOCKWAVE_PORT", "5001"))
             self.commander = FlockCommander(host, port, os.environ["UAV_ID"])
 
-    # ---------- 무엇이 보이나 ----------
+    # ---------- what it can see ----------
 
     def observe(self) -> tuple[dict, dict]:
-        """(내 기체 상태, 옆 기체들 상태). 옆 기체 의도는 어느 쪽에서도 안 보입니다."""
+        """(own state, neighbours' states). Neighbours' intents are visible from neither side."""
         if self.commander is not None:
             mine = self.commander.telemetry(
                 self.asset_id, os.getenv("VEHICLE_MODEL", "dv-x500")
@@ -70,11 +70,12 @@ class DirectAgent:
         return assets.get(self.asset_id) or {}, assets
 
     def _follow_round(self, round_number) -> None:
-        """판이 바뀌면 자기 한도도 새로 셉니다.
+        """When the round changes, restart the own spending count too.
 
-        런타임 쪽만 판마다 예산을 새로 시작하고 여기가 누적으로 남으면, 두 번째 판부터
-        직결 기단은 한도가 차서 아무것도 안 합니다. 그건 배선의 차이가 아니라 우리가
-        한쪽을 못나게 만든 것이고, 그러면 두 세계를 비교할 수 없습니다.
+        If only the runtime side reset its budget each round while this one kept adding up,
+        from the second round on the direct fleet would hit its limit and do nothing. That's
+        not a difference in wiring but us crippling one side, and then the two wirings can't
+        be compared.
         """
         if round_number is None or round_number == self._round:
             return
@@ -99,11 +100,12 @@ class DirectAgent:
                 self.banned_actions.add(item["forbid_resource"])
 
     def _free_looking_pad(self, neighbours: dict) -> str:
-        """다른 기체가 실제로 내려앉아 있는 패드만 피할 수 있습니다.
+        """Only pads another aircraft is actually sitting on can be avoided.
 
-        위치는 Remote ID 로 공개되지만 '내가 저 패드를 잡아뒀다'는 의도는 공개되지
-        않습니다. 회사가 다르면 서로의 예약을 볼 방법이 아예 없습니다. 하늘길은
-        ASTM F3548 이 이 문제를 풀어놨는데, 땅 위 패드는 아무도 안 풀었습니다.
+        Positions are public through Remote ID, but the intent 'I have reserved that pad' is
+        not. Between different companies there is no way at all to see each other's
+        reservations. ASTM F3548 solved this for the airways; nobody has solved it for pads
+        on the ground.
         """
         taken = {
             vehicle.get("assigned_pad")
@@ -115,7 +117,7 @@ class DirectAgent:
         return next((p for p in open_pads if p not in taken),
                     open_pads[0] if open_pads else PADS[0])
 
-    # ---------- 무엇을 하나 ----------
+    # ---------- what it does ----------
 
     def step(self) -> None:
         telemetry, neighbours = self.observe()
@@ -134,28 +136,30 @@ class DirectAgent:
         if proposal.action in self.banned_actions or (
             proposal.resource and proposal.resource in self.banned_actions
         ):
-            return  # 공지를 본 뒤에는 스스로 지킵니다
+            return  # once it has seen the notice, it complies on its own
         cost = COSTS.get(proposal.action, 0.0)
         if self.spend + cost > self.per_asset_limit:
-            return  # 자기 한도는 스스로 지킵니다. 기단 합계는 알 방법이 없습니다
+            return  # keeps its own limit; it has no way to know the fleet total
         if time.time() < self.cooldown.get(proposal.action, 0.0):
-            return  # 방금 낸 명령을 또 보내지 않습니다
+            return  # don't resend a command just sent
         self.cooldown[proposal.action] = time.time() + self.repeat_s
 
         self._attach_route(proposal, telemetry)
         result = self._act(proposal)
         if result and result.get("ok"):
             self.spend += result.get("cost_usd", cost)
-        verdict = "ok" if (result or {}).get("ok") else "실패"
+        verdict = "ok" if (result or {}).get("ok") else "failed"
         print(f"[direct:{self.asset_id}] {proposal.action} ${cost:.0f} -> {verdict}", flush=True)
 
     @staticmethod
     def _attach_route(proposal, telemetry: dict) -> None:
-        """갈 곳까지의 직선. 공역은 보지 않습니다 — 그게 이 배선이 내는 그 경로입니다.
+        """A straight line to the destination, ignoring airspace — the very route this wiring
+        files.
 
-        조종장치는 경유점이 있어야 뜹니다(ready 는 경로 없이는 안 뜹니다). 경로 없이 fly_route 만
-        보내면 네 대가 마당에 앉은 채 돈만 나갔고, 비교할 세계가 없었습니다. 하네스의 직결
-        쪽(tests/test_two_worlds.DirectSide)이 붙이는 것과 같은 직선입니다.
+        The autopilot needs waypoints to take off (ready doesn't lift off without a route).
+        Sending fly_route without a route left four aircraft sitting in the yard running up
+        costs, with no wiring to compare. It's the same straight line the harness's direct
+        side (tests/test_two_worlds.DirectSide) attaches.
         """
         if proposal.action not in ("fly_route", "reserve_pad"):
             return

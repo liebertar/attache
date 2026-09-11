@@ -10,20 +10,22 @@ ledger, the ledger is not doing its job.
 
 ROUTED = ("reserve_pad", "fly_route")
 REFUSAL_KEYS = ("blocked_kind", "blocked_volume", "blocked_asset", "blocked_until_tick")
-# 기단 전체에 걸린 규칙. 기체가 아니라 관제탑의 줄이라 비행 밑이 아니라 fleet 절에 접습니다.
+# Fleet-wide rules. They are the runtime's lines, not an aircraft's, so they fold into the
+# fleet section instead of under a flight.
 HOLD_CODES = ("weather_hold", "weather_hold_lifted", "weather_hold_expired", "weather_hold_closed")
-# 링크 두절 한 건 = 끊긴 줄 + (사람 카드의 답) + 돌아온 줄. 비행이 아니라 링크의 일이라 fleet 절에.
+# One lost link = the lost line + (the answer to the human card) + the restored line. It is
+# about the link, not a flight, so it goes in the fleet section.
 LINK_ACTIONS = ("link_lost", "link_restored", "lost_link_notice")
 
 
 def build_report(entries: list[dict], tick: int, airspace_revision: int,
                  asset: str | None = None) -> dict:
-    """원장 줄들 → {generated_tick, airspace_revision, assets:[{asset, flights, advisories}],
-    fleet:{weather_holds, incidents}}."""
+    """Ledger lines → {generated_tick, airspace_revision,
+    assets:[{asset, flights, advisories}], fleet:{weather_holds, incidents}}."""
     closed = [e for e in entries if e.get("outcome") != "pending"]
     flights: dict[str, dict] = {}
     order: list[str] = []
-    followups: dict[str, dict] = {}       # 의도 id → {conformance: [...], recalled, withdrawn}
+    followups: dict[str, dict] = {}       # intent id → {conformance: [...], recalled, withdrawn}
     advisories: dict[str, list[dict]] = {}
     holds: list[dict] = []
     incidents: list[dict] = []
@@ -58,8 +60,8 @@ def build_report(entries: list[dict], tick: int, airspace_revision: int,
         elif action == "conformance":
             params = proposal.get("params") or {}
             intent = params.get("intent") or context.get("intent_id")
-            # 순응 검사는 두 가지입니다: 미룬 출발보다 일찍 뜬 것(departure), 링크가 끊긴 사이 승인
-            # 부피 밖으로 나간 것(lost_link).
+            # Two kinds of conformance check: taking off before the deferred departure
+            # (departure), and leaving the approved volume while the link was down (lost_link).
             followups.setdefault(intent, {}).setdefault("conformance", []).append({
                 "tick": context.get("tick"), "kind": params.get("kind") or "departure",
                 "planned_depart_tick": params.get("planned_depart_tick"),
@@ -108,8 +110,8 @@ def build_report(entries: list[dict], tick: int, airspace_revision: int,
 
 def _fold_link(links: list[dict], entry: dict, proposal: dict, decision: dict,
                context: dict) -> None:
-    """링크 두절 한 건 = 끊긴 줄 + (사람의 답) + 돌아온 줄. 같은 기체의 마지막 열린 건에
-    접습니다."""
+    """One lost link = lost line + (the human's answer) + restored line. Folds into the same
+    aircraft's last open case."""
     asset = proposal.get("asset_id")
     detail = decision.get("detail") or {}
     action = proposal.get("action")
@@ -136,7 +138,8 @@ def _fold_link(links: list[dict], entry: dict, proposal: dict, decision: dict,
 
 def _fold_hold(holds: list[dict], entry: dict, proposal: dict, decision: dict,
                context: dict) -> None:
-    """기상 대기 한 건 = 연 줄 하나 + (풀린 줄 | 창이 닫힌 줄). 같은 hold id 로 접습니다."""
+    """One weather hold = the opening line + (lifted line | window-closed line), folded
+    together under the same hold id."""
     params = proposal.get("params") or {}
     detail = decision.get("detail") or {}
     hold = params.get("hold") if isinstance(params.get("hold"), dict) else {}
@@ -156,7 +159,7 @@ def _fold_hold(holds: list[dict], entry: dict, proposal: dict, decision: dict,
         standing["lifted"] = {"tick": context.get("tick"), "by": decision.get("approved_by"),
                               "ledger_id": entry.get("id")}
     else:
-        # 창이 닫혔거나 판이 바뀌었거나 — 사람 없이 끝난 대기는 둘 다 여기로.
+        # The window closed or the round changed: a hold that ended without a human comes here.
         standing["expired_tick"] = context.get("tick")
         standing["closed_by"] = "round" if code == "weather_hold_closed" else "window"
 
@@ -171,7 +174,7 @@ def _new_flight(asset: str, proposal: dict, context: dict) -> dict:
 
 
 def _fold(flight: dict, entry: dict, proposal: dict, decision: dict, context: dict) -> None:
-    """한 줄을 그 비행에 접어 넣습니다. 누가 그렸는지는 마지막 줄이 말합니다(직선 → 재작성)."""
+    """Folds one line into its flight. The last line says who drew it (straight → rewritten)."""
     params = proposal.get("params") or {}
     if params.get("drafter") is not None:
         flight["drafter"] = params.get("drafter")
@@ -181,7 +184,8 @@ def _fold(flight: dict, entry: dict, proposal: dict, decision: dict, context: di
         flight["checks_run"] = list(context["checks_run"])
     if decision.get("verdict") == "denied":
         if decision.get("code") == "duplicate":
-            # 길이 막힌 게 아니라 같은 신청을 두 번 낸 것. 권고의 연속 거절과 같은 기준으로 따로.
+            # Not a blocked path but the same filing sent twice. Counted separately, by the
+            # same standard the advisory uses for consecutive refusals.
             flight["duplicates"] += 1
             return
         flight["refusals"].append({"tick": context.get("tick"), "code": decision.get("code"),
@@ -190,7 +194,8 @@ def _fold(flight: dict, entry: dict, proposal: dict, decision: dict, context: di
                                    "ledger_id": entry.get("id")})
         return
     if str(entry.get("outcome") or "").startswith("failed"):
-        # 승인은 났는데 조종장치가 못 했습니다(예: 착륙대 위가 아닌데 충전). 거절도 승인도 아닙니다.
+        # Approved, but the autopilot could not do it (e.g. charging while not on a pad).
+        # Neither a refusal nor an approval.
         flight["failed"] = {"tick": context.get("tick"), "outcome": entry.get("outcome"),
                             "ledger_id": entry.get("id")}
         return
@@ -205,7 +210,7 @@ def _fold(flight: dict, entry: dict, proposal: dict, decision: dict, context: di
 
 
 def to_markdown(report: dict) -> str:
-    """사람이 읽는 표. 비행 하나가 한 줄입니다."""
+    """A table for people to read. One flight per row."""
     lines = [f"# Ledger report — tick {report['generated_tick']}, "
              f"airspace revision {report['airspace_revision']}", "",
              "| asset | flight | filed | author | drafter | tries | checks | refusals | dup "
@@ -258,7 +263,7 @@ def to_markdown(report: dict) -> str:
 
 
 def _link_word(link: dict) -> str:
-    """두절 한 건을 한 줄로. 돌아왔으면 순응했는지까지."""
+    """One lost link on one line, including whether it conformed if the link came back."""
     if link.get("restored_tick") is None:
         ended = "still dark"
     else:
@@ -272,8 +277,8 @@ def _link_word(link: dict) -> str:
 
 
 def _intake_lines(intake: dict | None) -> list[str]:
-    """들어온 것(sqlite). 원장이 결정의 기록이면 이 절은 무엇을 받아 무엇이 되었는지의
-    기록입니다."""
+    """What came in (sqlite). The ledger records decisions; this section records what was
+    taken in and what became of it."""
     if not intake or not (intake.get("items") or intake.get("rules")):
         return []
     lines = ["", "## Intake", "", "| item | source | kind | tick | read by | outcome |",
@@ -293,7 +298,8 @@ def _intake_lines(intake: dict | None) -> list[str]:
 
 
 def _cell(text) -> str:
-    """표 한 칸. 모델이 쓴 요약의 '|' 는 칸을 하나 더 만들고 줄바꿈은 행을 깨므로 벗깁니다."""
+    """One table cell. A '|' in a model-written summary adds a cell and a newline breaks the
+    row, so both are stripped."""
     return " ".join(str(text if text is not None else "").split()).replace("|", "\\|")
 
 

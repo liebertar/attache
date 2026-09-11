@@ -34,7 +34,7 @@ PAGE = 2000
 
 def fetch(bbox: tuple[float, float, float, float], min_height_m: float) -> list[dict]:
     lon_min, lat_min, lon_max, lat_max = bbox
-    # within_box 는 북서, 남동 순서입니다.
+    # within_box takes north-west, then south-east.
     where = (
         f"within_box(the_geom, {lat_max}, {lon_min}, {lat_min}, {lon_max})"
         f" AND height_roof > {min_height_m / FEET_TO_METRES:.2f}"
@@ -57,7 +57,7 @@ def fetch(bbox: tuple[float, float, float, float], min_height_m: float) -> list[
 
 
 def rings(geometry: dict) -> list[list]:
-    """바깥 고리만 씁니다. 건물 안뜰로 드론을 보내는 경로는 그리지 않습니다."""
+    """Outer rings only. No route sends a drone into a building's courtyard."""
     kind = geometry.get("type")
     if kind == "Polygon":
         return [geometry["coordinates"][0]]
@@ -67,9 +67,10 @@ def rings(geometry: dict) -> list[list]:
 
 
 def thin(ring: list, tolerance_deg: float) -> list:
-    """거의 일직선인 점을 걸러냅니다. 발자국 하나가 30점이면 판정이 30배 비쌉니다.
+    """Drops points that are nearly in line. A 30-point footprint makes judging 30 times dearer.
 
-    남기는 쪽으로만 틀립니다 — 점을 지워서 건물이 작아지면 그 틈으로 경로가 지나갑니다.
+    Errs only towards keeping — if dropping points shrank a building, a route would slip
+    through the gap.
     """
     kept = [ring[0]]
     for point in ring[1:-1]:
@@ -94,7 +95,7 @@ def to_volumes(row: dict, tolerance_deg: float) -> list[dict]:
         if len(polygon) < 4:
             continue
         if polygon[0] == polygon[-1]:
-            polygon.pop()          # geo.Volume 은 닫지 않은 고리를 씁니다
+            polygon.pop()          # geo.Volume takes open rings
         suffix = "" if index == 0 else f"-{index}"
         out.append({
             "id": f"bldg-{row.get('bin', '?')}{suffix}",
@@ -120,20 +121,20 @@ def main() -> int:
                         help="lon_min,lat_min,lon_max,lat_max")
     parser.add_argument("--min-height-m", type=float, default=25.0)
     parser.add_argument("--simplify-m", type=float, default=2.0,
-                        help="이 간격보다 촘촘한 발자국 꼭짓점은 버립니다")
+                        help="drop footprint vertices closer together than this")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
     bbox = tuple(float(part) for part in args.bbox.split(","))
     if len(bbox) != 4:
-        print("bbox 는 네 개여야 합니다: lon_min,lat_min,lon_max,lat_max", file=sys.stderr)
+        print("bbox needs four values: lon_min,lat_min,lon_max,lat_max", file=sys.stderr)
         return 2
 
     rows = fetch(bbox, args.min_height_m)
     tolerance = args.simplify_m / 111_320.0
     volumes = [v for row in rows for v in to_volumes(row, tolerance)]
     if not volumes:
-        print("건물이 하나도 안 왔습니다. bbox 를 확인하세요.", file=sys.stderr)
+        print("No buildings came back. Check the bbox.", file=sys.stderr)
         return 1
 
     tallest = max(volumes, key=lambda v: v["ceiling_m"])
@@ -148,7 +149,7 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     points = sum(len(v["polygon"]) for v in volumes)
-    print(f"{len(volumes)}동 · 꼭짓점 {points} · 가장 높은 것 {tallest['ceiling_m']:.0f}m"
+    print(f"{len(volumes)} buildings · {points} vertices · tallest {tallest['ceiling_m']:.0f}m"
           f" → {out} ({out.stat().st_size / 1e6:.1f} MB)")
     return 0
 

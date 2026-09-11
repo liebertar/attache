@@ -22,23 +22,24 @@ class AuthorityCheck:
         return round(self._spent_by_asset[asset_id], 2)
 
     def new_round(self) -> None:
-        """판이 새로 시작하면 쓴 돈도 새로 셉니다.
+        """A new round starts the spend count over.
 
-        예산은 한 판 안에서의 재량입니다. 시뮬레이터가 기체를 새로 세우는데 여기만
-        누적으로 남으면, 두 번째 판부터는 한도가 다 차서 아무것도 승인되지 않습니다.
+        The budget is discretion within one round. The simulator sets up fresh aircraft; if
+        spend kept accumulating here alone, the limits would be full from the second round on
+        and nothing would be approved.
         """
         self._spent_by_asset.clear()
         self._spent_fleet = 0.0
 
     def record_spend(self, proposal: Proposal) -> None:
-        """실행이 끝난 뒤에만 부릅니다. 승인 대기 중인 돈은 아직 쓴 돈이 아닙니다."""
+        """Call only after execution. Money still awaiting approval is not spent yet."""
         self._spent_by_asset[proposal.asset_id] += proposal.cost_usd
         self._spent_fleet += proposal.cost_usd
 
     @staticmethod
     def policy_denial(proposal: Proposal, banned: Policy) -> Decision:
-        """금지에 걸린 거절. 언제까지인지(until_tick)도 값으로 — 화면이 '틱 N 까지' 를 쓰고,
-        운영사가 그때 다시 냅니다."""
+        """A refusal from a ban. Its end (until_tick) is carried as a value: the screen shows
+        'until tick N', and the operator files again then."""
         return Decision(
             proposal.id,
             Verdict.DENIED,
@@ -78,8 +79,9 @@ class AuthorityCheck:
                 code="human_blast", detail={"blast": proposal.blast_radius},
             )
 
-        # 돈 한도는 운영사 몫입니다. 설정에 한도가 없으면(null) 런타임은 돈을 보지 않습니다 —
-        # 한도가 걸린 채로 두었더니 착륙대 예약 여덟 번에 기체 하나가 사람 승인에 묶여 섰습니다.
+        # Spending limits are the operator's call. With no limit in the config (null) the
+        # runtime ignores money: with a limit left on, one aircraft ended up stuck waiting for
+        # human approval after eight landing-site reservations.
         asset_after = self._spent_by_asset[proposal.asset_id] + proposal.cost_usd
         if self.authority.per_asset_usd is not None and asset_after > self.authority.per_asset_usd:
             return Decision(

@@ -20,17 +20,19 @@ from shared.http import post_json_status
 
 
 class LlmTier(str, Enum):
-    NANO = "nano"      # 이상하다 → 신청서를 씁니다 · 길을 그려야 한다 → 초안을 냅니다
-    SUPER = "super"    # 원인을 알아내야 한다 → 근거를 붙입니다
-    ULTRA = "ultra"    # 신청이 겹친다 → 통과한 것 중 하나를 고릅니다
+    NANO = "nano"      # something is off → writes the filing · a route is needed → drafts it
+    SUPER = "super"    # the cause must be found → attaches the evidence
+    ULTRA = "ultra"    # filings overlap → picks one of those that passed
 
 
-# 답을 못 받으면 규칙이 대신합니다. 그러니 오래 기다릴 이유가 없습니다. 런타임은 20초,
-# 기체 에이전트는 6초(loop.build_llm) — 거절 표시가 5.6초라 그보다 길면 화면이 멈춘 듯 보입니다.
+# Without an answer the rules take over, so there's no reason to wait long. The runtime waits
+# 20 s, the drone agent 6 s (loop.build_llm) — the refusal display lasts 5.6 s, and waiting
+# longer than that makes the screen look frozen.
 DEFAULT_TIMEOUT_S = 20.0
 
-# 생각하는 모델은 답 앞에 <think>…</think> 를 붙이기도 합니다. 그 안의 JSON 은 답이 아니라
-# 생각이라 버립니다. 닫는 태그가 없으면 생각만 하다 끊긴 것이고, 그건 전부 생각입니다.
+# Thinking models sometimes put <think>…</think> before the answer. JSON inside it is thought,
+# not the answer, so it's dropped. With no closing tag the model was cut off mid-thought, and
+# all of it is thought.
 THINK_BLOCK = re.compile(r"^\s*<think>.*?</think>\s*", re.DOTALL)
 
 
@@ -39,16 +41,16 @@ class LlmReply:
     text: str
     model: str
     latency_ms: int = 0
-    # 답이 어느 필드에서 왔나: content | think-stripped | reasoning_content | reasoning | tool_calls
+    # Source field: content | think-stripped | reasoning_content | reasoning | tool_calls
     via: str = "content"
-    # 도구 호출로 온 답: [{"name", "arguments"(dict 또는 None), "raw"}]. 글로만 답했으면 빈 목록.
+    # Answer as tool calls: [{"name", "arguments" (dict or None), "raw"}]; empty for text only.
     tool_calls: list = field(default_factory=list)
 
 
 @dataclass
 class TierStats:
-    ok: int = 0            # 답을 받아 그대로 쓴 횟수
-    fallback: int = 0      # 답이 없거나 버려서 규칙이 대신한 횟수
+    ok: int = 0            # answers received and used as is
+    fallback: int = 0      # no answer, or discarded, so the rules took over
     last_ms: int | None = None
 
     def to_dict(self) -> dict:
@@ -56,7 +58,8 @@ class TierStats:
 
 
 def strip_think(text: str) -> str:
-    """앞머리의 <think>…</think> 를 떼고 답만 남깁니다. 열기만 하고 안 닫혔으면 전부 생각입니다."""
+    """Strip a leading <think>…</think> and keep only the answer. Opened but never closed
+    means it's all thought."""
     if not text:
         return ""
     stripped = THINK_BLOCK.sub("", text, count=1)
@@ -66,11 +69,11 @@ def strip_think(text: str) -> str:
 
 
 def host_of(base_url: str) -> str:
-    """어느 서버에 묻고 있나. 화면 헤더 한 줄과 기록용입니다."""
+    """Which server we're asking, for the one-line screen header and the logs."""
     url = (base_url or "").lower()
     if not url:
         return "none"
-    # 11434 는 기본 서버, 11435.. 는 기체마다 하나씩 띄운 함대(scripts/ollama_fleet.sh)입니다.
+    # 11434 is the default server; 11435.. is the fleet, one per aircraft (scripts/ollama_fleet.sh).
     if re.search(r":1143\d(?!\d)", url) or "ollama" in url:
         return "ollama"
     if "nebius" in url:
@@ -79,10 +82,11 @@ def host_of(base_url: str) -> str:
 
 
 def _extra_from_env() -> dict:
-    """서버마다 다른 인자(예: Ollama 는 reasoning_effort=none 이라야 생각을 안 함).
+    """Per-server extra arguments (e.g. Ollama stops thinking only with reasoning_effort=none).
 
-    코드에 서버 이름으로 분기해 두면 서버가 바뀔 때마다 코드를 고쳐야 합니다. JSON 한 줄을
-    환경에서 받아 요청에 그대로 섞습니다. 잘못된 JSON 은 조용히 무시하지 않고 알립니다.
+    Branching on server names in code means editing code whenever the server changes. One
+    line of JSON comes from the environment and is merged into the request as is. Bad JSON is
+    reported, not silently ignored.
     """
     raw = os.getenv("LLM_REQUEST_EXTRA", "").strip()
     if not raw:
@@ -90,7 +94,7 @@ def _extra_from_env() -> dict:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        print(f"LLM_REQUEST_EXTRA 가 JSON 이 아닙니다: {raw!r}", flush=True)
+        print(f"LLM_REQUEST_EXTRA is not JSON: {raw!r}", flush=True)
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
@@ -102,25 +106,26 @@ class TieredLlm:
         self.base_url = (base_url or os.getenv("LLM_BASE_URL", "")).rstrip("/")
         self.api_key = api_key or os.getenv("NEBIUS_API_KEY", "")
         self.models = models or {}
-        # compose 는 값이 없어도 빈 문자열을 넘깁니다. 빈 값은 없는 값입니다.
+        # compose passes an empty string even when unset. Empty means absent.
         self.timeout_s = float(os.getenv("LLM_TIMEOUT_S") or str(DEFAULT_TIMEOUT_S)
                                if timeout_s is None else timeout_s)
         self.request_extra = _extra_from_env() if request_extra is None else dict(request_extra)
         self.record_dir = os.getenv("LLM_RECORD_DIR", "") if record_dir is None else record_dir
         self.stats: dict[str, TierStats] = {tier.value: TierStats() for tier in LlmTier}
-        # response_format 을 모르는 서버는 400 으로 답합니다. 한 번 그러면 다시 안 보냅니다.
+        # Servers that don't know response_format answer 400; once seen, it's never sent again.
         self._json_mode_ok = True
-        # tools 를 모르는 서버(400)는 한 번 알면 다시 안 보냅니다.
-        # 부르는 쪽은 JSON 양식으로 묻습니다.
+        # Likewise tools: once a server answers them with 400, they aren't sent again.
+        # The caller asks with the JSON form instead.
         self._tools_ok = True
         self._recorded = 0
-        # 마지막으로 서버에 닿지 못한(타임아웃·연결 실패) 시각(monotonic). 답을 받으면 지웁니다.
-        # 부르는 쪽이 "방금 못 받은 서버에 또 긴 질문을 걸 것인가" 를 정하는 근거입니다.
+        # When the server was last unreachable (timeout, connection failure), monotonic;
+        # cleared on an answer. Callers use it to decide whether to put another long question
+        # to a server that just failed to answer.
         self.unreachable_at: float | None = None
-        # 장부(stats·기록 번호)만 잠급니다. HTTP 호출은 잠그지 않습니다 — 기체 에이전트는 경로
-        # 초안을 작업 스레드에서 묻는 동안 본 스레드가 신청서를 물을 수 있고, 둘이 같은
-        # 클라이언트를 씁니다. 잠그지 않으면 `ok += 1` 이 서로를 덮고, 기록 파일 번호가 겹쳐
-        # 한 호출이 다른 호출을 지웁니다.
+        # Locks only the books (stats, record numbers), never the HTTP call — the drone agent's
+        # main thread may ask for a filing while a worker thread asks for a route draft, both
+        # on the same client. Unlocked, `ok += 1` updates overwrite each other and record file
+        # numbers collide, so one call's record erases another's.
         self._books = threading.Lock()
 
     @property
@@ -136,12 +141,12 @@ class TieredLlm:
 
     @property
     def tools_ok(self) -> bool:
-        """이 서버에 tools 를 보내도 되나. 400 을 한 번 받으면 False 로 남습니다."""
+        """May tools be sent to this server? Stays False after one 400."""
         return self._tools_ok
 
     def ask(self, tier: LlmTier, system: str, user: str, max_tokens: int = 400,
             json_object: bool = False, timeout_s: float | None = None) -> LlmReply | None:
-        """한 번 묻습니다. timeout_s 는 이 질문만의 예산 (초안은 신청서보다 오래 걸립니다)."""
+        """Ask once. timeout_s is this question's own budget (drafts take longer than filings)."""
         model = self.model_for(tier)
         if not self.enabled or not model:
             return None
@@ -165,8 +170,8 @@ class TieredLlm:
         url = f"{self.base_url}/chat/completions"
         status, response = post_json_status(url, payload, timeout=budget, headers=headers)
         if wants_json and status == 400:
-            # JSON 강제를 모르는 서버입니다. 인자를 빼고 한 번만 더 냅니다. 타임아웃(0)은 다시
-            # 내봐야 또 기다리기만 하니 그대로 포기합니다.
+            # The server doesn't support forced JSON: retry once without the argument. A
+            # timeout (0) isn't retried — it would only wait again.
             self._json_mode_ok = False
             retry = {k: v for k, v in payload.items() if k != "response_format"}
             status, response = post_json_status(url, retry, timeout=budget, headers=headers)
@@ -180,14 +185,15 @@ class TieredLlm:
     def ask_tools(self, tier: LlmTier, system: str, user: str, tools: list[dict],
                   tool_choice="required", max_tokens: int = 200,
                   timeout_s: float | None = None) -> LlmReply | None:
-        """도구 호출로 한 번 묻습니다(OpenAI 호환 tools/tool_choice). 부른 도구는 reply.tool_calls.
+        """Ask once via tool calling (OpenAI-compatible tools/tool_choice). Called tools land
+        in reply.tool_calls.
 
-        Nemotron 카드가 학습한 형식이 이것입니다. 모델은 도구를 부를 수만 있고, 그 도구가 무엇을
-        하는지는 부르는 쪽 코드가 정합니다 — 여기서는 아무것도 실행하지 않습니다.
-        'required' 를 모르는 서버가 있어 400 이면 'auto' 로 한 번 더 냅니다. 그래도 400 이면 tools
-        자체를 모르는 서버라 tools_ok 를 끄고 None 입니다(셈하지 않음 — 모델이 답을 못 한 게
-        아니라 서버가 형식을 모르는 것). 부르는 쪽은 JSON 으로 다시 묻습니다. 타임아웃(0)은
-        다시 안 냅니다.
+        This is the format the Nemotron card was trained on. The model can only call tools;
+        what a tool does is up to the calling code — nothing is executed here.
+        Some servers don't know 'required', so a 400 gets one retry with 'auto'. Another 400
+        means the server doesn't know tools at all: tools_ok goes off and this returns None
+        (not counted — the model didn't fail to answer, the server doesn't know the format).
+        The caller asks again with JSON. A timeout (0) isn't retried.
         """
         model = self.model_for(tier)
         if not self.enabled or not model or not self._tools_ok:
@@ -227,12 +233,12 @@ class TieredLlm:
         return reply
 
     def unreachable_within(self, seconds: float) -> bool:
-        """최근 seconds 초 안에 서버에 닿지 못했나. 그 사이에 답을 받았으면 False."""
+        """Was the server unreachable in the last seconds? False if an answer came since."""
         return (self.unreachable_at is not None
                 and time.monotonic() - self.unreachable_at < seconds)
 
     def discard(self, tier: LlmTier) -> None:
-        """받긴 했는데 양식이 아니라 버렸습니다. 규칙이 대신한 것으로 셉니다."""
+        """Received but not a valid form, so dropped. Counted as the rules taking over."""
         with self._books:
             stats = self.stats[tier.value]
             stats.ok = max(0, stats.ok - 1)
@@ -249,7 +255,7 @@ class TieredLlm:
 
     def record(self, tier: LlmTier, model: str, system: str, user: str,
                reply: LlmReply | None, latency_ms: int, extra: dict | None = None) -> None:
-        """LLM_RECORD_DIR 이 있으면 호출을 하나씩 파일로 남깁니다. 시험 fixture 의 원료입니다."""
+        """With LLM_RECORD_DIR set, save each call to a file — raw material for test fixtures."""
         if not self.record_dir:
             return
         with self._books:
@@ -268,17 +274,18 @@ class TieredLlm:
             (folder / name).write_text(json.dumps(payload, ensure_ascii=False, indent=1),
                                        encoding="utf-8")
         except OSError as error:
-            print(f"LLM_RECORD_DIR 에 못 씁니다: {error}", flush=True)
+            print(f"cannot write to LLM_RECORD_DIR: {error}", flush=True)
 
     def stats_dict(self) -> dict:
         return {tier: stats.to_dict() for tier, stats in self.stats.items()}
 
 
 def reply_from(response: dict | None, model: str, latency_ms: int = 0) -> LlmReply | None:
-    """답을 꺼냅니다. content 가 먼저, 비어 있으면 reasoning_content, 그다음 reasoning.
+    """Extract the answer: content first, then reasoning_content if empty, then reasoning.
 
-    생각하는 모델은 생각이 max_tokens 를 다 먹어 content 가 비기도 합니다. 그때 생각 필드에
-    답이 들어 있으면 그거라도 씁니다 — 어차피 양식 검사와 판정을 다시 거칩니다.
+    A thinking model's thoughts can eat all of max_tokens and leave content empty. If the
+    thinking field holds the answer, use that — it goes through the form check and judgement
+    again anyway.
     """
     if not response:
         return None
@@ -305,9 +312,10 @@ def reply_from(response: dict | None, model: str, latency_ms: int = 0) -> LlmRep
 
 
 def tool_calls_from(response: dict | None) -> list[dict]:
-    """message.tool_calls 를 [{"name", "arguments", "raw"}] 로. 모양이 아니면 빈 목록.
+    """message.tool_calls as [{"name", "arguments", "raw"}]; an empty list if malformed.
 
-    arguments 는 OpenAI 규격상 JSON 문자열이지만(Ollama 도 문자열) 사전으로 주는 서버도 있습니다.
+    Per the OpenAI spec arguments is a JSON string (a string in Ollama too), but some servers
+    send a dict.
     """
     try:
         message = response["choices"][0]["message"]
@@ -329,7 +337,7 @@ def tool_calls_from(response: dict | None) -> list[dict]:
 
 
 def parse_tool_arguments(raw) -> dict | None:
-    """도구 인자 하나. 사전이면 그대로, 문자열이면 JSON 으로 읽고, 못 읽으면 None."""
+    """One tool's arguments: a dict as is, a string parsed as JSON, otherwise None."""
     if isinstance(raw, dict):
         return raw
     if not isinstance(raw, str) or not raw.strip():
@@ -342,7 +350,7 @@ def parse_tool_arguments(raw) -> dict | None:
 
 
 def tool_reply_from(response: dict | None, model: str, latency_ms: int = 0) -> LlmReply | None:
-    """도구 호출이 있으면 그것을, 없으면 글 답(reply_from)을. 둘 다 없으면 None."""
+    """Tool calls if any, else the text answer (reply_from). None if neither."""
     calls = tool_calls_from(response)
     plain = reply_from(response, model, latency_ms)
     if not calls:
@@ -352,10 +360,10 @@ def tool_reply_from(response: dict | None, model: str, latency_ms: int = 0) -> L
 
 
 def parse_json_object(text: str) -> dict | None:
-    """모델이 문장을 섞어 보내도 객체 하나만 건집니다. 못 건지면 버립니다.
+    """Fish out a single object even when the model mixes in prose; drop it if none is found.
 
-    <think> 안의 JSON 은 답이 아닙니다. 생각 속에서 {"legs": …} 를 쓰고 답은 안 쓴 경우가
-    있어서, 먼저 생각을 떼고 남은 것에서만 찾습니다.
+    JSON inside <think> is not the answer. Models have written {"legs": …} while thinking and
+    then no answer at all, so thoughts are stripped first and only the rest is searched.
     """
     text = strip_think(text or "")
     if not text:
@@ -375,10 +383,12 @@ def parse_json_object(text: str) -> dict | None:
 
 
 def parse_choice(text: str, option_count: int) -> int | None:
-    """목록에 있는 번호 하나만 받습니다. 번호만 있어야 하고, 범위를 벗어나면 버립니다.
+    """Accept only a single number from the list. It must be the number alone; out of range is
+    dropped.
 
-    문장 속의 숫자를 건지던 때는 "7번은 안 되고 2번으로" 같은 답에서 7을 집었습니다.
-    번호 하나(앞에 #, 뒤에 마침표 정도)만 답으로 칩니다. 문장은 규칙이 대신합니다.
+    Back when numbers were fished out of sentences, an answer like "not 7, go with 2" picked
+    7. Only a lone number (at most a leading # or a trailing period) counts as an answer. For
+    a sentence, the rules decide instead.
     """
     if not text:
         return None

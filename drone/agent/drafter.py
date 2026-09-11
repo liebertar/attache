@@ -33,35 +33,44 @@ from shared.geo import (
 from shared.llm.client import LlmTier, TieredLlm, parse_json_object
 
 MAX_LEGS = 12
-# 모델이 적는 고도의 허용 범위. 최저 순항(FLOOR_ALT_M 70 m)보다 낮게 적어도 버리지 않고
-# _apply_altitude_rule 이 운영사 규칙으로 올립니다 — 어디로 갈지는 모델, 얼마나 높이는 규칙.
+# Allowed range for altitudes the model writes. Below the cruise floor (FLOOR_ALT_M 70 m) the
+# draft isn't dropped; _apply_altitude_rule raises it by the operator's rule — where to go is
+# the model's call, how high is the rule's.
 ALT_MIN_M = 40.0
 ALT_MAX_M = 120.0
-# 직선의 이만큼까지만 우회로로 봅니다. 그보다 길면 모델이 헤맨 것이고, A* 가 더 잘 그립니다.
+# A detour may be at most this multiple of the straight line. Longer means the model wandered,
+# and A* draws it better.
 MAX_STRETCH = 2.5
-# 착륙장 모음의 경계 상자에서 이만큼(약 2km) 바깥까지가 서비스 영역입니다.
+# The service area extends this far (about 2 km) beyond the landing sites' bounding box.
 BBOX_MARGIN_DEG = 0.02
-# 직선 위에서 모델에게 알려줄 장애물 개수. 첫 번째만 알려주면 그 뒤에 있는 것에 또 걸립니다.
+# How many obstacles on the straight line to tell the model about. Tell it only the first and
+# the draft runs into the next one.
 OBSTACLE_LIMIT = 5
-# 어떤 고도로도 못 넘는 것(돌아가야 하는 것)은 전부 알려줍니다. 하나라도 빠지면 거기에 걸립니다.
+# Everything no altitude clears (must go around) is reported. Leave one out and the draft hits
+# it.
 GO_AROUND_LIMIT = 12
-# 장애물 옆으로 얼마나 비켜야 열리는지 재 보는 거리(m). 첫 번째 열린 자리를 알려줍니다.
+# Sideways distances (m) probed to find where an obstacle opens up; the first open one is
+# reported.
 SIDE_PROBES_M = (80, 150, 250, 400, 600, 900, 1300, 2000, 3000)
 MAX_ASKS = 2
-# 초안 한 번의 예산. 신청서(수백 토큰, 6초)와 다릅니다 — 지도 읽기 1,200 토큰을 넣고 7구간을 받는 데
-# 한가한 Ollama 에서도 8.7~8.9초, 녹음된 통과 답은 5~19초였습니다. 기체 공통 타임아웃(6초)으로는
-# 라이브에서 초안 15건이 전부 잘려 nano 가 그린 경로가 하나도 없었습니다. 기체는 지상에서
-# 기다리는 중이라 이 시간은 화면에서 '거절 뒤 다시 그리는 중' 으로 보입니다.
-# 실주행(Ollama, 드론 4대): 초안이 한 슬롯에 줄을 서서 19~28초, 30초로는 9건 중 7건이 잘렸습니다.
+# Budget for one draft, unlike a filing (a few hundred tokens, 6 s): sending a 1,200-token map
+# brief and getting 7 legs back took 8.7-8.9 s even on an idle Ollama, and recorded passing
+# answers took 5-19 s. With the aircraft-wide timeout (6 s), all 15 drafts were cut off live
+# and nano drew no routes at all. The aircraft is waiting on the ground, so this time shows on
+# screen as 'redrawing after a refusal'.
+# Live run (Ollama, 4 drones): drafts queued on one slot for 19-28 s; at 30 s, 7 of 9 were cut.
 DRAFT_TIMEOUT_S = 60.0
-# 서버가 방금 답을 못 줬으면 이만큼은 초안을 묻지 않고 A* 로 갑니다. 타임아웃 뒤에 5.6초를
-# 기다렸다 같은 서버에 또 30초를 걸면, 끝나지 못할 호출 뒤에서 기체가 그만큼 더 섭니다.
+# If the server just failed to answer, skip drafts for this long and go to A*. Waiting 5.6 s
+# after a timeout and then giving the same server another 30 s keeps the aircraft standing that
+# much longer behind a call that won't finish.
 DRAFT_BACKOFF_S = 30.0
-# 마감까지 이보다 적게 남았으면 묻지 않습니다. 지도 읽기를 넣고 첫 토큰을 받는 데만 이만큼 걸립니다.
+# Don't ask with less than this left before the deadline: sending the map brief and getting the
+# first token alone takes this long.
 MIN_ASK_S = 2.0
-# 건물을 넘으려면 옥상 + 이격(50m) 위여야 합니다. 딱 그 높이는 아직 구역 안이라(닫힌 구간) 0.5m 더 —
-# 운영사 계획기(route.Router.leg_altitude)와 같은 셈입니다. 두 곳이 다르면 모델이 계획기와 다른
-# 숫자를 듣습니다.
+# Crossing a building takes roof + clearance (50 m). Exactly that height is still inside the
+# zone (closed interval), so add 0.5 m — the same arithmetic as the operator's planner
+# (route.Router.leg_altitude). If the two differed, the model would hear numbers that differ
+# from the planner's.
 OVER_ROOF_MARGIN_M = 0.5
 
 SYSTEM = (
@@ -86,7 +95,7 @@ SYSTEM = (
 
 def service_bbox(points: list[tuple[float, float]],
                  margin_deg: float = BBOX_MARGIN_DEG) -> tuple[float, float, float, float] | None:
-    """(lat_min, lon_min, lat_max, lon_max). 점이 없으면 None."""
+    """(lat_min, lon_min, lat_max, lon_max), or None without points."""
     if not points:
         return None
     lats = [float(p[0]) for p in points]
@@ -104,7 +113,7 @@ def _offset(point: tuple[float, float], north_m: float, east_m: float) -> tuple[
 
 
 def _heading(start: tuple[float, float], goal: tuple[float, float]) -> float:
-    """진행 방향(라디안, 북 0, 동 +)."""
+    """Heading (radians, north 0, east +)."""
     north = (goal[0] - start[0]) * METRES_PER_DEG_LAT
     east = (goal[1] - start[1]) * METRES_PER_DEG_LON
     return math.atan2(east, north)
@@ -118,9 +127,10 @@ def _footprint(volume: Volume) -> str:
     return f"lat {min(lats):.5f}..{max(lats):.5f}, lon {min(lons):.5f}..{max(lons):.5f}"
 
 
-# 모델이 고도 키를 잘못 적는 방식들. 실주행에서 4B 는 열 답 중 넷을 "alt_ma" 로 적었고(재시도에서도
-# 같은 오타), 그 초안은 전부 버려졌습니다. 키 이름은 양식이지 규칙이 아니라 — 값은 같은 범위 검사와
-# 같은 판정을 받습니다 — 읽어 줍니다.
+# Ways the model misspells the altitude key. In a live run the 4B wrote "alt_ma" in four of ten
+# answers (the same typo on retry too), and every one of those drafts was dropped. A key name is
+# form, not rule — the value still gets the same range checks and the same judgement — so
+# these are accepted.
 ALTITUDE_KEYS = ("alt_m", "alt_ma", "altitude_m", "altitude", "alt")
 
 
@@ -136,14 +146,15 @@ def is_building(volume: Volume) -> bool:
 
 
 def needed_over(volume: Volume) -> int | None:
-    """건물을 넘으려면 필요한 고도(m, 올림). 건물이 아니면 None."""
+    """Altitude needed to cross the building (m, rounded up). None if it isn't a building."""
     if not is_building(volume):
         return None
     return math.ceil(volume.ceiling_m + volume.clearance_m + OVER_ROOF_MARGIN_M)
 
 
 def breach_words(volume: Volume) -> str:
-    """사전 판정에 걸린 것을 짧게. 화면 카드용입니다. 예: "crossed bldg-t02452, roof 114 m"."""
+    """What the pre-check caught, in brief, for the screen card, e.g.
+    "crossed bldg-t02452, roof 114 m"."""
     if is_building(volume):
         return f"crossed {volume.id}, roof {volume.ceiling_m:.0f} m"
     if volume.rule == "ceiling" and volume.ceiling_m is not None:
@@ -152,10 +163,10 @@ def breach_words(volume: Volume) -> str:
 
 
 def describe(volume: Volume, allowed_m: float = ALT_MAX_M) -> str:
-    """모델이 읽을 장애물 한 줄. 판정 근거가 아니라 지도 읽기입니다.
+    """One obstacle line for the model to read. Map reading, not grounds for judgement.
 
-    allowed_m 은 그 자리에서 올라갈 수 있는 최대(천장 칸 아래면 120 보다 낮습니다). 필요한 고도가
-    그보다 높으면 넘을 방법이 없으니 '돌아가라' 고 씁니다.
+    allowed_m is the highest one may climb there (below 120 under a ceiling cell). If the
+    needed altitude is higher, there is no way over, so the line says 'go around'.
     """
     needed = needed_over(volume)
     if needed is not None:
@@ -178,7 +189,7 @@ class ModelDrafter:
                  bbox: tuple[float, float, float, float] | None = None,
                  timeout_s: float | None = None, backoff_s: float | None = None):
         self.llm = llm
-        self.planner = planner          # 운영사의 공역 사본과 직선 계획을 씁니다
+        self.planner = planner          # the operator's airspace copy and straight-line plan
         self.tier = tier
         self.bbox = bbox
         self.model = llm.model_for(tier)
@@ -186,14 +197,15 @@ class ModelDrafter:
                           if timeout_s is None else float(timeout_s))
         self.backoff_s = (float(os.getenv("DRAFT_BACKOFF_S", str(DRAFT_BACKOFF_S)))
                           if backoff_s is None else float(backoff_s))
-        # 초안 호출이 잘린 뒤 이 시각까지는 묻지 않습니다. 신청서(6초) 호출이 잘린 것과는 별개입니다
-        # — 같은 서버 상태를 공유했더니 바쁜 Ollama 에서 신청서가 한 번 잘릴 때마다 초안을 30초씩
-        # 건너뛰어, 실주행에서 nano 초안이 한 건도 없었습니다.
+        # After a draft call is cut off, don't ask again until this time. Separate from filing
+        # (6 s) timeouts — with one shared server state, every filing cut off on a busy Ollama
+        # skipped drafts for 30 s, and a live run got not a single nano draft.
         self.skip_until = 0.0
         self.last_attempts = 0
         self.last_failures: list[str] = []
-        self.last_raised = 0            # 운영사의 고도 규칙이 올린 구간 수
-        # 화면 카드(model_trace.route.draft)용: 마지막 초안이 무엇에 걸렸나, 모델이 쓴 시간(합).
+        self.last_raised = 0            # legs raised by the operator's altitude rule
+        # For the screen card (model_trace.route.draft): what the last draft hit, and the
+        # model's total time.
         self.last_breach: str | None = None
         self.last_latency_ms = 0
         self._volumes_by_id: dict[str, Volume] = {}
@@ -207,15 +219,17 @@ class ModelDrafter:
     def name(self) -> str:
         return f"{self.tier.value}:{self.model}"
 
-    # ---------- 그리기 ----------
+    # ---------- drawing ----------
 
     def draft(self, start: tuple[float, float], goal: tuple[float, float],
               context: dict | None = None, deadline: float | None = None) -> list[dict] | None:
-        """모델에게 두 번까지 묻고, 통과한 초안만 돌려줍니다. 못 하면 None — A* 차례입니다.
+        """Ask the model up to twice and return only a draft that passes. Otherwise None —
+        A*'s turn.
 
-        deadline 은 monotonic 시각. 있으면 두 질문을 합쳐 그때까지만 묻습니다 — 부르는 쪽이 거절
-        순간부터 초안 예산 하나(timeout_s)만 기다리고 A* 로 가므로, 그 뒤에 서버에 걸린 질문은
-        답이 와도 쓸 데가 없습니다. 없으면 질문마다 예산 하나씩입니다.
+        deadline is a monotonic time. If given, both asks together stop at it — the caller
+        waits only one draft budget (timeout_s) from the refusal before going to A*, so an ask
+        still pending on the server after that is useless even if it answers. Without it, each
+        ask gets its own budget.
         """
         self.last_attempts = 0
         self.last_failures = []
@@ -225,25 +239,27 @@ class ModelDrafter:
         if not self.enabled:
             return None
         if time.monotonic() < self.skip_until:
-            # 초안 호출이 방금 잘렸습니다. 또 물으면 또 기다릴 뿐이라 이번은 A* 차례입니다.
+            # A draft call was just cut off. Asking again just means waiting again, so A* takes
+            # this one.
             self.last_failures.append("server unreachable a moment ago, skipped")
             return None
         airspace = self.planner.airspace
         if airspace.landing_breach(goal[0], goal[1]) is not None:
-            return None      # 내려앉을 수 없는 자리. 어떤 초안도 소용없고 A* 도 같은 답입니다
+            return None      # can't land there: no draft helps, and A* gives the same answer
 
         bbox = self.bbox or service_bbox([start, goal])
         brief = self._brief(start, goal, bbox, context)
         user = brief
-        took_s = 0.0          # 직전 질문이 걸린 시간. 재시도는 그보다 짧게 끝날 리 없습니다
+        took_s = 0.0          # time the last ask took; a retry won't finish any faster
         for _ in range(MAX_ASKS):
             budget = self._budget(deadline)
             if budget < MIN_ASK_S:
                 self.last_failures.append("draft budget exhausted, not asked")
                 return None
             if deadline is not None and budget < took_s:
-                # 첫 답이 남은 예산보다 오래 걸렸습니다. 같은 서버에 같은 크기의 질문을 또 걸면
-                # 마감 뒤에 오는 답을 기다리는 것뿐입니다(실주행: 잘린 재시도 11건, 통과 0건).
+                # The first answer took longer than the budget left. Another ask of the same
+                # size on the same server just waits for an answer past the deadline (live run:
+                # 11 retries cut off, 0 passed).
                 self.last_failures.append(
                     f"retry skipped: {budget:.0f} s left, the first ask took {took_s:.0f} s")
                 return None
@@ -253,7 +269,7 @@ class ModelDrafter:
             if reply is None:
                 self.last_failures.append("no reply")
                 self.skip_until = time.monotonic() + self.backoff_s
-                return None   # 서버가 없거나 느립니다. 또 물어봐야 또 기다립니다
+                return None   # server missing or slow; asking again just waits again
             took_s = reply.latency_ms / 1000.0
             self.last_latency_ms += reply.latency_ms
             form = parse_json_object(reply.text)
@@ -276,17 +292,17 @@ class ModelDrafter:
         return None
 
     def _budget(self, deadline: float | None) -> float:
-        """이번 질문에 줄 시간. 마감이 있으면 남은 시간과 예산 중 작은 쪽."""
+        """Time for this ask: the budget, or the time left before the deadline if less."""
         if deadline is None:
             return self.timeout_s
         return min(self.timeout_s, deadline - time.monotonic())
 
-    # ---------- 양식 검사 (코드가 합니다, 모델은 못 바꿉니다) ----------
+    # ---------- form checks (done by code; the model can't change them) ----------
 
     @staticmethod
     def validate(form, start: tuple[float, float], goal: tuple[float, float],
                  bbox: tuple[float, float, float, float]) -> tuple[list[dict] | None, str | None]:
-        """양식, 개수, 상자, 고도, 양 끝, 길이. 하나라도 어기면 (None, 이유)."""
+        """Form, count, box, altitude, end points, length. Any violation → (None, reason)."""
         if not isinstance(form, dict) or not isinstance(form.get("legs"), list):
             return None, "not a {\"legs\": [...]} object"
         raw = form["legs"]
@@ -310,10 +326,11 @@ class ModelDrafter:
             if not (bbox[0] <= lat <= bbox[2] and bbox[1] <= lon <= bbox[3]):
                 return None, f"leg {index} ({lat:.5f},{lon:.5f}) outside the service box"
             legs.append({"lat": round(lat, 6), "lon": round(lon, 6), "alt_m": round(alt, 1)})
-        # 양 끝은 우리가 압니다. 모델이 조금 빗나가게 적어도 출발점과 목적지는 사실이 이깁니다.
+        # We know both ends. If the model writes them slightly off, the facts win for the start
+        # and the destination.
         legs[0] = {**legs[0], "lat": round(start[0], 6), "lon": round(start[1], 6)}
         legs[-1] = {**legs[-1], "lat": round(goal[0], 6), "lon": round(goal[1], 6)}
-        # 같은 자리를 두 번 적으면 길이 0 인 구간이 생깁니다. 판정은 되지만 뜻이 없습니다.
+        # The same point twice makes a zero-length leg: judgeable, but meaningless.
         distinct = [legs[0]]
         for leg in legs[1:]:
             if distance_m((distinct[-1]["lat"], distinct[-1]["lon"]),
@@ -330,11 +347,12 @@ class ModelDrafter:
         return distinct, None
 
     def _apply_altitude_rule(self, legs: list[dict]) -> list[dict]:
-        """모델이 적은 고도가 그 구간에서 안 되면 운영사의 규칙(가장 낮은 안전 고도)으로 바꿉니다.
+        """Where the model's altitude won't do for a leg, replace it by the operator's rule
+        (the lowest safe altitude).
 
-        어디로 갈지는 모델이 그렸고, 얼마나 높이 갈지는 직선을 낼 때와 같은 규칙입니다
-        (planner.straight 도 leg_altitude 로 고도를 정합니다). 그 구간을 어떤 고도로도 못 지나면
-        모델의 값을 그대로 두고 판정이 이유를 말하게 합니다.
+        The model drew where to go; how high follows the same rule as a straight-line filing
+        (planner.straight sets altitudes with leg_altitude too). If no altitude can fly the
+        leg, the model's value stays and judgement states the reason.
         """
         router = self.planner.router
         fixed = [dict(legs[0])]
@@ -345,9 +363,9 @@ class ModelDrafter:
             altitude = nxt["alt_m"]
             floor = min(router.floor_alt_m, ALT_MAX_M)
             if altitude < floor:
-                # 판정 자료에 없는 낮은 건물(20 m 미만) 위로도 50 m 가 남아야 합니다. 모델의 값이
-                # 그보다 낮으면 규칙의 최저로 올립니다. 천장 칸이 그보다 낮으면 아래서 판정이
-                # 말합니다.
+                # Low buildings missing from the judgement data (under 20 m) still need 50 m
+                # above them. A model value below that is raised to the rule's floor. If the
+                # ceiling cell is lower still, judgement says so below.
                 segment = [{**segment[0], "alt_m": floor}, {**segment[1], "alt_m": floor}]
                 altitude = floor
                 self.last_raised += 1
@@ -359,7 +377,7 @@ class ModelDrafter:
             fixed.append({**nxt, "alt_m": altitude})
         return fixed
 
-    # ---------- 모델에게 보여줄 것 ----------
+    # ---------- what the model is shown ----------
 
     def _volume(self, volume_id: str | None) -> Volume | None:
         airspace = self.planner.airspace
@@ -369,11 +387,12 @@ class ModelDrafter:
         return self._volumes_by_id.get(volume_id or "")
 
     def breaches_along(self, legs: list[dict], limit: int = OBSTACLE_LIMIT) -> list:
-        """경로가 차례로 부딪히는 것들 [(구간, 구역, 이유, 자리)].
+        """What the route runs into, in order: [(leg, zone, reason, position)].
 
-        구간마다 부딪히는 것을 전부(진행 순서대로) 모읍니다(geo.leg_breaches). 예전에는 첫 번째를
-        넘긴 자리부터 다시 물었는데, 짧은 구간 끝의 낮은 건물 하나 뒤에서 멈춰 그 뒤의 '돌아야
-        하는' 건물이 목록에서 빠졌습니다. 같은 구역은 한 번만.
+        Collects everything each leg runs into, in order along it (geo.leg_breaches). It used
+        to re-ask from just past the first hit, which stopped behind a single low building at
+        the end of a short leg and left the must-go-around building beyond it off the list.
+        Each zone once.
         """
         found = []
         seen: set[str] = set()
@@ -390,18 +409,19 @@ class ModelDrafter:
 
     def obstacles(self, start: tuple[float, float], goal: tuple[float, float],
                   alt_m: float, limit: int = OBSTACLE_LIMIT) -> list:
-        """직선이 차례로 부딪히는 것들 [(구간, 구역, 이유, 자리)]."""
+        """What the straight line runs into, in order: [(leg, zone, reason, position)]."""
         return self.breaches_along([{"lat": start[0], "lon": start[1], "alt_m": alt_m},
                                     {"lat": goal[0], "lon": goal[1], "alt_m": alt_m}], limit)
 
     def go_arounds(self, start: tuple[float, float], goal: tuple[float, float]) -> list:
-        """직선 위에서 어떤 합법 고도로도 못 넘는 것들 — 돌아가야 하는 것 [(구역, 자리)].
+        """What no legal altitude clears on the line — go around these: [(zone, position)].
 
-        최대 고도(120m)로 직선을 재면 그보다 낮게 넘을 수 있는 건물은 안 걸리고, 옥상 + 50m 가
-        120m 를 넘는 건물·모든 고도에서 금지인 칸·옆 이격만 남습니다. 천장 칸 아래에서는 그
-        천장이 한계라, 그 칸을 지나는 동안은 천장 바로 아래 고도로 다시 잽니다 — 120m 스캔은
-        칸 자체에 걸려 칸의 발자국을 통째로 건너뛰므로, 안에 있는 101m 건물(90m 칸에서 152m
-        필요)이 빠졌고 모델은 그 건물을 좌우로 지그재그하며 관통했습니다.
+        Measuring the line at max altitude (120 m) skips buildings that can be crossed lower,
+        leaving only buildings whose roof + 50 m exceeds 120 m, cells forbidden at every
+        altitude, and lateral clearance. Under a ceiling cell the ceiling is the limit, so
+        while crossing that cell the line is measured again just below the ceiling — the 120 m
+        scan hits the cell itself and skips its whole footprint, so a 101 m building inside it
+        (152 m needed, in a 90 m cell) was missed and the model zigzagged right through it.
         """
         found: dict[str, tuple[Volume, tuple[float, float]]] = {}
         self._collect_go_arounds(start, goal, ALT_MAX_M, found, depth=0)
@@ -410,10 +430,11 @@ class ModelDrafter:
 
     def _collect_go_arounds(self, cursor: tuple[float, float], goal: tuple[float, float],
                             alt_m: float, found: dict, depth: int) -> None:
-        """cursor→goal 을 alt_m 로 재서 돌아가야 하는 것을 found 에 모읍니다.
+        """Measure cursor→goal at alt_m and collect what must be gone around into found.
 
-        천장 칸에 걸리면 그 칸의 발자국 구간을 (천장 - 1m) 로 한 번 더 잽니다(재귀, 셋까지 —
-        칸 안의 더 낮은 칸). 그 밖의 것은 must_go_around 로 거릅니다.
+        On hitting a ceiling cell, the stretch across its footprint is measured again at
+        (ceiling - 1 m) (recursive, up to three deep — lower cells inside the cell). Anything
+        else is filtered with must_go_around.
         """
         airspace = self.planner.airspace
         while len(found) < GO_AROUND_LIMIT and distance_m(cursor, goal) >= 1.0:
@@ -435,15 +456,15 @@ class ModelDrafter:
             cursor = beyond
 
     def allowed_over(self, at: tuple[float, float]) -> float:
-        """그 자리에서 올라갈 수 있는 최대 고도(천장 - 1m, 최대 120m)."""
+        """Highest altitude allowed at that point (ceiling - 1 m, at most 120 m)."""
         ceiling = self.planner.airspace.ceiling_at(at[0], at[1])
         return ALT_MAX_M if ceiling is None else min(ALT_MAX_M, ceiling - 1.0)
 
     def must_go_around(self, volume: Volume, at: tuple[float, float]) -> bool:
-        """이 장애물을 그 자리에서 넘을 합법 고도가 없는가."""
+        """Is there no legal altitude to cross this obstacle at that point?"""
         needed = needed_over(volume)
         if needed is None:
-            return volume.rule == "forbidden"     # 금지 칸은 고도와 무관합니다
+            return volume.rule == "forbidden"     # a forbidden cell ignores altitude
         return needed > self.allowed_over(at)
 
     @staticmethod
@@ -453,7 +474,7 @@ class ModelDrafter:
         length = distance_m(cursor, goal)
         if length < 1.0:
             return None
-        # 구역 경계 상자의 대각선만큼 앞으로 갑니다. 그 안에 있는 자국은 전부 지나칩니다.
+        # Step ahead by the diagonal of the zone's bounding box, past every footprint inside it.
         span = distance_m((min(lats), min(lons)), (max(lats), max(lons))) + 30.0
         fraction = min(1.0, (distance_m(cursor, at) + span) / length)
         if fraction >= 1.0:
@@ -468,16 +489,18 @@ class ModelDrafter:
         return names[int((math.degrees(math.atan2(east, north)) % 360 + 22.5) // 45) % 8]
 
     def openings(self, at: tuple[float, float], heading_rad: float) -> dict[str, dict]:
-        """장애물 자리에서 좌우로 얼마나 비키면 열리는지. 그 자리의 허용 고도로 잽니다.
+        """How far left or right of the obstacle the way opens, measured at the altitude
+        allowed there.
 
-        {"left": {"compass", "metres", "point"}, "right": {...}}. 막혀 있으면 metres 가 None.
+        {"left": {"compass", "metres", "point"}, "right": {...}}. metres is None if blocked.
         """
         airspace = self.planner.airspace
         router = self.planner.router
         found = {}
         for label, sign in (("left", 1.0), ("right", -1.0)):
-            # 진행 방향(북 cos h, 동 sin h)의 왼쪽은 90도 반시계로 돌린 (북 sin h, 동 -cos h).
-            # 처음에 부호를 거꾸로 적어 북쪽으로 가는 선의 '왼쪽'이 동쪽으로 나왔습니다.
+            # Left of the heading (north cos h, east sin h) is it turned 90° counter-clockwise:
+            # (north sin h, east -cos h). The signs were first written backwards, and 'left' of
+            # a northbound line came out east.
             north = math.sin(heading_rad) * sign
             east = -math.cos(heading_rad) * sign
             opening = {"compass": self._compass(north, east), "metres": None, "point": None}
@@ -503,11 +526,12 @@ class ModelDrafter:
 
     @staticmethod
     def pick_side(openings: dict[str, dict], previous: str | None) -> str | None:
-        """어느 쪽으로 돌지 하나만 고릅니다. 열린 쪽이 없으면 None.
+        """Pick exactly one side to go around. None if neither side opens.
 
-        가까운 쪽이 기본이지만, 바로 앞 장애물에서 고른 쪽이 두 배 안쪽으로 열려 있으면 그쪽을
-        유지합니다. 녹음된 초안에서 모델이 '왼쪽 80m 열림, 오른쪽 80m 열림' 을 번갈아 경유점으로
-        삼아 건물 사이를 지그재그로 관통했습니다 — 좌우 정보를 둘 다 주면 둘 다 씁니다.
+        The nearer side is the default, but the side chosen at the previous obstacle is kept
+        if it opens within twice the distance. In recorded drafts the model alternated 'left
+        opens at 80 m' and 'right opens at 80 m' as waypoints and zigzagged through the
+        buildings — give it both sides and it uses both.
         """
         open_sides = {label: o for label, o in openings.items() if o["metres"] is not None}
         if not open_sides:
@@ -520,7 +544,7 @@ class ModelDrafter:
 
     def side_advice(self, at: tuple[float, float], heading_rad: float,
                     previous: str | None = None) -> tuple[str, str | None]:
-        """(모델에게 줄 문장, 고른 쪽). '남쪽으로 지나라, 예를 들어 이 점을 거쳐' 꼴입니다."""
+        """(sentence for the model, side chosen), like 'pass to the south, e.g. via this point'."""
         openings = self.openings(at, heading_rad)
         chosen = self.pick_side(openings, previous)
         if chosen is None:
@@ -536,7 +560,7 @@ class ModelDrafter:
         return words, chosen
 
     def _ceilings_along(self, start, goal, step_m: float = 100.0) -> list[str]:
-        """직선 위에서 천장이 120m 아래로 내려가는 구간들. 그 위로 그리면 거절입니다."""
+        """Stretches of the line with a ceiling under 120 m. A route drawn above it is refused."""
         airspace = self.planner.airspace
         length = distance_m(start, goal)
         samples = max(1, int(length / step_m))
@@ -566,7 +590,8 @@ class ModelDrafter:
             f"(straight {length / 1000:.1f} km, heading {math.degrees(heading) % 360:.0f} deg).",
             f"service box lat {bbox[0]:.4f}..{bbox[2]:.4f}, lon {bbox[1]:.4f}..{bbox[3]:.4f}.",
         ]
-        # 먼저, 어떤 고도로도 못 넘는 것 전부. 이건 높이로는 못 고치고 옆으로 비켜야 합니다.
+        # First, everything no altitude clears. Height can't fix these; they must be bypassed
+        # sideways.
         around = self.go_arounds(start, goal)
         if around:
             lines.append("GO AROUND — no legal altitude over these on the straight line "
@@ -584,7 +609,8 @@ class ModelDrafter:
             lines.append(f"The straight line at {alt_m:.0f} m is refused. Along it, in order:")
             for _, volume, _, at in hits:
                 km = distance_m(start, at) / 1000.0
-                # 천장 칸은 옆으로 비키는 게 아니라 낮게 지나면 됩니다. 좌우는 금지 구역만 잽니다.
+                # A ceiling cell is flown under, not sidestepped; sides are measured only for
+                # forbidden zones.
                 sides = f"; {self._clear_sides(at, heading)}" if volume.rule == "forbidden" else ""
                 lines.append(f"- at {km:.1f} km: {describe(volume, self.allowed_over(at))}{sides}")
         lines += ["- " + line for line in self._ceilings_along(start, goal)]
@@ -605,7 +631,7 @@ class ModelDrafter:
                 f"{needed} m, limit there {self.allowed_over(at):.0f} m)")
 
     def feedback_lines(self, legs: list[dict], breaches: list) -> list[str]:
-        """걸린 것마다 한 줄. 돌 쪽은 앞 줄과 같은 쪽을 유지합니다(pick_side)."""
+        """One line per hit. The side to go around stays that of the line before (pick_side)."""
         lines, side = [], None
         for breach in breaches:
             line, side = self.feedback_line(legs, breach, side)
@@ -614,11 +640,12 @@ class ModelDrafter:
 
     def feedback_line(self, legs: list[dict], breach,
                       previous_side: str | None = None) -> tuple[str, str | None]:
-        """재시도 때 모델에게 줄, 걸린 것 하나에 대한 구체적인 한 줄과 고른 쪽.
+        """For a retry: one concrete line for the model about one hit, and the side chosen.
 
-        무엇에(id·이름) 어디서 걸렸고, 옥상이 몇 m 라 몇 m 가 필요했는지, 그게 그 자리의 한계를
-        넘어 돌아가야 하는지, 어느 쪽이 열려 있는지. '고쳐라' 만 들으면 모델은 같은 선을 조금
-        흔들어 다시 냅니다. 무엇을 어느 쪽으로 얼마나 옮겨야 하는지를 숫자로 들어야 합니다.
+        What was hit (id, name) and where, how tall the roof is and what altitude was needed,
+        whether that exceeds the local limit so the route must go around, and which side is
+        open. Told only 'fix it', the model jiggles the same line and refiles. It needs
+        numbers: what to move, which way, and how far.
         """
         segment, volume, why, at = breach
         here, nxt = legs[segment - 1], legs[segment]

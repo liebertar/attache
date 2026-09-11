@@ -21,22 +21,26 @@ from dataclasses import dataclass, field
 from shared.llm.client import LlmTier, TieredLlm, parse_json_object
 
 CHOICE_TOOL = "choose_route"
-# 이유는 한 문장입니다. 화면 카드 한 줄과 원장에 그대로 실리므로 길면 자릅니다.
+# The reason is one sentence. It goes verbatim onto a screen card line and into the ledger, so
+# a long one is cut.
 REASON_CHARS = 160
-# 고르기 한 번(도구 + 필요하면 JSON 재질문)의 예산(초). 거절 표시 5.6초 뒤에 거두므로 그 안에
-# 끝나면 화면에서는 공짜입니다. 실측(Ollama nemotron-3-nano:4b, 한가한 서버): 1.1~2.6초.
+# Budget (s) for one pick (tool call + a JSON re-ask if needed). It is collected after the
+# 5.6 s refusal display, so finishing within that is free on screen. Measured (Ollama
+# nemotron-3-nano:4b, idle server): 1.1-2.6 s.
 CHOICE_TIMEOUT_S = 10.0
-# 남은 예산이 이보다 적으면 묻지 않습니다. 첫 토큰까지가 이만큼입니다.
+# Don't ask with less budget left than this; that's how long the first token takes.
 MIN_ASK_S = 1.0
-# 도구를 줬는데 글로만 답하는 서버: 이만큼 연달아 그러면 그 서버에는 JSON 으로만 묻습니다.
-# (한 번은 모델이 실수한 것일 수 있지만, 매번 두 번 묻는 것은 기체가 그만큼 더 서 있는 것입니다.)
+# A server that answers in text when given tools: after this many in a row, it's asked in
+# JSON only. (Once may be a model slip, but asking twice every time keeps the aircraft
+# standing that much longer.)
 PLAIN_TEXT_LIMIT = 2
 
-# 시스템 문구는 짧게 둡니다. 실측(Ollama nemotron-3-nano:4b, 실주행 브리프 820 토큰): 선호까지
-# 적은 긴 시스템 문구에서는 모델이 쓴 도구 호출(35 토큰)을 Ollama 가 못 읽고 빈 답(200, 내용도
-# 호출도 없음)으로 돌려줬습니다 — 실주행 2/2, 재현 3/3. 짧은 문구로는 6/6 이 도구 호출로 왔습니다.
-# 채팅 틀이 도구 설명을 시스템 자리에 넣으므로 긴 문구가 그 형식 지시를 밀어낸 것으로 봅니다.
-# 선호는 브리프 끝에 둡니다.
+# Keep the system prompt short. Measured (Ollama nemotron-3-nano:4b, live brief of 820
+# tokens): with a long system prompt that also spelled out preferences, Ollama couldn't parse
+# the tool call the model wrote (35 tokens) and returned an empty answer (200, no content, no
+# call) — live 2/2, reproduced 3/3. With the short prompt, 6/6 came back as tool calls. The
+# chat template puts tool descriptions in the system slot, so the long prompt presumably
+# crowded out those format instructions. Preferences go at the end of the brief.
 SYSTEM_TOOLS = (
     "You pick one of the candidate routes for one uncrewed delivery drone by calling "
     f"{CHOICE_TOOL}. You cannot draw, change or approve routes; a runtime judges the one you pick."
@@ -54,8 +58,7 @@ CLOSING_JSON = "Answer with one id and one short sentence why."
 
 
 def choice_tool(ids: list[str]) -> dict:
-    """모델이 부를 수 있는 도구 하나. 이 도구는 아무것도 실행하지 않습니다 —
-    고른 것을 말할 뿐입니다."""
+    """The one tool the model can call. It executes nothing — it only states the pick."""
     return {
         "type": "function",
         "function": {
@@ -78,7 +81,7 @@ def choice_tool(ids: list[str]) -> dict:
 
 @dataclass
 class Choice:
-    """고른 것 하나. path 는 어떻게 골랐나: tools | json | rules."""
+    """One pick. path is how it was made: tools | json | rules."""
 
     chosen: str
     reason: str
@@ -95,14 +98,14 @@ class Choice:
 
 @dataclass
 class Outcome:
-    """한 번의 '다시 그리기' 결과: 후보들과 고른 것, 그리고 계획기가 쓴 시간."""
+    """The result of one redraw: the candidates, the pick, and the planner's time."""
 
     candidates: list[dict] = field(default_factory=list)
     choice: Choice | None = None
     planned_ms: int = 0
 
     def ordered(self) -> list[dict]:
-        """고른 것부터, 그다음은 규칙 순서. 앞의 것이 거절되면 다음 것을 냅니다."""
+        """The pick first, then rule order. If one is refused, the next is filed."""
         by_id = {candidate["id"]: candidate for candidate in self.candidates}
         chosen = self.choice.chosen if self.choice else ""
         first = [by_id.pop(chosen)] if chosen in by_id else []
@@ -110,10 +113,11 @@ class Outcome:
 
 
 def rule_choice(candidates: list[dict], situation: dict | None = None) -> Choice:
-    """모델 없이 고릅니다: 교차가 걸린 판이면 (c), 아니면 (a).
+    """Pick without a model: (c) when a crossing is in play, otherwise (a).
 
-    이 규칙이 없으면 모델이 없을 때 경로를 아예 못 냅니다. 모델이 답하지 않는 날에도 기단은
-    날아야 하고, 그때 골라야 할 것은 정해져 있습니다 — 남의 회랑이 걸린 상황이면 떨어진 길.
+    Without this rule, no route could be filed when there is no model. The fleet has to fly
+    even on days the model doesn't answer, and what to pick then is settled — when another
+    aircraft's corridor is in the way, the route that stays apart.
     """
     situation = situation or {}
     by_id = {candidate["id"]: candidate for candidate in candidates}
@@ -136,7 +140,7 @@ class RouteChooser:
         self.tier = tier
         self.timeout_s = (float(os.getenv("CHOICE_TIMEOUT_S", str(CHOICE_TIMEOUT_S)))
                           if timeout_s is None else float(timeout_s))
-        # 어떻게 골랐나의 셈. 실측 표(보고서)와 시험이 읽습니다.
+        # Tally of how picks were made, read by the measurement table (report) and by tests.
         self.counts = {"tools": 0, "json": 0, "rules": 0, "invalid": 0, "plain_text": 0,
                        "empty": 0, "unsupported": 0, "timeout": 0, "differs_from_rule": 0}
         self._plain_streak = 0
@@ -151,7 +155,8 @@ class RouteChooser:
 
     def choose(self, candidates: list[dict], situation: dict | None = None,
                deadline: float | None = None) -> Choice:
-        """후보 중 하나를 고릅니다. 답이 없거나 없는 id 를 말하면 규칙이 고르고 그걸 셉니다."""
+        """Pick one candidate. With no answer, or an unknown id, the rules pick and that is
+        counted."""
         rules = rule_choice(candidates, situation)
         if len(candidates) < 2:
             return self._by_rules(rules, "one candidate" if candidates else "no candidates")
@@ -172,11 +177,11 @@ class RouteChooser:
             return self._counted(choice, rules, started)
         return self._by_rules(rules, why)
 
-    # ---------- 묻기 ----------
+    # ---------- asking ----------
 
     def _by_tools(self, brief: str, candidates: list[dict],
                   deadline: float) -> tuple[Choice | None, str]:
-        """도구 호출로. 돌려주는 이유가 "json" 이면 JSON 양식으로 다시 물을 차례입니다."""
+        """Via tool calling. A returned reason of "json" means re-ask with the JSON form next."""
         budget = deadline - time.monotonic()
         if budget < MIN_ASK_S:
             return None, "no time"
@@ -186,25 +191,26 @@ class RouteChooser:
         if reply is None:
             if not self.llm.tools_ok:
                 self.counts["unsupported"] += 1
-                return None, "json"     # 서버가 도구를 모릅니다. 같은 질문을 JSON 으로.
+                return None, "json"     # the server doesn't know tools; same question in JSON
             if self.llm.unreachable_within(1.0):
                 self.counts["timeout"] += 1
-                return None, "timeout"  # 서버에 닿지 못했습니다. 또 물어도 또 기다릴 뿐입니다.
-            # 서버는 답했는데 빈 답입니다(200, 글도 도구 호출도 없음). 실측: Ollama 가 4B 의
-            # 도구 호출을 못 읽으면 이렇게 삼킵니다. 서버가 없는 것이 아니라 JSON 으로 한 번 더
-            # 묻습니다.
+                return None, "timeout"  # server unreachable; asking again just waits again
+            # The server answered, but empty (200, no text, no tool call). Measured: Ollama
+            # swallows the 4B's tool call like this when it can't parse it. The server is
+            # there, so ask once more in JSON.
             self.counts["empty"] += 1
             self._plain_streak += 1
             return None, "json"
         if not reply.tool_calls:
-            # 도구를 줬는데 글로 답했습니다. 버리고 JSON 으로 다시 묻습니다.
+            # Given tools, it answered in text. Drop that and re-ask in JSON.
             self.llm.discard(self.tier)
             self.counts["plain_text"] += 1
             self._plain_streak += 1
             return None, "json"
         call = next((c for c in reply.tool_calls if c["name"] == CHOICE_TOOL), None)
         if call is None:
-            # 없는 도구를 불렀습니다. 글이 아니라 틀린 답이라 다시 묻지 않고 규칙이 고릅니다.
+            # Called a tool that doesn't exist. That's a wrong answer, not text, so no re-ask:
+            # the rules pick.
             self.llm.discard(self.tier)
             self.counts["invalid"] += 1
             return None, "invalid tool"
@@ -235,11 +241,12 @@ class RouteChooser:
         return choice, ""
 
     def _validated(self, answer, candidates: list[dict], reply, path: str) -> Choice | None:
-        """양식 검사. id 는 우리가 준 것 중 하나여야 하고, 이유는 한 문장으로 자릅니다."""
+        """Form check. The id must be one we offered; the reason is cut to one sentence."""
         if not isinstance(answer, dict):
             return None
-        # 모델이 "(a)" 나 "a." 로 적기도 합니다. 글자·숫자만 남겨 우리가 준 id 와 맞춥니다 —
-        # 느슨하게 읽는 것은 같은 id 를 알아보는 데까지이고, 없는 id 는 그대로 버립니다.
+        # The model sometimes writes "(a)" or "a.". Keep letters and digits only and match
+        # against our ids — the leniency goes as far as recognising the same id; an unknown id
+        # is still dropped.
         chosen = "".join(ch for ch in str(answer.get("id") or "").lower() if ch.isalnum())
         if chosen not in {candidate["id"] for candidate in candidates}:
             return None
@@ -247,7 +254,7 @@ class RouteChooser:
         return Choice(chosen, reason, model=reply.model, path=path,
                       latency_ms=reply.latency_ms, asked=True)
 
-    # ---------- 셈 ----------
+    # ---------- tallying ----------
 
     def _counted(self, choice: Choice, rules: Choice, started: float) -> Choice:
         self.counts[choice.path] += 1
@@ -262,11 +269,12 @@ class RouteChooser:
         return rules
 
 
-# ---------- 모델이 읽을 것 ----------
+# ---------- what the model reads ----------
 
 
 def choice_brief(candidates: list[dict], situation: dict | None = None) -> str:
-    """고르는 데 필요한 것만 한 화면에: 이 기체, 왜 다시 그리는지, 지금 걸린 것들, 후보 표."""
+    """Only what the pick needs, on one screen: this aircraft, why it's redrawing, what's in
+    effect now, the candidate table."""
     situation = situation or {}
     lines = [_aircraft_line(situation)]
     if situation.get("concern"):
@@ -312,8 +320,8 @@ def _candidate_line(candidate: dict) -> str:
 
 
 def route_choice_param(candidates: list[dict], choice: Choice) -> dict:
-    """params.route_choice — 무엇 중에 무엇을 왜 골랐나. 화면과 원장이 읽고,
-    런타임은 읽지 않습니다."""
+    """params.route_choice — what was picked from what, and why. Read by the screen and the
+    ledger, not by the runtime."""
     return {
         "candidates": [{"id": c["id"], "label": c["label"], "legs_count": len(c["legs"]),
                         "length_m": c["length_m"], "max_alt_m": c["max_alt_m"],
@@ -326,7 +334,8 @@ def route_choice_param(candidates: list[dict], choice: Choice) -> dict:
 
 def situation_from_state(state: dict, telemetry: dict, refusal: dict | None, concern: str,
                          asset_id: str) -> dict:
-    """런타임 /state 와 우리 텔레메트리를 모델이 읽을 몇 줄로. 판정 자료가 아니라 맥락입니다."""
+    """The runtime's /state and our telemetry as a few lines for the model. Context, not
+    judgement data."""
     state = state or {}
     hold = (state.get("weather") or {}).get("hold") or {}
     refused = refusal or {}
@@ -360,7 +369,8 @@ def _refusal_words(refusal: dict) -> str:
 
 
 def _notice_words(state: dict) -> list[str]:
-    """걸려 있는(applied) 공지만. 사람이 확인하기 전 것은 아무것도 안 막으므로 쓰지 않습니다."""
+    """Applied notices only. One not yet confirmed by a person blocks nothing, so it's left
+    out."""
     words = []
     for notice in state.get("notices") or []:
         if not notice.get("applied"):
@@ -383,11 +393,13 @@ def _traffic_words(state: dict, asset_id: str) -> list[str]:
 
 
 def keep_clear_from_state(state: dict, asset_id: str) -> dict:
-    """후보 (c) 가 비켜 갈 것들: 다른 기체의 승인 경로와, 걸려 있는 구역·사고 원.
+    """What candidate (c) keeps clear of: other aircraft's approved routes, and the active
+    zones and incident circles.
 
-    회랑의 좌표는 /state 에 따로 없어서 원장 꼬리(승인된 신청의 legs)에서 그 의도의 신청서를
-    찾아 씁니다. 못 찾으면 그 기체는 빠집니다 — (c) 는 선택지일 뿐이고, 교차 판정은 어차피
-    런타임이 4D 의도로 합니다. 여기서 무엇이 빠져도 규정이 느슨해지지 않습니다.
+    /state has no corridor coordinates, so each intent's filing is looked up in the ledger
+    tail (legs of approved filings). If it isn't found, that aircraft is left out — (c) is
+    only an option, and the runtime judges crossings on the 4D intents anyway. Nothing
+    missing here loosens the rules.
     """
     state = state or {}
     legs_by_proposal = {}

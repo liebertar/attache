@@ -11,16 +11,16 @@ from drone.agent.trace import concern_words, form_part
 from shared.llm.client import LlmTier, TieredLlm, parse_json_object
 from shared.models import Proposal
 
-# 충전은 없습니다. 배터리 관리는 운영사 몫이고, 이 순환(적재 → 배달 → 수거 → 복귀)에 충전대가
-# 없습니다.
-# 목록에 두었더니 모델이 마당에 선 기체에 "charge" 를 써서 조종장치가 "패드 위가 아님" 으로 61번
-# 거절했습니다.
+# No charging. Battery management is the operator's business, and this cycle (load → deliver →
+# pick up → return) has no charger.
+# With it on the list, the model wrote "charge" for aircraft standing in the yard, and the
+# autopilot refused 61 times with "not on a pad".
 ALLOWED_ACTIONS = {"decline_job", "fly_route", "reserve_pad", "disengage_autonomy", "depart"}
-# 모델이 고를 수 있는 것은 걱정거리에 맞는 것뿐입니다. 배달 순환에서는 배달·이륙·포기 셋이고,
-# 비상 착륙(reserve_pad)과 자율주행 해제는 고장 걱정이 있을 때만입니다. 4B 가 마당에 선 기체에
-# '착륙대 예약' 을 일곱 번 적어 옆 자리 기체 위로 내리려다 전부 거절됐습니다. 경로
-# 회수(divert_ground)
-# 는 런타임이 쓰는 것이라 목록에 없습니다.
+# The model may pick only actions that fit the concern. In the delivery cycle that's deliver,
+# depart or decline; emergency landing (reserve_pad) and disengaging autonomy only with a fault
+# concern. The 4B wrote 'reserve landing pad' seven times for an aircraft in the yard, trying to
+# land on top of the aircraft next to it, and every one was refused. Route recall
+# (divert_ground) is the runtime's to use, so it isn't listed.
 ROUTINE_ACTIONS = {"fly_route", "depart", "decline_job"}
 FAULT_ACTIONS = {"motor_fault": {"reserve_pad"}, "needs_pad": {"reserve_pad"},
                  "autonomy_fault": {"disengage_autonomy"}}
@@ -37,8 +37,8 @@ BLAST = {"decline_job": "none", "fly_route": "schedule", "reserve_pad": "schedul
          "disengage_autonomy": "public", "depart": "none"}
 
 def system_for(pads: tuple[str, ...]) -> str:
-    """양식 설명. 패드 이름은 런타임이 알려준 것을 그대로 씁니다 —
-    여기에 적어두면 이름이 바뀌는 순간 조용히 어긋납니다(실제로 어긋나 있었습니다)."""
+    """The form description. Pad names are used exactly as the runtime reported them —
+    written down here, they'd silently drift the moment a name changed (they had drifted)."""
     choices = "|".join(f'"{pad}"' for pad in pads) or "null"
     return (
         "You watch one uncrewed vehicle. You cannot act. You may only fill in a request form "
@@ -67,7 +67,7 @@ def by_rule(
 
 
 def possible_now(action: str, telemetry: dict) -> bool:
-    """이 행동을 기체가 지금 물리적으로 할 수 있나 — 시뮬레이터가 거절하는 것과 같은 기준입니다."""
+    """Can the aircraft physically do this now? The same test the simulator refuses by."""
     state = str(telemetry.get("state") or "")
     airborne = float(telemetry.get("alt_m") or 0.0) > 1.0
     if action in ("charge", "fast_charge"):
@@ -93,8 +93,8 @@ def _build(asset_id: str, action: str, pad: str | None, rationale: str, author: 
 class Proposer:
     def __init__(self, llm: TieredLlm):
         self.llm = llm
-        # 마지막 신청서를 누가 썼나(trace.form_part). 기체 에이전트가 이것을 신청서의
-        # model_trace 에 싣습니다.
+        # Who wrote the last filing (trace.form_part). The drone agent puts this in the
+        # filing's model_trace.
         self.last_trace: dict | None = None
 
     def write(
@@ -120,14 +120,15 @@ class Proposer:
         if not form:
             problem = "not a form"
         elif form.get("action") not in allowed_for(concern):
-            problem = "invalid action"  # 이 걱정거리에 맞지 않는 행동이면 버립니다
+            problem = "invalid action"  # drop an action that doesn't fit this concern
         elif form["action"] in banned:
-            problem = "banned action"   # 이미 금지된 걸 골랐으면 버립니다
+            problem = "banned action"   # drop a pick that is already banned
         elif not possible_now(form["action"], telemetry):
-            # 지금 기체가 할 수 없는 일(패드 위가 아닌데 충전, 떠 있는데 이륙). 양식은 맞지만
-            # 조종장치가 거절할 신청입니다 — 실주행에서 4B 가 마당의 기체에 '충전' 을 61번 적어
-            # 전부 "not on a pad" 로 실패했고, 그동안 그 기체는 짐을 싣지 못했습니다.
-            # 판정이 아니라 운영사의 상식입니다.
+            # Something the aircraft can't do right now (charge when not on a pad, take off
+            # when airborne). The form is valid, but the autopilot would refuse the filing — in
+            # a live run the 4B wrote 'charge' 61 times for an aircraft in the yard, every one
+            # failed with "not on a pad", and meanwhile that aircraft loaded nothing.
+            # This is the operator's common sense, not judgement.
             problem = "impossible now"
         if problem is not None:
             self.llm.discard(tier)
@@ -137,14 +138,15 @@ class Proposer:
 
         chosen_pad = form.get("pad") if form.get("action") == "reserve_pad" else None
         if chosen_pad is not None and chosen_pad not in known:
-            chosen_pad = pad  # 없는 패드를 골랐습니다. 양식은 맞으니 가까운 것으로 되돌립니다
+            chosen_pad = pad  # unknown pad; the form is valid, so fall back to the nearest
         rationale = str(form.get("rationale") or concern.detail)[:180]
         self.last_trace = form_part(reply.model, words, form["action"], rationale,
                                     reply.latency_ms, True, None)
         return _build(telemetry.get("id", "?"), form["action"], chosen_pad, rationale, reply.model)
 
     def _silence_reason(self, tier: LlmTier) -> str:
-        """답이 없었던 이유. 모델이 없으면 no model, 서버에 못 닿았으면(시간 초과 포함) timeout."""
+        """Why there was no answer: "no model" without a model, "timeout" if the server
+        couldn't be reached (timeouts included)."""
         if not (self.llm.enabled and self.llm.model_for(tier)):
             return "no model"
         return "timeout" if self.llm.unreachable_within(5.0) else "no reply"

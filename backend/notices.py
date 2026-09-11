@@ -23,9 +23,10 @@ from shared.notam import (
     validate,
 )
 
-# 공지 하나를 모델이 구조화하는 데 주는 시간(초). 런타임의 기본 20초로는 로컬 30B 대역이 넉 판 중
-# 세 판을 못 읽었습니다(5~27초 걸림). 읽기는 세계 스레드 밖에서 도니(service._read_later) 길어도
-# 틱은 멈추지 않고, 늦은 답은 다음 폴링이 거둡니다.
+# Seconds the model gets to structure one notice. With the runtime's default of 20 s, the local
+# 30B stand-in could not read it in three rounds out of four (it took 5–27 s). Reading runs off
+# the world thread (service._read_later), so a long read does not stop the tick, and a late
+# answer is picked up by the next poll.
 NOTICE_TIMEOUT_S = float(os.getenv("NOTICE_TIMEOUT_S", "60"))
 
 
@@ -33,19 +34,19 @@ NOTICE_TIMEOUT_S = float(os.getenv("NOTICE_TIMEOUT_S", "60"))
 class NoticeRecord:
     id: str
     name: str
-    kind: str                       # notam | zone(구조화된 옛 양식)
+    kind: str                       # notam | zone (the old structured form)
     text: str
     volume: Volume
     from_tick: int | None
     until_tick: int | None
     source: str                     # grammar | structured | model:<id> | human
-    held: bool = False              # 사람 확인 대기. 이 동안은 판정에 안 들어갑니다
-    applied: bool = False           # 지금 공역에 들어가 있나
+    held: bool = False              # awaiting human approval; judgement ignores it meanwhile
+    applied: bool = False           # is it in the airspace right now
     problems: list[str] = field(default_factory=list)
     confirmed_by: str | None = None
 
     def due(self, tick: int) -> bool:
-        """지금 걸려 있어야 하나. 보류 중이면 아니고, 창이 있으면 창 안이어야 합니다."""
+        """Should it be in force now? Not while held; inside its window if it has one."""
         if self.held:
             return False
         if self.from_tick is not None and tick < self.from_tick:
@@ -68,7 +69,7 @@ class NoticeBook:
         self.clock = clock
         self.llm = llm
         self.records: dict[str, NoticeRecord] = {}
-        self.unreadable: dict[str, str] = {}     # id → 왜 못 읽었나. 매 폴링마다 다시 묻지 않게
+        self.unreadable: dict[str, str] = {}     # id → why unreadable, so polls do not ask again
 
     def get(self, notice_id: str) -> NoticeRecord | None:
         return self.records.get(notice_id)
@@ -82,8 +83,9 @@ class NoticeBook:
                 and bool(self.llm.model_for(LlmTier.SUPER)))
 
     def needs_model(self, item: dict) -> bool:
-        """문법·구조화 양식으로는 못 읽고 모델이 있어야 읽히는 공지인가(모델이 없으면 False —
-        그건 그냥 못 읽는 것이고 즉시 그렇게 기록됩니다)."""
+        """Is this a notice neither the grammar nor the structured form can read, so only a
+        model can? (False without a model — then it is simply unreadable, and recorded so at
+        once.)"""
         if item.get("polygon") or not self.can_compile:
             return False
         text = str(item.get("text") or "")
@@ -91,7 +93,8 @@ class NoticeBook:
 
     def read(self, item: dict,
              bbox: tuple[float, float, float, float] | None) -> NoticeRecord | None:
-        """공지 하나를 기록으로. 문법 → 즉시, 모델 → 보류, 둘 다 아니면 None(못 읽음)."""
+        """One notice into a record. Grammar → applies at once, model → held, neither → None
+        (unreadable)."""
         notice_id = str(item.get("id") or "")
         if not notice_id or self.known(notice_id):
             return self.records.get(notice_id)
@@ -99,18 +102,20 @@ class NoticeBook:
 
     def compile_item(self, item: dict, bbox: tuple[float, float, float, float] | None
                      ) -> tuple[NoticeRecord | None, str]:
-        """기록을 만들되 저장하지 않습니다 — 다른 스레드에서 불러도 됩니다. (기록, 못 읽은 이유).
+        """Builds the record without storing it — safe to call from another thread. Returns
+        (record, why unreadable).
 
-        모델 호출이 여기 있습니다. 세계 스레드는 settle() 로 결과만 받아 적습니다.
+        The model call lives here. The world thread only takes the result through settle().
         """
         notice_id = str(item.get("id") or "")
         name = str(item.get("name") or notice_id)
         if item.get("polygon"):
-            # 구조화된 옛 양식(polygon 이 실려 옴). 문법과 같은 신뢰도 — 데이터로 온 것입니다.
+            # The old structured form (carries a polygon). Trusted like the grammar — it came
+            # as data.
             problems = shape_problems(item["polygon"])
             if problems:
                 return None, "; ".join(problems)
-            # 게시 틱은 정보이지 창이 아닙니다 — 목록에 실려 왔으면 지금 걸립니다.
+            # The posting tick is information, not a window — if it is on the list, it applies now.
             volume = Volume.from_dict({**item, "name": name, "from_tick": None})
             return NoticeRecord(notice_id, name, str(item.get("kind") or "zone"),
                                 str(item.get("text") or ""), volume,
@@ -131,14 +136,15 @@ class NoticeBook:
 
     def adopt(self, notice_id: str, name: str, item: dict, notice: Notice, source: str,
               held: bool = False) -> NoticeRecord:
-        """다른 책(정보 수집)이 읽어 낸 공지를 이 책에 올립니다. 그 뒤는 같은 길입니다 —
-        due/lapsed/held, 회수와 거절, 화면 채색."""
+        """Puts a notice another book (information intake) read into this one. From there it
+        takes the same path — due/lapsed/held, recall and refusal, colouring on the screen."""
         record = self._record(notice_id, name, item, notice, source, held=held)
         self.records[notice_id] = record
         return record
 
     def settle(self, item: dict, result: tuple[NoticeRecord | None, str]) -> NoticeRecord | None:
-        """compile_item 의 결과를 적습니다. 못 읽은 것은 이유와 함께(매 폴링마다 다시 묻지 않게)."""
+        """Records compile_item's result; an unreadable one with its reason (so polls do not
+        ask again)."""
         notice_id = str(item.get("id") or "")
         record, why = result
         if record is None:
@@ -149,7 +155,8 @@ class NoticeBook:
 
     def _record(self, notice_id: str, name: str, item: dict, notice: Notice, source: str,
                 held: bool = False) -> NoticeRecord:
-        # 문장에 창이 있으면 그 창이 규칙입니다. 없으면 도착한 지금부터, 목록의 until_tick 까지.
+        # If the text has a window, that window is the rule. Otherwise from now, when it
+        # arrived, until the list's until_tick.
         from_tick = notice.from_tick
         until_tick = notice.until_tick if notice.until_tick is not None else item.get("until_tick")
         volume = Volume(
@@ -162,7 +169,8 @@ class NoticeBook:
                             volume, from_tick, until_tick, source, held=held)
 
     def compile(self, text: str) -> tuple[Notice | None, str, list[str]]:
-        """문법이 못 읽은 문장을 모델에게. (공지, 모델 id, 문제). 모델이 없으면 못 읽은 것입니다."""
+        """Text the grammar could not read goes to the model. Returns (notice, model id,
+        problems). Without a model, it is unreadable."""
         if not text.strip():
             return None, "", ["빈 문장"]
         if not self.can_compile:
@@ -181,7 +189,8 @@ class NoticeBook:
         return notice, reply.model, []
 
     def confirm(self, notice_id: str, actor: str, allow: bool) -> NoticeRecord | None:
-        """사람이 봤습니다. 승인이면 이제부터 사람의 말로 걸리고, 거부면 기록만 남고 안 걸립니다."""
+        """A human has looked. Approved: it applies from now on the human's word. Refused: only
+        the record remains, and it never applies."""
         record = self.records.get(notice_id)
         if record is None or not record.held:
             return None
@@ -195,31 +204,34 @@ class NoticeBook:
             self.unreadable[notice_id] = f"{actor} 가 거부"
         return record
 
-    # 아래 목록들은 records 의 사본 위에서 돕니다. 승인(HTTP 스레드)이 기록을 지우는 사이에 세계
-    # 스레드가 같은 dict 를 돌면 "dictionary changed size during iteration" 으로 폴링이 죽습니다.
+    # The lists below iterate over a copy of records. If the world thread walks the same dict
+    # while an approval (HTTP thread) deletes a record, the poll dies with "dictionary changed
+    # size during iteration".
 
     def due(self, tick: int) -> list[NoticeRecord]:
         return [r for r in list(self.records.values()) if not r.applied and r.due(tick)]
 
     def lapsed(self, tick: int, feed_ids: set[str]) -> list[NoticeRecord]:
-        """더는 걸려 있으면 안 되는 것: 창이 닫혔거나 공지 목록에서 사라졌습니다."""
+        """Those that must no longer apply: the window closed or they left the notice list."""
         return [r for r in list(self.records.values())
                 if r.applied and (not r.due(tick) or r.id not in feed_ids)]
 
     def stale_held(self, tick: int, feed_ids: set[str]) -> list[NoticeRecord]:
-        """보류 중인데 더는 물을 것이 없는 것: 창이 닫혔거나 공지 목록에서 빠졌습니다.
+        """Held, with nothing left to ask: the window closed or they left the notice list.
 
-        그대로 두면 사람 확인 카드와 '사람 대기' 배너가 판이 끝날 때까지 남고, 뒤늦은 확인은
-        아무것도 걸지 못합니다(due 가 창을 봅니다).
+        Left alone, the approval card and the "waiting for a person" banner stay until the round
+        ends, and a late confirmation applies nothing (due checks the window).
         """
         return [r for r in list(self.records.values())
                 if r.held and self._over(r, tick, feed_ids)]
 
     def stale_confirmed(self, tick: int, feed_ids: set[str]) -> list[NoticeRecord]:
-        """사람이 확인했지만 걸린 적 없이 지나간 것: 창이 열리기 전에 닫혔거나 목록에서 빠졌습니다.
+        """Confirmed by a human but passed without ever applying: the window ended before it came
+        into force, or it dropped off the list.
 
-        그대로 두면 /state.notices 에 판이 끝날 때까지 남고, 다시 물을 문법도 없어 잊어야 합니다
-        (문법이 읽은 기록은 창이 닫혀도 남겨 둡니다 — 다시 읽는 데 드는 것이 없습니다).
+        Left alone, it stays in /state.notices until the round ends, and with no grammar to ask
+        again it has to be forgotten (grammar-read records are kept after the window closes —
+        reading them again costs nothing).
         """
         return [r for r in list(self.records.values())
                 if r.source == "human" and not r.held and not r.applied
@@ -231,7 +243,7 @@ class NoticeBook:
                 or record.id not in feed_ids)
 
     def forget(self, notice_id: str, why: str | None = None) -> None:
-        """기록을 지웁니다. why 를 주면 같은 id 가 다시 와도 모델에게 다시 묻지 않습니다."""
+        """Drops the record. Given a why, the same id arriving again is not sent to the model."""
         self.records.pop(notice_id, None)
         if why:
             self.unreadable[notice_id] = why
@@ -241,14 +253,16 @@ class NoticeBook:
         self.unreadable.clear()
 
     def snapshot(self) -> list[dict]:
-        """화면 배너의 원천. 걸려 있거나 예정된 것과, 사람을 기다리는 것.
+        """Source of the screen banner: what applies or is scheduled, and what waits for a
+        human.
 
-        보류 기록도 싣습니다(held=True, applied=False). 배너는 held 를 보고 '사람이 확인해야
-        적용됩니다' 라고 씁니다 — 빼면 모델이 읽은 공지는 승인 화면에만 있고 지도에는 그 공지가
-        '아직 못 읽음' 으로 남습니다. 강제되는 것은 applied 가 말하고, 보류는 아무것도 안 막습니다.
+        Held records are included too (held=True, applied=False). On held, the banner says
+        "waiting for a person before it applies" — without them, a notice a model read would
+        exist only on the approval screen and stay "not yet read by the runtime" on the map.
+        applied says what is enforced; a held record blocks nothing.
         """
         return [r.to_dict() for r in list(self.records.values())]
 
     def pending(self) -> list[dict]:
-        """사람 확인을 기다리는 것만. 승인 화면과 같은 목록입니다."""
+        """Only those awaiting human approval — the same list as the approval screen."""
         return [r.to_dict() for r in list(self.records.values()) if r.held]

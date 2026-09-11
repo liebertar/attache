@@ -28,7 +28,7 @@ def load_fixtures(folder: pathlib.Path = FIXTURE_DIR) -> list[dict]:
 
 
 class FixtureLlm(TieredLlm):
-    """티어와 바늘(needle)로 녹음된 답을 돌려줍니다. 맞는 것이 없으면 None — 규칙 차례입니다."""
+    """Recorded replies, matched by tier and needle. No match returns None: the rules answer."""
 
     def __init__(self, records: list[dict] | None = None, model: str = "nemotron-3-nano",
                  tiers: tuple[str, ...] = ("nano", "super", "ultra")):
@@ -36,8 +36,8 @@ class FixtureLlm(TieredLlm):
                          models={tier: model for tier in tiers}, timeout_s=0.0,
                          request_extra={}, record_dir="")
         self.records = load_fixtures() if records is None else list(records)
-        self.asked: list[tuple[str, str]] = []     # (tier, user) — 무엇을 물었는지 시험이 봅니다
-        self.served: list[str] = []                # 어느 fixture 가 답했는지
+        self.asked: list[tuple[str, str]] = []     # (tier, user): what was asked, for the tests
+        self.served: list[str] = []                # which fixture answered
 
     def ask(self, tier: LlmTier, system: str, user: str, max_tokens: int = 400,
             json_object: bool = False, timeout_s: float | None = None) -> LlmReply | None:

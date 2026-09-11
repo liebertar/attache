@@ -33,24 +33,28 @@ from shared.intake import (
 from shared.llm.client import LlmTier, TieredLlm, parse_json_object
 from shared.notam import Clock, parse_notice, validate
 
-# 한 항목을 모델이 구조화하는 데 주는 시간(초). 공지(NOTICE_TIMEOUT_S)와 같은 이유로 넉넉히 —
-# 읽기는 세계 스레드 밖에서 돌고, 늦은 답은 다음 폴링이 거둡니다.
+# Seconds the model gets to structure one item. Generous for the same reason as notices
+# (NOTICE_TIMEOUT_S) — reading runs off the world thread, and a late answer is picked up by the
+# next poll.
 INTAKE_TIMEOUT_S = float(os.getenv("INTAKE_TIMEOUT_S", "60"))
-# Tavily 를 몇 초마다 묻나. 뉴스·예보는 분 단위로 바뀌지 않습니다.
+# Seconds between Tavily queries. News and forecasts do not change minute to minute.
 INTAKE_PERIOD_S = float(os.getenv("INTAKE_PERIOD_S", "300"))
-# 기상 대기가 막는 행동. 땅에서 낸 것만(Policy.ground_only) — 떠 있는 기체는 내려야 합니다.
+# Actions a weather hold blocks. Only when filed on the ground (Policy.ground_only) — an
+# airborne aircraft has to come down.
 HELD_ACTIONS = ("fly_route", "reserve_pad", "depart")
 HOLD_POLICY_PREFIX = "weather-hold"
-# 화면·원장에 남기는 원문 길이.
+# Length of the original text kept for the screen and the ledger.
 TEXT_CHARS = 180
 KEPT_ITEMS = 20
-# 문법이 읽은 것이 그 틱에 걸리는 출처. 시뮬레이터 공지는 관제탑 자기 피드(NOTAM·리콜과 같은 줄)의
-# 대역입니다. 검색 결과는 웹 페이지이고 POST /intake 는 누가 보냈는지 모르는 문장이라, 문법이 읽어
-# 냈어도 사람이 승인 화면에서 확인해야 규칙이 됩니다 — 2012년 태풍 기사 한 줄이 기단을 세우면 안
-# 됩니다.
+# Sources whose grammar readings apply on the tick they arrive. Simulator notices stand in for the
+# runtime's own feed (the same channel as NOTAMs and recalls). A search result is a web page and
+# POST /intake is text from an unknown sender, so even when the grammar reads them, they become
+# rules only after a human confirms on the approval screen — one line from a 2012 typhoon article
+# must not ground the fleet.
 TRUSTED_SOURCES = frozenset({"sim"})
-# 창의 상한. 보고서나 힌트가 말한 until_tick 이 지금 + 기본 길이 × 이 배수를 넘으면 거기서
-# 자릅니다 — 모델이 99999999 를 말해도 27분(0.8 s/틱) 넘게 세우지 않습니다.
+# Cap on the window. An until_tick from a report or hint beyond now + default length × this
+# multiple is cut there — even if a model says 99999999, nothing is grounded for more than 27 min
+# (0.8 s/tick).
 MAX_WINDOW_HOLDS = 4
 
 
@@ -59,9 +63,9 @@ class IntakeRecord:
     id: str
     source: str                  # sim | tavily | manual
     text: str
-    kind: str | None = None      # weather | incident | notice | none | None(못 읽음)
-    read_by: str = ""            # grammar | model:<id> | ""(못 읽음)
-    why: str = ""                # 못 읽은 이유
+    kind: str | None = None      # weather | incident | notice | none | None (unreadable)
+    read_by: str = ""            # grammar | model:<id> | "" (unreadable)
+    why: str = ""                # why it could not be read
     held: bool = False
     tick: int = 0
     url: str = ""
@@ -78,7 +82,7 @@ class IntakeRecord:
 
 @dataclass
 class WeatherHold:
-    """이륙 정지 하나. 정책 셋(HELD_ACTIONS)이 그것을 강제하고, 여기는 그 근거입니다."""
+    """One takeoff stop. Three policies (HELD_ACTIONS) enforce it; this is their basis."""
 
     id: str
     reason: str
@@ -87,8 +91,8 @@ class WeatherHold:
     source: str                  # grammar | human
     report: dict
     breaches: list[str] = field(default_factory=list)
-    lift_card: str | None = None  # 승인 화면의 '풀기' 카드(신청서 id)
-    later_report: dict | None = None   # 대기 중 도착한, 한도 안의 보고서
+    lift_card: str | None = None  # the "lift" card on the approval screen (filing id)
+    later_report: dict | None = None   # a within-limits report that arrived during the hold
 
     @property
     def policy_ids(self) -> list[str]:
@@ -108,7 +112,7 @@ class WeatherHold:
 
 
 def item_id(item: dict) -> str:
-    """항목의 이름. 없으면 문장의 해시 — 같은 문장은 한 번만 읽습니다."""
+    """The item's id. Without one, a hash of the text — the same text is read only once."""
     given = str(item.get("id") or "").strip()
     if given:
         return given
@@ -126,23 +130,25 @@ class IntakeBook:
         self.records: dict[str, IntakeRecord] = {}
         self.hold: WeatherHold | None = None
         self.last_report: dict | None = None
-        # 모델이 읽어 한도를 넘은 날씨. 사람이 확인하기 전에는 아무것도 세우지 않습니다.
+        # Weather a model read as over the limits. Grounds nothing until a human confirms it.
         self.held_weather: dict[str, dict] = {}
-        # 이 책이 만든 공지(사고·제한) id. NoticeBook 의 피드 검사에서 빠지지 않게 합니다.
+        # Ids of notices (incidents, restrictions) this book made, so NoticeBook's feed check
+        # does not drop them.
         self.notice_ids: set[str] = set()
-        # 검색 출처의 상태. last_fetch_tick 은 성공한 주기만 — 실패한 빈 주기로 앞당기면 '방금
-        # 물었다' 로 읽힙니다. source_failed 는 판을 넘어 남습니다(출처의 일이지 판의 일이 아님).
+        # Search source status. last_fetch_tick counts successful cycles only — moving it on an
+        # empty failed cycle reads as "just asked". source_failed survives a new round (it is
+        # about the source, not the round).
         self.last_fetch_tick: int | None = None
         self.fetch: dict | None = None
         self.source_failed = False
 
-    # ---------- 알고 있는 것 ----------
+    # ---------- what is known ----------
 
     def known(self, key: str) -> bool:
         return key in self.records
 
     def receive(self, item: dict, tick: int) -> IntakeRecord | None:
-        """처음 보는 항목이면 적고 돌려줍니다. 본 것이면 None — 다시 읽지 않습니다."""
+        """Records and returns a new item. None if it was seen already — it is not read again."""
         key = item_id(item)
         if key in self.records:
             return None
@@ -165,10 +171,11 @@ class IntakeBook:
         return (self.llm is not None and self.llm.enabled
                 and bool(self.llm.model_for(LlmTier.SUPER)))
 
-    # ---------- 읽기 ----------
+    # ---------- reading ----------
 
     def read_grammar(self, item: dict) -> Compiled | None:
-        """문법으로. NOTAM 어투 → 사고(주소 있는) → 날씨 순. 종류가 적혀 왔으면 그 문법만."""
+        """By grammar: NOTAM phrasing → incident (with an address) → weather. If the item
+        names its kind, only that grammar."""
         text = str(item.get("text") or "")
         hint = str(item.get("kind") or "")
         if hint not in ("weather", "incident"):
@@ -191,10 +198,11 @@ class IntakeBook:
         return bool(str(item.get("text") or "").strip()) and self.read_grammar(item) is None
 
     def compile_item(self, item: dict, bbox) -> tuple[Compiled | None, str, str]:
-        """(읽은 것, 누가, 못 읽은 이유). 저장하지 않습니다 — 다른 스레드에서 불러도 됩니다.
+        """(reading, read by, why unreadable). Stores nothing — safe to call from another thread.
 
-        범위 검사는 문법이 읽은 것에도 겁니다. 문법이 읽어 냈는데 범위 밖이면 모델에게 다시 묻지
-        않습니다 — 그 문장은 읽힌 것이고, 읽힌 값이 말이 안 되는 것입니다.
+        Range checks apply to grammar readings too. If the grammar read it but it is out of
+        range, the model is not asked again — the text was read; the values it gave make no
+        sense.
         """
         text = str(item.get("text") or "")
         if not text.strip():
@@ -230,7 +238,7 @@ class IntakeBook:
         return compiled, f"model:{reply.model}", ""
 
     def problems(self, compiled: Compiled, bbox) -> list[str]:
-        """모델이 구조화한 것에 거는 검사 전부. 하나라도 걸리면 보류도 안 합니다."""
+        """All checks on what a model structured. If any one fails, it is not even held."""
         if compiled.kind == "weather":
             return weather_problems(compiled.weather)
         if compiled.kind == "incident":
@@ -251,7 +259,8 @@ class IntakeBook:
 
     @staticmethod
     def must_hold(record: IntakeRecord, read_by: str) -> bool:
-        """사람이 확인해야 적용되나. 모델이 읽었거나, 관제탑 피드 밖에서 온 글이면 그렇습니다."""
+        """Does it need human approval to apply? Yes if a model read it or it came from outside
+        the runtime's own feed."""
         return read_by.startswith("model:") or not record.trusted
 
     @staticmethod
@@ -260,10 +269,10 @@ class IntakeBook:
             return "모델이 읽은 것은 사람이 확인해야 적용됩니다"
         return f"{record.source} 에서 온 글은 관제탑 공지가 아닙니다 — 사람이 확인해야 적용됩니다"
 
-    # ---------- 날씨 ----------
+    # ---------- weather ----------
 
     def breaches(self, report: WeatherReport) -> list[str]:
-        """한도를 넘는 것. 같으면 안 넘은 것입니다 — 한도는 뜰 수 있는 마지막 값입니다."""
+        """What exceeds the limits. Equal does not — the limit is the last flyable value."""
         found = []
         if report.gust_mps is not None and report.gust_mps > self.limits.max_gust_mps:
             found.append(f"gusts {report.gust_mps:.0f} m/s > {self.limits.max_gust_mps:.0f}")
@@ -276,11 +285,12 @@ class IntakeBook:
         return found
 
     def horizon(self, tick: int) -> int:
-        """창이 닿을 수 있는 가장 먼 틱. 그 너머를 말한 보고서·힌트는 여기서 잘립니다."""
+        """The farthest tick a window can reach. Reports or hints beyond it are cut here."""
         return tick + MAX_WINDOW_HOLDS * int(self.limits.hold_default_ticks)
 
     def hold_until(self, report: WeatherReport, item: dict, tick: int) -> int:
-        """언제까지 세우나. 문장의 창 → 항목의 until_tick → 기본 길이. 상한은 horizon."""
+        """How long to ground: the text's window → the item's until_tick → the default length.
+        Capped by horizon."""
         return self.window_until(report.from_tick, report.until_tick, item, tick)
 
     def open_hold(self, record_id: str, report: WeatherReport, breaches: list[str],
@@ -304,11 +314,12 @@ class IntakeBook:
         hold, self.hold = self.hold, None
         return hold
 
-    # ---------- 사고 ----------
+    # ---------- incidents ----------
 
     def incident_record(self, record_id: str, report: IncidentReport, text: str, source: str,
                         until_tick: int, held: bool) -> NoticeRecord:
-        """사고를 공지 기록으로. 그 뒤는 NoticeBook 의 길 — 회수·거절·착륙 불가·화면 채색."""
+        """An incident as a notice record. From there it follows NoticeBook's path — recall,
+        refusal, no landing, colouring on the screen."""
         volume = Volume(
             id=record_id, name=report.name, polygon=report.polygon(), floor_m=0.0,
             ceiling_m=None, reference="AGL", rule="forbidden", reason=report.name, source=source,
@@ -323,7 +334,8 @@ class IntakeBook:
 
     def window_until(self, from_tick: int | None, until_tick: int | None, item: dict,
                      tick: int) -> int:
-        """문장의 창 → 항목의 until_tick 힌트(수가 아니면 없는 것) → 기본 길이. 상한은 horizon."""
+        """The text's window → the item's until_tick hint (ignored unless a number) → the
+        default length. Capped by horizon."""
         hinted = hint_number(item.get("until_tick"), float("nan"))
         if until_tick is not None:
             chosen = int(until_tick)
@@ -333,7 +345,7 @@ class IntakeBook:
             chosen = max(tick, from_tick or tick) + int(self.limits.hold_default_ticks)
         return min(chosen, self.horizon(tick))
 
-    # ---------- 판이 바뀌면 ----------
+    # ---------- when the round changes ----------
 
     def clear(self) -> None:
         self.records.clear()
@@ -342,7 +354,7 @@ class IntakeBook:
         self.held_weather.clear()
         self.notice_ids.clear()
 
-    # ---------- 화면 ----------
+    # ---------- screen ----------
 
     def snapshot(self, tavily_on: bool) -> dict:
         recent = sorted(self.records.values(), key=lambda r: r.tick)[-KEPT_ITEMS:]
@@ -364,9 +376,11 @@ class IntakeBook:
 
 
 def incident_snapshot(records: list[NoticeRecord], tick: int) -> list[dict]:
-    """/state.incidents. 사고 공지만, 중심·반경까지 — 화면 배너와 승인 카드가 읽는 값입니다.
+    """/state.incidents. Incident notices only, with centre and radius — what the screen banner
+    and the approval cards read.
 
-    창이 닫힌 것은 뺍니다(문법이 읽은 공지 기록은 창이 닫혀도 책에 남습니다)."""
+    Closed windows are left out (a grammar-read notice record stays in the book after its window
+    closes)."""
     out = []
     for record in records:
         if record.kind != "incident":

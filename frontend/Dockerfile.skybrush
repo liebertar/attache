@@ -1,5 +1,5 @@
-# Skybrush Server. 순수 파이썬이라 arm64 네이티브로 그냥 빌드됩니다.
-# 그래픽 의존성이 하나도 없어서 Docker Desktop 이 GPU 를 안 넘겨줘도 상관이 없습니다.
+# Skybrush Server. Pure Python, so it builds natively on arm64.
+# No graphics dependencies, so it does not matter that Docker Desktop passes no GPU through.
 FROM python:3.12-slim
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN apt-get update \

@@ -37,7 +37,7 @@ class ImpossibleFormTest(unittest.TestCase):
         llm = ScriptedLlm('{"action": "charge", "pad": null, "rationale": "Battery is low."}')
         written = Proposer(llm).write(RELOAD, READY, "pad:launch", frozenset(), ("pad:launch",))
         self.assertEqual((written.action, written.author), ("depart", "rules"))
-        self.assertEqual(llm.stats["nano"].fallback, 1, "버린 답은 규칙이 대신한 것으로 셉니다")
+        self.assertEqual(llm.stats["nano"].fallback, 1, "a discarded answer counts as a fallback")
 
     def test_an_aircraft_on_a_landing_area_asks_for_its_next_route_not_a_charge(self):
         landed = {**READY, "state": "landed", "alt_m": 0.0, "battery": 18.0, "job": "Union Square",
@@ -45,7 +45,7 @@ class ImpossibleFormTest(unittest.TestCase):
         concern = detect(landed)
         self.assertEqual(concern.kind, "needs_route")
         no_job = {**landed, "job": None}
-        self.assertIsNone(detect(no_job), "갈 곳이 없으면 착륙장에서는 아무것도 신청하지 않습니다")
+        self.assertIsNone(detect(no_job), "on a landing site with nowhere to go, it files nothing")
 
     def test_a_bay_reservation_is_only_for_a_fault(self):
         llm = ScriptedLlm('{"action": "reserve_pad", "pad": "pad:launch", '

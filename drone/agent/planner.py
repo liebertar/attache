@@ -18,22 +18,22 @@ from shared.route import Router
 
 class OperatorPlanner:
     def __init__(self, airspace: Airspace | None = None):
-        # 우리 회사가 가진 공역 사본. 최신이 아닐 수도 있습니다.
+        # Our company's copy of the airspace. It may not be the latest.
         self.airspace = airspace or Airspace()
         self.router = Router(self.airspace)
-        self.learned: set[str] = set()   # 런타임이 알려준 것들
+        self.learned: set[str] = set()   # what the runtime has told us
 
     def load(self, raw_volumes: list[dict]) -> None:
         for raw in raw_volumes:
             self.airspace.add(Volume.from_dict(raw))
 
     def note_refusal(self, volume_id: str | None) -> None:
-        """거절 사유에 나온 구역을 우리 지도에도 반영합니다."""
+        """Record a zone named in a refusal reason on our map too."""
         if volume_id:
             self.learned.add(volume_id)
 
     def draw(self, start: tuple[float, float], goal: tuple[float, float]) -> list[dict] | None:
-        """직선이 되면 직선으로, 안 되면 우회로로. 안 되면 None."""
+        """Straight line if possible, else a detour. None if neither works."""
         route = self.router.plan(start, goal)
         if route is None:
             return None
@@ -41,25 +41,28 @@ class OperatorPlanner:
 
     def candidates(self, start: tuple[float, float], goal: tuple[float, float],
                    context: dict | None = None, budget_s: float | None = None) -> list[dict]:
-        """규정 안의 후보를 셋까지(route.Router.candidates). 고르는 것은 이 파일이 아닙니다.
+        """Up to three legal candidates (route.Router.candidates). This file doesn't choose.
 
-        budget_s 는 (b)(c) 하나의 탐색 한도. 없으면 ROUTE_CANDIDATE_BUDGET_S, 그것도 없으면 기본값.
+        budget_s is the search limit for one (b)/(c). Without it, ROUTE_CANDIDATE_BUDGET_S;
+        without that, the default.
         """
         if budget_s is None and os.getenv("ROUTE_CANDIDATE_BUDGET_S"):
             budget_s = float(os.getenv("ROUTE_CANDIDATE_BUDGET_S"))
         return self.router.candidates(start, goal, context, budget_s)
 
     def start_blocked(self, start: tuple[float, float], telemetry: dict | None = None) -> bool:
-        """출발점 자체가 금지 구역 안(또는 이격 거리 안)인가. 그러면 목적지 문제가 아닙니다."""
+        """Is the start itself inside a forbidden zone (or within its clearance)? Then the
+        destination isn't the problem."""
         altitude = float((telemetry or {}).get("alt_m") or self.router.cruise_alt_m)
         return self.airspace.too_close(start[0], start[1], altitude)
 
     def lift(self, legs: list[dict], shift_m: float) -> list[dict] | None:
-        """같은 길을 구간마다 shift_m 만큼 높여서. 어느 구간이든 천장을 넘으면 None.
+        """The same route, every leg raised by shift_m. None if any leg exceeds the ceiling.
 
-        교차 거절의 첫 해결책입니다. 다른 기체의 회랑은 수직 ±25m 라 30m 위로 올리면 비켜 갑니다.
-        천장(격자·Part 107 기본 상한, 1m 여유)은 우리 사본으로 미리 봅니다 — 넘는 줄 알면서 내면
-        화면에 공역 거절이 한 번 더 뜨고, 그건 뜻 없는 표시입니다.
+        The first fix for a crossing refusal. Another aircraft's corridor spans ±25 m
+        vertically, so going 30 m higher clears it. The ceiling (grid, Part 107 default cap,
+        1 m margin) is checked on our copy first — filing it knowing it's over would just flash
+        one more airspace refusal on screen, a meaningless display.
         """
         lifted = [{**leg, "alt_m": round(float(leg.get("alt_m") or 0.0) + shift_m, 1)}
                   for leg in legs]
@@ -74,9 +77,9 @@ class OperatorPlanner:
 
     def straight(self, start: tuple[float, float], goal: tuple[float, float],
                  alt_m: float | None = None) -> list[dict]:
-        """제일 싼 길: 직선 하나. 고도는 우리 사본 기준의 가장 낮은 안전 고도이고, 그런 고도가
-        없으면(옥상 + 이격이 천장을 넘음) 천장 아래 최대로 내서 런타임이 왜 안 되는지 말하게
-        둡니다."""
+        """The cheapest route: one straight line, at the lowest safe altitude per our copy. If
+        there is none (roof + clearance exceeds the ceiling), file at the highest altitude
+        under the ceiling and let the runtime say why it fails."""
         if alt_m is None:
             alt_m = self.router.leg_altitude(start, goal)
             if alt_m is None:
@@ -86,7 +89,7 @@ class OperatorPlanner:
     @staticmethod
     def straight_at(start: tuple[float, float], goal: tuple[float, float],
                     alt_m: float) -> list[dict]:
-        """공역을 안 보는 계획. 직결 세계가 내는 그 경로입니다."""
+        """A plan that ignores airspace — the very route the direct wiring files."""
         return [
             {"lat": start[0], "lon": start[1], "alt_m": alt_m},
             {"lat": goal[0], "lon": goal[1], "alt_m": alt_m},

@@ -77,19 +77,19 @@ class HumanCardLedgerTest(unittest.TestCase):
         self.assertIs(decision.verdict, Verdict.HUMAN)
         rows = rows_for(self.runtime, first.id)
         self.assertEqual(rows, [(rows[0][0], "pending", "human", "human_blast")])
-        # 같은 카드가 서 있는 동안의 재신청: 같은 결정, 그래도 한 줄
+        # A repeat filing while the same card stands: same decision, still its own line
         repeat = public_route()
         again = self.runtime.file(repeat.to_dict())
         self.assertEqual((again.verdict, again.proposal_id), (Verdict.HUMAN, first.id))
         self.assertEqual([r[1:] for r in rows_for(self.runtime, repeat.id)],
                          [("pending", "human", "human_blast"), ("waiting", "human", "human_blast")])
         self.assertEqual(len(self.runtime.snapshot()["awaiting_human"]), 1)
-        # 승인: 카드 줄이 닫히고, 실행은 자기 줄을 남깁니다
+        # Approval: the card's line closes, and the execution leaves its own line
         approved = self.runtime.approve(first.id, "관제사", allow=True)
         self.assertTrue(approved.committed)
         rows = rows_for(self.runtime, first.id)
         self.assertEqual([r[1] for r in rows], ["pending", "approved", "pending", "done"])
-        self.assertEqual(rows[0][0], rows[1][0], "카드를 연 줄을 닫습니다")
+        self.assertEqual(rows[0][0], rows[1][0], "closes the same line that opened the card")
         closed_card = next(e for e in lines(self.runtime) if e["id"] == rows[0][0]
                            and e["outcome"] == "approved")
         self.assertEqual(closed_card["decision"]["approved_by"], "관제사")
@@ -117,7 +117,7 @@ class HumanCardLedgerTest(unittest.TestCase):
         self.assertEqual([(r[1], r[2], r[3]) for r in rows],
                          [("pending", "human", "human_blast"), ("lapsed", "denied", "card_lapsed")])
         self.assertIsNone(self.runtime.approve(first.id, "관제사", allow=True),
-                          "내려간 카드는 승인할 수 없습니다")
+                          "a card that was taken down cannot be approved")
         self.assertEqual(open_ids(self.runtime), set())
 
 

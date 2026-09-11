@@ -16,7 +16,8 @@ def build(kind: str, **kwargs):
 
         return from_env()
     if kind == "composite":
-        # 시뮬레이터가 네 대의 기록의 세계이고, 그중 한 대는 진짜 PX4 도 같이 납니다.
+        # The simulator is the world of record for all four aircraft; one of them also flies
+        # on a real PX4.
         from backend.adapters.composite import from_env
 
         return from_env(kwargs["sim_url"], world=kwargs.get("world", "guarded"),

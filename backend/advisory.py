@@ -14,16 +14,19 @@ from dataclasses import dataclass, field
 
 from shared.llm.client import LlmTier, TieredLlm, parse_json_object
 
-# 연속 거절 이 횟수마다 권고 하나. 두 번은 재작성 사다리(직선 → 우회 → 고도) 안이라 정상입니다.
+# One advisory per this many refusals in a row. Two is normal: still inside the rewrite ladder
+# (straight → detour → altitude).
 ADVISORY_AFTER = 3
-# 운영사의 교차 해결 사다리와 같은 높이(drone/agent/loop.py ALTITUDE_SHIFT_M). 런타임은 기체
-# 패키지를 들여오지 않으므로 값을 따로 둡니다 — 두 값이 갈리면 권고가 운영사가 못 내는 길을
-# 말합니다.
+# The same height as the operator's crossing-resolution ladder (drone/agent/loop.py
+# ALTITUDE_SHIFT_M). The runtime does not import the aircraft package, so the value is kept
+# separately — if the two drift apart, the advisory suggests a route the operator cannot file.
 CLIMB_M = 30.0
-# 권고에 싣는 최근 거절 수. 여섯 번째 거절의 권고에 여섯 개가 다 실리면 됩니다.
+# Recent refusals carried in an advisory: enough for the sixth refusal's advisory to carry all
+# six.
 KEEP_REFUSALS = ADVISORY_AFTER * 2
 SUMMARY_LIMIT = 400
-# 권고 문구를 모델에게 맡길 때의 예산(초). 거절 답장이 이 뒤에 나가므로 길면 운영사가 기다립니다.
+# Time budget (seconds) when a model writes the advisory. The refusal reply goes out after it,
+# so a long one keeps the operator waiting.
 ADVISORY_TIMEOUT_S = 12.0
 
 ADVISORY_SYSTEM = (
@@ -38,7 +41,7 @@ ADVISORY_SYSTEM = (
 
 @dataclass
 class Refusal:
-    """거절 하나에서 권고가 필요로 하는 것. 원장에 남는 값과 같은 이름을 씁니다."""
+    """What the advisory needs from one refusal. Field names match the ledger's."""
 
     asset: str
     tick: int
@@ -50,9 +53,10 @@ class Refusal:
     blocked_until_tick: int | None
     proposal_id: str
     action: str
-    legs: list = field(default_factory=list)        # 마지막으로 낸 경로. 고도 선택지의 재료
-    params: dict = field(default_factory=dict)      # legs 를 뺀 신청서 params (pad 등)
-    resource: str | None = None                     # 신청서의 resource(착륙대). 끝점 검사의 목적지
+    legs: list = field(default_factory=list)        # last filed route; input to the climb option
+    params: dict = field(default_factory=dict)      # filing params without legs (pad etc.)
+    resource: str | None = None                     # filing's resource (landing pad): the
+                                                    # endpoint check's destination
 
     @property
     def traffic(self) -> bool:
@@ -60,7 +64,8 @@ class Refusal:
 
     @property
     def signature(self) -> tuple:
-        """같은 막힘인가. 같은 상대·같은 구역·같은 틱까지의 거절은 되풀이지 새 사정이 아닙니다."""
+        """Is it the same block? A refusal by the same other aircraft or zone until the same
+        tick is a repeat, not news."""
         return (self.action, self.code, self.policy_hit, self.blocked_kind, self.blocked_volume,
                 self.blocked_asset, self.blocked_until_tick)
 
@@ -96,11 +101,11 @@ def lifted(legs: list[dict], shift_m: float = CLIMB_M) -> list[dict]:
 def build_options(refusals: list[Refusal], judge: Callable[[Refusal, list[dict]], str | None],
                   notice_until: Callable[[str | None], int | None],
                   airborne: bool) -> list[Option]:
-    """코드가 만드는 선택지. 판정이 닿는 것은 판정으로 확인합니다 — 실행은 하지 않습니다.
+    """The options the code builds. Where the judge applies, it checks them — nothing runs.
 
-    순서가 곧 규칙의 우선순위입니다: 지상 대기 → 고도 → 공지 창 → 반려 → 사람.
-    judge(refusal, legs) 는 그 경로가 지금 막히는 이유(없으면 None), notice_until(volume_id) 는
-    그 구역이 공지라면 닫히는 틱입니다.
+    The order is the rule's priority: ground hold → climb → notice window → decline → a person.
+    judge(refusal, legs) is why that route is blocked right now (None if it is not);
+    notice_until(volume_id) is the tick that zone closes, if it comes from a notice.
     """
     options: list[Option] = []
     last = refusals[-1] if refusals else None
@@ -137,7 +142,7 @@ def build_options(refusals: list[Refusal], judge: Callable[[Refusal, list[dict]]
 
 
 def rule_pick(options: list[Option]) -> str:
-    """위 순서에서 처음 합법인 것. 마지막 둘은 항상 합법이라 언제나 하나는 있습니다."""
+    """The first legal option in the order above. The last two are always legal, so one exists."""
     return next(o.id for o in options if o.legal)
 
 
@@ -153,28 +158,31 @@ def template_summary(asset: str, refusals: list[Refusal], options: list[Option],
 
 
 def parse_advice(text: str, options: list[Option]) -> tuple[str | None, str]:
-    """모델 답에서 (선택지 id 또는 None, 요약). 목록 밖이거나 판정이 막은 것이면 id 는 None."""
+    """(option id or None, summary) from the model's answer. The id is None when it is not on
+    the list or the judge blocked it."""
     form = parse_json_object(text)
     if not form:
         return None, ""
     legal = {o.id for o in options if o.legal}
-    # 목록은 "[hold] …" 꼴이라 모델이 괄호째 되읽습니다(실주행: 권고 160건 중 155건이 "[hold]" 로
-    # 답해 규칙 선택으로 떨어짐). 괄호·따옴표는 양식이지 선택이 아니라 벗기고 봅니다.
+    # The list reads "[hold] …", so models echo the brackets (in a real run, 155 of 160 advisories
+    # answered "[hold]" and fell back to the rule's pick). Brackets and quotes are formatting, not
+    # the choice, so strip them first.
     choice = str(form.get("choice") or "").strip().strip("[]()\"'` ").strip().lower()
     summary = " ".join(str(form.get("summary") or "").split())[:SUMMARY_LIMIT]
     return (choice if choice in legal else None), summary
 
 
 class AdvisoryDesk:
-    """기체마다 연속 거절을 세고, 권고가 필요할 때 그 내용을 씁니다."""
+    """Counts refusals in a row per aircraft, and writes the advisory when one is due."""
 
     def __init__(self, llm: TieredLlm | None):
         self.llm = llm
         self.streaks: dict[str, list[Refusal]] = {}
-        self.latest: dict[str, dict] = {}       # 기체 → 마지막 권고 (화면용)
-        # 기체마다, 같은 막힘(signature)에 몇 번 거절됐나. 같은 막힘 세 번에 권고 하나, 그 막힘에는
-        # 다시 없습니다 — 실주행에서 착륙대를 남이 쓰는 몇 틱마다 재신청이 오면 세 번째마다
-        # "틱 X 까지 지상 대기" 가 또 적혀 65분에 190건이 됐고, 그때마다 30B 를 한 번씩 불렀습니다.
+        self.latest: dict[str, dict] = {}       # aircraft → latest advisory (for the screen)
+        # Per aircraft, how many refusals each block (signature) drew. Three of the same block get
+        # one advisory, and that block never gets another — in a real run, refilings arrived every
+        # few ticks while someone else held the landing pad, so every third one wrote "hold on the
+        # ground until tick X" again: 190 in 65 min, each calling the 30B once.
         self._by_block: dict[str, dict[tuple, int]] = {}
 
     @property
@@ -183,11 +191,12 @@ class AdvisoryDesk:
                 and bool(self.llm.model_for(LlmTier.SUPER)))
 
     def refused(self, asset: str, refusal: Refusal) -> bool:
-        """거절 하나를 더합니다. 이번 것으로 권고 차례가 됐으면 True.
+        """Adds one refusal. True if this one makes an advisory due.
 
-        같은 막힘(같은 상대·구역·틱까지)의 세 번째 거절에 하나. 그 막힘에는 다시 쓰지 않고,
-        다른 막힘이 세 번 쌓이면 그것에 하나 — 같은 상대가 같은 틱까지 막고 있는데 세 번마다
-        같은 말을 되풀이하지 않습니다. 승인이 나가면 전부 새로 셉니다.
+        One advisory on the third refusal by the same block (same other aircraft, zone and
+        until-tick). That block gets no second one; a different block that reaches three gets
+        its own — while the same aircraft blocks until the same tick, the same thing is not
+        repeated every third time. An approval resets every count.
         """
         streak = self.streaks.setdefault(asset, [])
         streak.append(refusal)
@@ -196,12 +205,12 @@ class AdvisoryDesk:
         return counts[refusal.signature] == ADVISORY_AFTER
 
     def succeeded(self, asset: str) -> None:
-        """승인이 실행됐습니다(또는 주문이 반려됐습니다). 연속은 끊깁니다."""
+        """An approval was executed (or the order was declined). The streak ends."""
         self.streaks.pop(asset, None)
         self._by_block.pop(asset, None)
 
     def declined(self, asset: str) -> bool:
-        """주문 반려 신청이 왔습니다. 거절 뒤의 반려면 권고 차례입니다."""
+        """A decline-the-order filing arrived. After refusals, that makes an advisory due."""
         return bool(self.streaks.get(asset))
 
     def streak(self, asset: str) -> list[Refusal]:
@@ -217,7 +226,8 @@ class AdvisoryDesk:
 
     def compose(self, asset: str, trigger: str, refusals: list[Refusal],
                 options: list[Option], airborne: bool) -> dict:
-        """권고 본문. 모델이 있으면 요약과 선택을 묻고, 목록 밖이거나 답이 없으면 규칙이 고릅니다.
+        """The advisory body. With a model, ask it for the summary and the pick; if the answer
+        is off the list or missing, the rule picks.
         """
         fallback = rule_pick(options)
         chosen, summary, model, source = fallback, "", "", "rules"
@@ -229,7 +239,8 @@ class AdvisoryDesk:
                 model = reply.model
                 picked, said = parse_advice(reply.text, options)
                 if picked is None:
-                    # 목록 밖의 답. 요약도 같이 버립니다 — 없는 선택지를 설명한 문장일 수 있습니다.
+                    # An answer off the list. Drop the summary too — it may describe an option
+                    # that does not exist.
                     self.llm.discard(LlmTier.SUPER)
                 else:
                     chosen, summary, source = picked, said, "super"

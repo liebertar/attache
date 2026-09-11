@@ -20,7 +20,7 @@ def main() -> int:
     parser.add_argument("--config", default="configs/fleet.yaml")
     parser.add_argument("--forbid-action")
     parser.add_argument("--forbid-resource")
-    parser.add_argument("--model", help="이 기종에만 적용")
+    parser.add_argument("--model", help="apply to this model only")
     parser.add_argument("--per-asset", type=float)
     parser.add_argument("--fleet", type=float)
     args = parser.parse_args()
@@ -35,23 +35,23 @@ def main() -> int:
     policies = list(fleet.policies)
     if args.forbid_action or args.forbid_resource:
         policies.append(Policy(
-            id="what-if", reason="검토 중인 규칙",
+            id="what-if", reason="rule under review",
             forbid_action=args.forbid_action,
             forbid_resource=args.forbid_resource,
             applies_to={"model": args.model} if args.model else {},
         ))
 
-    # 기종(--model)은 기록에 나온 모든 자산에 적용합니다.
+    # The model (--model) is applied to every asset in the ledger.
     result = replay(args.ledger, authority, policies,
                     telemetry={a: {"model": args.model} for a in _assets(args.ledger)}
                     if args.model else None)
 
-    print("이 규칙이 지난 기록에 무슨 일을 했을까\n")
+    print("What this rule would have done to the past record\n")
     for key, value in result.summary().items():
         print(f"  {key:14} {value}")
-    for label, changes in (("새로 거부됨", result.newly_denied),
-                           ("새로 사람에게", result.newly_human),
-                           ("새로 허용됨", result.newly_allowed)):
+    for label, changes in (("newly denied", result.newly_denied),
+                           ("newly to a human", result.newly_human),
+                           ("newly allowed", result.newly_allowed)):
         if not changes:
             continue
         print(f"\n{label}:")

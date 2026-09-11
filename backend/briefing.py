@@ -56,25 +56,27 @@ from shared.tavily import (
     SearchFailed,
 )
 
-# 브리핑이 원장에 쓰는 이름. 기체가 아니라 관제탑의 일입니다.
+# Asset name on the briefing's ledger lines: the work is the runtime's own, not an aircraft's.
 BRIEFING_ASSET = "briefing"
 BRIEFING_CHECKS = ["briefing:grammar", "briefing:model", "briefing:validate"]
-# 항목 id 앞머리. 녹음된 장면은 따로 둡니다 — 키를 넣은 날 녹음이 살아 있는 답 행세를 하면
-# 안 됩니다.
+# Item id prefixes. Recorded scenes get their own, so that once a key is added a recording can't
+# pass for a live answer.
 LIVE_PREFIX = "brief-"
 RECORDED_PREFIX = "brief-rec-"
-# 폐쇄 구역의 천장. 땅보다 낮은 천장이라 어떤 고도에서도 걸리지 않고(경로·이륙 기둥은 그대로),
-# 착륙 검사(Airspace.landing_breach — 자리 둘레의 지상 금지 구역만 봅니다)에만 걸립니다.
-# 닫힌 공원에 내리는 것은 막고, 닫힌 공원에서 뜨는 것은 막지 않습니다.
+# Ceiling of a closure zone. Being below the ground, it catches no altitude (routes and take-off
+# columns pass as before) and trips only the landing check (Airspace.landing_breach, which looks
+# only at ground-level forbidden zones around the spot). Landing in a closed park is blocked;
+# taking off from one is not.
 CLOSED_CEILING_M = -1.0
-# 폐쇄된 착륙장으로 가던 기체를 회수할 때 쓰는 기둥의 반경. 그 자리에 내리려는 경로만 걸립니다.
+# Radius of the column used to recall aircraft bound for a closed landing site. It catches only
+# routes that would land on that spot.
 CLOSURE_COLUMN_M = 10.0
-# 한 실행에서 본문까지 읽어 오는 쪽 수(extract 는 5쪽당 1 크레딧).
+# Pages fetched in full per run (extract costs 1 credit per 5 pages).
 EXTRACT_MAX = 5
-# 사람이 읽는 요약의 길이와 문장 수.
+# Length and sentence count of the summary a person reads.
 SUMMARY_CHARS = 400
 SUMMARY_SENTENCES = 2
-# 모델이 쪽 하나를 구조화하는 데 주는 시간(초). 작업 스레드라 틱과 무관합니다.
+# Seconds the model gets to structure one page; on the worker thread, so unrelated to ticks.
 BRIEFING_TIMEOUT_S = float(os.getenv("BRIEFING_TIMEOUT_S", "60"))
 KEPT_ITEMS = 40
 
@@ -91,7 +93,8 @@ DEFAULT_QUERIES = {
     "park": ["{park} closure {date}"],
     "street": ["tower crane permit near {street} {borough}"],
 }
-# 착륙장이 어느 구인가. 질문에 동네 이름이 없으면 엉뚱한 도시의 크레인이 옵니다.
+# The borough of each landing site. Without a borough in the query, cranes from some other city
+# come back.
 BOROUGH = {"la-bbp": "Brooklyn", "la-mccarren": "Brooklyn", "la-bushwick": "Brooklyn",
            "la-hunters": "Queens", "la-gantry": "Queens", "la-governors": "New York"}
 DEFAULT_BOROUGH = "Manhattan"
@@ -141,17 +144,17 @@ class _Unset:
         return f"<{self.label}>"
 
 
-# 판을 아직 모르는 접수대, 한 번도 걸린 적 없는 기억. 둘 다 None 과 달라야 합니다 — 시험과 하네스의
-# 판 번호가 None 입니다.
+# A desk that has not seen a round yet, and a reading never applied. Both must differ from None:
+# the round number is None in the tests and the harness.
 _UNSET = _Unset("no round yet")
 NEVER = _Unset("never applied")
 
 
-# ---------- 설정 ----------
+# ---------- Settings ----------
 
 @dataclass
 class BriefingSettings:
-    """configs/fleet.yaml 의 briefing 절. 없으면 아래 기본값으로 돕니다."""
+    """The briefing section of configs/fleet.yaml. Without one, the defaults below apply."""
 
     trusted_domains: tuple = DEFAULT_TRUSTED
     cell_km: float = 1.0
@@ -177,7 +180,7 @@ class BriefingSettings:
                 with open(config_path, encoding="utf-8") as handle:
                     raw = (yaml.safe_load(handle) or {}).get("briefing") or {}
             except (OSError, ValueError) as error:
-                print(f"briefing 설정을 못 읽었습니다: {error}", flush=True)
+                print(f"briefing: could not read the settings: {error}", flush=True)
         settings = cls()
         for key, value in raw.items():
             if key == "queries" and isinstance(value, dict):
@@ -192,12 +195,12 @@ class BriefingSettings:
                 settings.trusted_domains = tuple(str(item).lower().strip() for item in value)
             elif hasattr(settings, key) and not isinstance(value, (dict, list)):
                 setattr(settings, key, type(getattr(settings, key))(value))
-        # 한 판의 크레딧은 환경(TAVILY_BUDGET_PER_ROUND)이 정합니다 — 여기서는 안 겹칩니다.
+        # TAVILY_BUDGET_PER_ROUND in the environment sets each round's credits; not repeated here.
         return settings
 
 
 def domain_of(url: str) -> str:
-    """주소의 호스트. 신뢰는 도메인으로 가릅니다 — 그 문장을 누가 냈느냐가 규칙의 무게입니다."""
+    """The URL's host. Trust goes by domain: who published the text is what the rule weighs."""
     try:
         host = urllib.parse.urlsplit(str(url or "")).hostname or ""
     except ValueError:
@@ -206,19 +209,19 @@ def domain_of(url: str) -> str:
 
 
 def trusted_domain(url: str, trusted: tuple) -> bool:
-    """공식 출처인가. 정확히 그 도메인이거나 그 아래여야 합니다.
+    """Is it an official source? The host must be exactly that domain or below it.
 
-    'nyc.gov.example.com' 은 남의 도메인입니다.
+    'nyc.gov.example.com' belongs to someone else.
     """
     host = domain_of(url)
     return any(host == name or host.endswith("." + name) for name in trusted)
 
 
-# ---------- 읽은 것 하나 ----------
+# ---------- One reading ----------
 
 @dataclass
 class Citation:
-    """이 규칙이 어디서 왔나. 원장·기록·화면·승인 카드에 그대로 실립니다."""
+    """Where the rule came from. Copied as-is to the ledger, store, screen and approval card."""
 
     url: str = ""
     title: str = ""
@@ -249,10 +252,11 @@ class Citation:
 
 @dataclass
 class Reading:
-    """쪽 하나에서 읽어 낸 것과 그 뒤로 벌어진 일. 판을 넘어 기억에 남습니다.
+    """What one page yielded and what happened after. Remembered across rounds.
 
-    status: applied(걸림) · held(사람 대기) · approved(사람이 확인) · refused(사람이 거부) ·
-    lapsed(답 없이 지나감) · info(규칙 아님) · none(무관) · invalid(검사 탈락) · unreadable.
+    status: applied (in force) · held (waiting for a person) · approved (a person confirmed) ·
+    refused (a person refused) · lapsed (passed without an answer) · info (not a rule) ·
+    none (irrelevant) · invalid (failed the checks) · unreadable.
     """
 
     item_id: str
@@ -297,13 +301,13 @@ class Reading:
                 "note": self.hazard.note}
 
     def active_in(self, round_key) -> bool:
-        """이 판에 걸려 있거나(사람 대기 포함) 걸리기로 된 규칙인가."""
+        """Is the rule in force this round, or due to be (including held for a person)?"""
         return self.round_applied is not NEVER and self.round_applied == round_key
 
 
 @dataclass
 class BriefingNotice(NoticeRecord):
-    """브리핑이 만든 공지. 공지 책의 길을 그대로 가되 출처를 들고 다닙니다."""
+    """A notice the briefing made. It takes the notice book's usual path, carrying its source."""
 
     citation: dict = field(default_factory=dict)
 
@@ -313,7 +317,7 @@ class BriefingNotice(NoticeRecord):
 
 @dataclass
 class Finding:
-    """실행 스레드가 들고 오는 한 쪽의 결과. 세계 스레드가 이것을 규칙으로 옮깁니다."""
+    """One page's result from the worker thread. The world thread turns it into a rule."""
 
     item_id: str
     citation: Citation
@@ -325,7 +329,7 @@ class Finding:
 
 @dataclass
 class RunPlan:
-    """한 번의 브리핑에 무엇을 물을지. 세계 스레드가 짜고 작업 스레드가 실행합니다."""
+    """What one briefing asks. The world thread plans it; the worker thread runs it."""
 
     trigger: str                 # round | corridor | manual
     round: object = None
@@ -358,11 +362,11 @@ class RunResult:
     ignored: int = 0
 
 
-# ---------- 읽기(작업 스레드) ----------
+# ---------- Reading (worker thread) ----------
 
 @dataclass
 class Reader:
-    """쪽 하나를 읽는 데 필요한 것 전부. 읽기는 작업 스레드에서만 돕니다."""
+    """Everything needed to read one page. Reading runs only on the worker thread."""
 
     gazetteer: object
     landing_areas: tuple
@@ -371,7 +375,7 @@ class Reader:
     llm: object = None
 
     def read(self, title: str, text: str) -> tuple[Hazard | None, str, str]:
-        """(읽은 것, 누가, 못 읽은 이유). 문법 → (필요하면) Super → 코드 검사."""
+        """(hazard, read by, why unreadable). Grammar → Super if needed → code checks."""
         body = f"{title}. {text}".strip(". ") if title else text
         if not body.strip():
             return None, "", "빈 쪽"
@@ -411,7 +415,7 @@ class Reader:
         return hazard, f"model:{reply.model}", ""
 
     def from_form(self, form: dict, text: str, read_by: str) -> tuple[Hazard | None, str, str]:
-        """Tavily 의 research 가 채워 온 양식 하나. 모델이 읽은 것과 같은 검사를 지납니다."""
+        """One form filled in by Tavily research. Same checks as anything a model read."""
         try:
             hazard = from_briefing_form(form, self.gazetteer, list(self.landing_areas),
                                         self.day, text)
@@ -435,10 +439,11 @@ def brief_id(url: str, extra: str = "", recorded: bool = False) -> str:
 
 
 def execute(plan: RunPlan, client, reader: Reader, settings: BriefingSettings) -> RunResult:
-    """한 번의 브리핑. 검색 → 공식 쪽 본문 → 읽기 → research → 요약. 전부 작업 스레드에서.
+    """One briefing: search → official pages in full → read → research → summary.
 
-    예산이 없으면 그 호출은 나가지 않고(BudgetExhausted) 실행은 계속됩니다 — 빈 지갑은 고장이
-    아닙니다. 실패는 세어서 상태로 넘깁니다.
+    All on the worker thread. With no budget left, that call is not made (BudgetExhausted) and
+    the run carries on: an empty wallet is not a fault. Failures are counted and passed on as
+    the status.
     """
     result = RunResult(plan=plan, source="recorded" if client.recorded else "live")
     docs: dict[str, dict] = {}
@@ -516,7 +521,7 @@ def execute(plan: RunPlan, client, reader: Reader, settings: BriefingSettings) -
 
 def _note_doc(docs: dict, plan: RunPlan, url, title: str, text: str, query: str, raw: dict,
               client) -> None:
-    """검색·크롤이 준 쪽 하나를 실행의 목록에. 같은 주소는 한 번만 읽습니다."""
+    """Add one page from a search or crawl to the run's list. Each URL is read only once."""
     url = str(url or "")
     if not url and not text:
         return
@@ -533,8 +538,10 @@ def _note_doc(docs: dict, plan: RunPlan, url, title: str, text: str, query: str,
 
 def _fetch_pages(docs: dict, client, settings: BriefingSettings, errors: list,
                  known: frozenset = frozenset()) -> None:
-    """공식 쪽은 본문까지 받아 읽습니다. 검색 조각은 높이·반경·시간 창이 잘려 옵니다.
-    이미 읽은 쪽(known)은 받지 않습니다 — 재시작 뒤에 같은 쪽에 크레딧을 다시 쓰지 않게."""
+    """Fetch official pages in full: search snippets arrive with height, radius and time window
+    cut off. Pages already read (known) are not fetched, so a restart does not spend credits on
+    the same page again.
+    """
     wanted = [doc for doc in docs.values()
               if doc["item_id"] not in known and not doc["full"] and doc["citation"].url
               and trusted_domain(doc["citation"].url, settings.trusted_domains)]
@@ -561,11 +568,12 @@ def _fetch_pages(docs: dict, client, settings: BriefingSettings, errors: list,
 
 def _research(plan: RunPlan, client, reader: Reader, settings: BriefingSettings,
               result: RunResult, docs: dict) -> None:
-    """조사 한 번. 찾아 주는 것은 Tavily 이고, 읽는 것은 우리 문법입니다.
+    """One research call. Tavily does the finding; our grammar does the reading.
 
-    공식 도메인을 짚어 주면 그 쪽의 본문을 받아 문법이 다시 읽습니다 — 그러면 적용되는 것은
-    모델의 말이 아니라 공식 문장입니다. 문법이 못 읽거나 출처가 공식이 아니면, 그 구조화된 답은
-    모델이 읽은 것이라 사람 앞으로 갑니다.
+    When it points at an official domain, that page is fetched and the grammar reads it again,
+    so what applies is the official text, not the model's words. If the grammar cannot read it
+    or the source is not official, the structured answer counts as model-read and goes to a
+    person.
     """
     body = client.research(_research_question(plan), RESEARCH_SCHEMA,
                            model=settings.research_model)
@@ -579,7 +587,7 @@ def _research(plan: RunPlan, client, reader: Reader, settings: BriefingSettings,
             continue
         url = str(raw.get("source_url") or "")
         if url and url in seen_urls:
-            continue        # 그 쪽은 이미 우리 문법이 읽었습니다
+            continue        # our grammar has already read that page
         text = " ".join(str(raw.get("summary") or "").split())
         title = next((str(raw[key]) for key in ("place", "park", "venue", "address", "summary")
                       if raw.get(key)), "research")
@@ -604,7 +612,10 @@ def _research(plan: RunPlan, client, reader: Reader, settings: BriefingSettings,
 
 def _read_official(url: str, client, reader: Reader, citation: Citation,
                    result: RunResult) -> Finding | None:
-    """research 가 짚은 공식 쪽을 우리가 직접 읽습니다. 못 읽으면 None — 그러면 모델의 양식으로."""
+    """Read, ourselves, the official page research pointed to.
+
+    None if we cannot, and then the model's form is used.
+    """
     try:
         body = client.extract([url])
     except (SearchFailed, BudgetExhausted):
@@ -637,9 +648,10 @@ def _research_question(plan: RunPlan) -> str:
 
 
 def write_summary(result: RunResult, reader: Reader) -> tuple[str, str]:
-    """두 문장. Super 가 쓰되 코드가 검사하고, 없으면 틀로 씁니다.
+    """Two sentences. Super writes them and code checks them; without Super, a template.
 
-    모델이 목록에 없는 도메인을 대면 버립니다 — 요약에서 출처를 지어내면 요약이 출처가 됩니다.
+    If the model names a domain not on the list, the text is dropped: a summary that invents a
+    source becomes the source.
     """
     rules = [f.hazard for f in result.findings if f.hazard is not None and f.hazard.rule_kind]
     template = _template_summary(result, rules)
@@ -699,19 +711,19 @@ def _now() -> float:
     return time.time()
 
 
-# ---------- 격자와 자리 ----------
+# ---------- Grid and places ----------
 
 def cell_of(lat: float, lon: float, cell_km: float) -> tuple[int, int]:
-    """약 1 km 칸. 같은 칸은 한 판에 한 번만 묻습니다."""
+    """A cell of about 1 km. Each cell is asked about once per round."""
     size = max(0.2, cell_km) * 1000.0
     return (int(math.floor(lat * METRES_PER_DEG_LAT / size)),
             int(math.floor(lon * METRES_PER_DEG_LON / size)))
 
 
 def cells_along(legs: list, cell_km: float, step_m: float = 250.0) -> list[tuple]:
-    """회랑이 지나는 칸과 그 칸에 들어서는 자리, 지나는 순서대로. [(칸, (lat, lon)), ...]
+    """Cells the corridor crosses and where it enters each, in order. [(cell, (lat, lon)), ...]
 
-    구간을 걸으며 훑습니다 — 끝점만 보면 사이의 동네를 건너뜁니다.
+    Walks each leg: looking only at the endpoints would skip the neighbourhoods in between.
     """
     found: dict = {}
     points = [(float(leg["lat"]), float(leg["lon"])) for leg in legs or []
@@ -733,15 +745,18 @@ def _distance_m(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 def street_of(label: str) -> str:
-    """주소에서 길 이름만. '2701 Broadway' → 'Broadway'."""
+    """Only the street name from an address. '2701 Broadway' → 'Broadway'."""
     parts = str(label or "").split()
     return " ".join(parts[1:]) if parts and parts[0][:1].isdigit() else " ".join(parts)
 
 
-# ---------- 접수대 ----------
+# ---------- The desk ----------
 
 class BriefingDesk:
-    """관제탑의 사전 브리핑. 세계 스레드가 두드리고, 바깥일은 자기 스레드에서 합니다."""
+    """The runtime's pre-flight briefing.
+
+    The world thread polls it; anything that goes outside runs on the desk's own thread.
+    """
 
     def __init__(self, tower, config_path: str | None = None, enabled: bool = False):
         self.tower = tower
@@ -773,11 +788,11 @@ class BriefingDesk:
         self._bbox: tuple | None = None
         self.load_memory()
 
-    # ---------- 무엇으로 도나 ----------
+    # ---------- What it runs on ----------
 
     @property
     def live(self):
-        """살아 있는 Tavily. 없거나 녹음 모드면 None."""
+        """The live Tavily client; None if there isn't one or in recorded mode."""
         forced = os.getenv("TAVILY_RECORDED", "").strip().lower()
         if forced in ("1", "true", "yes", "on"):
             return None
@@ -785,7 +800,7 @@ class BriefingDesk:
 
     @property
     def mode(self) -> str:
-        """live · recorded · off. 키가 없으면 녹음, TAVILY_RECORDED=0 이면 아예 끕니다."""
+        """live · recorded · off. No key means recorded; TAVILY_RECORDED=0 turns it off."""
         if self.live is not None:
             return "live"
         forced = os.getenv("TAVILY_RECORDED", "").strip().lower()
@@ -794,7 +809,7 @@ class BriefingDesk:
         return "recorded"
 
     def _serving_recorded(self) -> bool:
-        """지금 녹음을 내고 있나. 녹음 모드이거나, 살아 있는 쪽이 실패해 녹음으로 돌았을 때."""
+        """Serving recordings now? In recorded mode, or when live failed and fell back to them."""
         return self.mode == "recorded" or self.fallback is not None
 
     @property
@@ -808,7 +823,7 @@ class BriefingDesk:
 
     @property
     def day(self) -> datetime.date:
-        """어느 날의 브리핑인가. 살아 있으면 오늘, 녹음이면 그 fixture 가 녹음된 날입니다."""
+        """The briefing's day: today when live; when recorded, the day the fixture was made."""
         given = os.getenv("BRIEFING_DATE", "").strip()
         if given:
             try:
@@ -825,10 +840,10 @@ class BriefingDesk:
                         continue
         return datetime.datetime.now(datetime.UTC).date()
 
-    # ---------- 세계 스레드가 두드리는 곳 ----------
+    # ---------- Called from the world thread ----------
 
     def poll(self, bbox=None) -> None:
-        """폴링마다 한 번. 끝난 실행을 적용하고, 판이 바뀌었으면 새로 묻습니다."""
+        """Once per poll. Applies finished runs, and asks afresh if the round has changed."""
         if not self.enabled:
             return
         self._bbox = bbox if bbox is not None else self._bbox
@@ -841,7 +856,7 @@ class BriefingDesk:
         self._new_round()
 
     def corridor_cleared(self, legs: list, asset: str = "") -> None:
-        """방금 승인한 회랑. 아직 이 판에 안 물어본 동네가 있으면 물을 목록에 올립니다."""
+        """A corridor just cleared. Queues any neighbourhood not yet asked about this round."""
         if not self.enabled or not legs:
             return
         cells = cells_along(legs, self.settings.cell_km)
@@ -849,11 +864,12 @@ class BriefingDesk:
             for order, (cell, entry) in enumerate(cells):
                 if cell in self.briefed_cells or cell in self.pending_cells:
                     continue
-                # (처음 본 틱, 회랑에서의 순서, 들어서는 자리). 먼저 지나갈 동네부터 묻습니다.
+                # (tick first seen, order along the corridor, entry point). Neighbourhoods
+                # crossed first are asked about first.
                 self.pending_cells[cell] = (self.tower.tick, order, entry)
 
     def request_run(self) -> tuple[int, dict]:
-        """POST /briefing/run. 다음 폴링에 한 번 더 묻습니다."""
+        """POST /briefing/run. Asks once more at the next poll."""
         if not self.enabled or self.mode == "off":
             return 503, {"error": "브리핑이 꺼져 있습니다"}
         if self._running:
@@ -862,7 +878,10 @@ class BriefingDesk:
         return 200, {"ok": True, "queued": True, "source": self.mode}
 
     def adopt_waiting(self, items: list[dict]) -> list[dict]:
-        """재시작 때 사람을 기다리던 줄. 브리핑 것은 여기서 받고 나머지는 접수함으로 돌려줍니다."""
+        """Rows that were waiting for a person at restart.
+
+        The briefing's own are taken here; the rest go back to the intake inbox.
+        """
         rest = []
         for item in items or []:
             reading = Reading.from_hints(str(item.get("id") or ""), item,
@@ -870,13 +889,14 @@ class BriefingDesk:
             if reading is None:
                 rest.append(item)
                 continue
-            reading.status = "held"     # 카드를 잃었으니 다시 올립니다(다시 읽지는 않습니다)
+            reading.status = "held"     # the card was lost: raise it again (no re-read)
             self.readings[reading.item_id] = reading
         return rest
 
     def load_memory(self) -> None:
-        """끝난 줄까지 되읽습니다. 재시작이 규칙을 푸는 일이 되면 안 됩니다 — 푸는 것은 사람과
-        창뿐입니다. 쪽은 다시 읽지 않습니다(문장도 힌트도 기록에 있습니다)."""
+        """Reload rows, finished ones included. A restart must not lift a rule: only a person or
+        the window does that. Pages are not read again (the text and hints are in the store).
+        """
         store = getattr(self.tower, "store", None)
         if store is None or not hasattr(store, "briefed"):
             return
@@ -886,10 +906,10 @@ class BriefingDesk:
             if reading is not None:
                 self.readings.setdefault(reading.item_id, reading)
 
-    # ---------- 판 ----------
+    # ---------- Rounds ----------
 
     def _new_round(self) -> None:
-        """판이 바뀌었습니다. 기억한 규칙을 이 판의 창으로 다시 걸고, 한 번 묻습니다."""
+        """The round changed. Re-apply remembered rules in this round's windows, then ask once."""
         self.round_key = self.tower._round
         with self._lock:
             self.briefed_cells.clear()
@@ -927,12 +947,14 @@ class BriefingDesk:
         self._start(self._plan("corridor", cells=chosen))
 
     def _broke(self) -> bool:
-        """이 판의 크레딧을 다 썼나. 그러면 회랑 브리핑을 띄우지 않습니다 — 나가지도 않을 호출로
-        원장에 빈 실행 줄만 쌓입니다. 칸은 그대로 두었다가 다음 판에 버립니다."""
+        """Are this round's credits spent? Then no corridor briefing starts: calls that would
+        never go out only pile empty run lines into the ledger. The cells stay queued and are
+        dropped at the next round.
+        """
         live = self.live
         return live is not None and live.credits.left < 1.0
 
-    # ---------- 계획 ----------
+    # ---------- Planning ----------
 
     def _plan(self, trigger: str, cells: list | None = None) -> RunPlan:
         day = self.day
@@ -969,7 +991,10 @@ class BriefingDesk:
             window_text=self._window_text(day))
 
     def _destinations(self, areas: tuple) -> list[dict]:
-        """지금 기단이 가고 있는 착륙장들. 그 자리와 그 시간을 묻는 것이 브리핑입니다."""
+        """Landing sites the fleet is heading to now.
+
+        Asking about that place at that time is what a briefing is.
+        """
         found = []
         for state in (self.tower.telemetry or {}).values():
             if state.get("job_lat") is None or state.get("job_lon") is None:
@@ -990,9 +1015,9 @@ class BriefingDesk:
 
     def _street_queries(self, at: tuple, streets: list[str], areas: tuple,
                         day: datetime.date) -> list[dict]:
-        """그 자리의 길모퉁이를 묻습니다(길 이름 둘).
+        """Ask about the street corner at that point (two street names).
 
-        동네 이름이 없으면 딴 도시의 크레인이 옵니다.
+        Without a borough, cranes from another city come back.
         """
         if not streets:
             return []
@@ -1005,9 +1030,9 @@ class BriefingDesk:
                 for template in self.settings.queries.get("street") or []]
 
     def _streets_near(self, at: tuple, limit: int = 2) -> list[str]:
-        """그 자리의 길 이름 한둘. 지명 사전이 아는 주소에서 뽑습니다.
+        """One or two street names at that point, from addresses the gazetteer knows.
 
-        우리가 아는 자리만 묻습니다.
+        We only ask about places we know.
         """
         addresses = getattr(self.tower.gazetteer, "addresses", []) or []
         close = sorted(
@@ -1032,7 +1057,10 @@ class BriefingDesk:
                 for template in templates + list(seasonal)]
 
     def _window_text(self, day: datetime.date) -> str:
-        """이 판이 덮는 시간, 뉴욕 지방시로. 질문은 '그 자리' 만큼이나 '그 시간' 이어야 합니다."""
+        """The hours this round covers, in New York local time.
+
+        A query has to be about 'that time' as much as 'that place'.
+        """
         start = self._round_start()
         end = start + datetime.timedelta(
             seconds=self.settings.max_window_ticks * self.tower.performance.seconds_per_tick)
@@ -1040,10 +1068,13 @@ class BriefingDesk:
                 f"{utc_to_eastern(end).strftime('%H:%M')} local time")
 
     def _known(self) -> set:
-        """이미 읽은 쪽. 기억(재시작 뒤에는 기록에서 되읽은 것 포함)에 있으면 다시 읽지 않습니다."""
+        """Pages already read. Anything in memory is not read again.
+
+        After a restart, memory includes what was reloaded from the store.
+        """
         return set(self.readings)
 
-    # ---------- 실행 ----------
+    # ---------- Running ----------
 
     def _start(self, plan: RunPlan) -> None:
         if self.mode == "off" or self._running:
@@ -1058,10 +1089,10 @@ class BriefingDesk:
                          name=f"briefing-{plan.trigger}").start()
 
     def _work(self, plan: RunPlan) -> None:
-        """작업 스레드. 여기서만 바깥에 나가고 모델에게 묻습니다."""
+        """The worker thread: the only place that goes outside or asks a model."""
         try:
             result = self._run_with_fallback(plan)
-        except Exception as error:  # noqa: BLE001 — 브리핑이 죽어도 런타임은 돕니다
+        except Exception as error:  # noqa: BLE001 — the runtime keeps going if the briefing dies
             print(f"briefing: {error!r}", flush=True)
             result = RunResult(plan=plan, source=self.mode,
                                status=FetchStatus(ok=False, error=f"{type(error).__name__}"),
@@ -1071,7 +1102,7 @@ class BriefingDesk:
             self._running = False
 
     def _run_with_fallback(self, plan: RunPlan) -> RunResult:
-        """살아 있는 Tavily 로 먼저. 한 건도 못 받으면 녹음으로 — 그리고 그렇게 말합니다."""
+        """Live Tavily first. If not a single result comes back, recorded — and it says so."""
         reader = Reader(gazetteer=self.tower.gazetteer, landing_areas=plan.landing_areas,
                         day=plan.day, bbox=plan.bbox, llm=getattr(self.tower, "llm", None))
         live = self.live
@@ -1080,7 +1111,7 @@ class BriefingDesk:
             if result.status.ok or not self.fallback_allowed:
                 return result
             if result.findings:
-                return result       # 일부는 받았습니다. 녹음으로 덮지 않습니다
+                return result       # some of it arrived; don't cover it with recordings
             recorded = execute(plan, self.recorded_client(), reader, self.settings)
             recorded.fallback = {"from": "live", "why": result.status.error or "no answer"}
             recorded.status = result.status
@@ -1088,14 +1119,14 @@ class BriefingDesk:
             return recorded
         return execute(plan, self.recorded_client(), reader, self.settings)
 
-    # ---------- 결과를 규칙으로(세계 스레드) ----------
+    # ---------- Results into rules (world thread) ----------
 
     def _collect(self) -> None:
         with self._lock:
             arrived, self._done = self._done, []
         for result in arrived:
             if result.plan.round != self.tower._round:
-                continue        # 지난 판의 답입니다. 이 판의 규칙이 아닙니다
+                continue        # an answer from a past round, not a rule for this one
             self._absorb(result)
 
     def _absorb(self, result: RunResult) -> None:
@@ -1118,14 +1149,14 @@ class BriefingDesk:
         self.domains = self._round_domains()
 
     def _take(self, finding: Finding) -> None:
-        """쪽 하나의 결과를 적고, 규칙이면 겁니다."""
+        """Record one page's result, and apply it if it is a rule."""
         known = self.readings.get(finding.item_id)
         if finding.remembered:
             if known is not None:
                 self._place(known, remembered=True)
             return
         if known is not None:
-            return      # 이미 아는 쪽입니다. 새로 적으면 카드가 두 장이 됩니다
+            return      # a page we already know; recording it again would make two cards
         reading = Reading(item_id=finding.item_id,
                           hazard=finding.hazard or Hazard(kind="none"),
                           citation=finding.citation, text=finding.text[:EVIDENCE_CHARS],
@@ -1147,14 +1178,14 @@ class BriefingDesk:
             self._place(reading)
 
     def _place(self, reading: Reading, remembered: bool = False) -> None:
-        """규칙 하나를 이 판에 겁니다(또는 사람 앞에 올립니다). 창 밖이면 아무것도 안 합니다."""
+        """Apply a rule this round (or hold it for a person). Outside its window, do nothing."""
         if reading.hazard.rule_kind is None or reading.status in ("refused", "invalid",
                                                                   "unreadable", "none"):
             return
         if remembered and reading.round_applied == self.tower._round:
             return
         if remembered and reading.citation.recorded != self._serving_recorded():
-            return      # 녹음된 규칙이 살아 있는 답 행세를 하면 안 됩니다(반대도 마찬가지)
+            return      # a recorded rule must not pass for a live answer (nor the reverse)
         from_tick, until_tick, why = self._ticks(reading.hazard.window)
         if why:
             reading.why = why
@@ -1176,7 +1207,7 @@ class BriefingDesk:
                                     self._hold_why(reading))
 
     def _round_summary(self) -> str:
-        """이 판의 브리핑을 두 문장으로 — 걸린 규칙, 사람 대기·정보, 그리고 출처."""
+        """The round's briefing in two sentences: rules in force, held and info items, sources."""
         readings = list(self.readings.values())
         active = [r for r in readings if r.active_in(self.tower._round)
                   and r.hazard.rule_kind is not None]
@@ -1194,10 +1225,12 @@ class BriefingDesk:
                                                                        "unreadable")}))
 
     def _applies_at_once(self, reading: Reading) -> bool:
-        """지금 걸리나. 공식 출처를 문법이 읽었을 때만 — 조이는 규칙이라 사람을 안 기다립니다.
+        """Does it apply now? Only if the grammar read an official source: the rule only
+        tightens, so it does not wait for a person.
 
-        사람이 이미 확인한 것(approved)도 그대로 걸립니다. 모델이 읽은 것은 출처가 공식이어도
-        사람 뒤입니다 — 모델은 무엇도 걸지 못한다는 것이 이 시스템의 뼈대입니다.
+        What a person already confirmed (approved) applies as well. Anything a model read waits
+        for a person even from an official source: that a model can apply nothing is the
+        backbone of this system.
         """
         if reading.confirmed_by:
             return True
@@ -1251,7 +1284,7 @@ class BriefingDesk:
         return record
 
     def _nearest_label(self, centre: tuple) -> str:
-        """중심에서 가장 가까운 지명(사전의 주소). 이름만 붙이는 것이지 자리를 옮기지 않습니다."""
+        """Nearest gazetteer address to the centre. Only a label; it never moves the position."""
         addresses = getattr(self.tower.gazetteer, "addresses", []) or []
         near = min(addresses, key=lambda a: _distance_m(centre, (a["lat"], a["lon"])),
                    default=None)
@@ -1260,10 +1293,10 @@ class BriefingDesk:
         return f"near {near['label']}"
 
     def _ticks(self, window: Window | None) -> tuple[int, int | None, str]:
-        """창을 이 판의 틱으로. 지났으면 왜 안 거는지 한 줄로 말합니다.
+        """Convert the window to this round's ticks; if it has passed, say in one line why not.
 
-        틱 0 은 판의 시계(clock_epoch_z)이고, 브리핑하는 날의 그 시각이 기준입니다. 끝은 지금 +
-        max_window_ticks 에서 자릅니다 — 오늘 하루짜리 공지 하나가 영원한 규칙이 되면 안 됩니다.
+        Tick 0 is the round's clock (clock_epoch_z) at that time on the briefing day. The end
+        is capped at now + max_window_ticks: a notice for today must not become a rule forever.
         """
         tick = self.tower.tick
         horizon = tick + self.settings.max_window_ticks
@@ -1282,16 +1315,16 @@ class BriefingDesk:
         return max(0, from_tick), min(until_tick, horizon), ""
 
     def _round_start(self) -> datetime.datetime:
-        """틱 0 의 UTC 시각. 판의 시계(0900Z)가 브리핑하는 날의 그 시각입니다."""
+        """UTC time of tick 0: the round's clock (0900Z) on the briefing day."""
         epoch = str(self.tower.performance.clock_epoch_z or "0900").zfill(4)
         day = self.day
         return datetime.datetime(day.year, day.month, day.day, int(epoch[:2]) % 24,
                                  int(epoch[2:]) % 60, tzinfo=datetime.UTC)
 
-    # ---------- 사람의 답, 그리고 폐쇄 회수 ----------
+    # ---------- Human answers, and closure recalls ----------
 
     def _sync_cards(self) -> None:
-        """사람이 카드에 답했나. 공지 책이 답입니다 — 우리가 다시 물을 일이 아닙니다."""
+        """Did a person answer the card? The notice book has the answer; we don't ask again."""
         for reading in list(self.readings.values()):
             if reading.status != "held":
                 continue
@@ -1311,10 +1344,12 @@ class BriefingDesk:
                     self._store(reading)
 
     def _recall_closures(self) -> None:
-        """닫힌 착륙장으로 가던 기체를 불러들입니다. 조이는 규칙은 이미 뜬 비행에도 걸립니다.
+        """Recall aircraft bound for a closed landing site: a tightening rule also applies to
+        flights already airborne.
 
-        폐쇄 구역 자체는 하늘에서 아무것도 막지 않습니다(천장이 땅보다 낮습니다). 여기서 쓰는
-        기둥은 그 자리에 내리려는 경로만 잡기 위한 것이고, 공역에 들어가지 않습니다.
+        The closure zone itself blocks nothing in the air (its ceiling is below the ground). The
+        column used here only catches routes that would land on that spot; it never enters the
+        airspace.
         """
         for reading in list(self.readings.values()):
             if reading.hazard.kind != "closure" or reading.item_id in self._recalled:
@@ -1342,13 +1377,13 @@ class BriefingDesk:
                 return True
         return False
 
-    # ---------- 기록 ----------
+    # ---------- Records ----------
 
     def _store(self, reading: Reading) -> None:
         store = getattr(self.tower, "store", None)
         if store is None:
             return
-        # 출처는 tavily 로 적습니다 — 그래야 재시작 뒤에 '본 것' 으로 셉니다(store.DEDUPE_SOURCES).
+        # Stored as source tavily, so a restart counts it as seen (store.DEDUPE_SOURCES).
         store.put_item(reading.item_id, "tavily", reading.text or reading.hazard.detail,
                        self.tower.tick, reading.citation.url, reading.hazard.kind,
                        reading.to_hints())
@@ -1407,7 +1442,10 @@ class BriefingDesk:
                      params={"rule": reading.item_id, "kind": reading.hazard.kind})
 
     def _note_source(self, status: FetchStatus | None) -> None:
-        """출처의 실패 ↔ 회복 한 줄. 바뀔 때만 — 주기마다 적으면 원장이 실패로 가득 찹니다."""
+        """One line when the source goes failed ↔ recovered.
+
+        Only on a change: writing one every cycle would fill the ledger with failures.
+        """
         if status is None or self.mode != "live":
             return
         failed_now = not status.ok
@@ -1416,7 +1454,7 @@ class BriefingDesk:
         self.source_failed = failed_now
         self.tower._ledger_source_change(BRIEFING_ASSET, status, failed_now)
 
-    # ---------- 화면 ----------
+    # ---------- Screen ----------
 
     def snapshot(self) -> dict:
         live = self.live
@@ -1453,9 +1491,9 @@ class BriefingDesk:
 
 
 def _outcome(status: str) -> str:
-    """기록(sqlite)에 남기는 끝.
+    """The outcome kept in the store (sqlite).
 
-    사람을 기다리는 것만 'held' 로 남아야 재시작 때 카드가 돌아옵니다.
+    Only what waits for a person may stay 'held', so that its card comes back on restart.
     """
     return {"applied": "read", "approved": "approved", "refused": "refused",
             "held": "held", "lapsed": "lapsed", "info": "read", "none": "read",

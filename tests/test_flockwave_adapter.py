@@ -25,7 +25,7 @@ STATUS = {
 
 
 class SkybrushStub:
-    """진짜 서버가 하는 것만 합니다. 봉투를 읽고, refs 를 달아 돌려줍니다."""
+    """Only what the real server does: reads the envelope and returns it with refs attached."""
 
     def __init__(self, refuse: bool = False):
         self.refuse = refuse

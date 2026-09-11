@@ -21,19 +21,22 @@ from pathlib import Path
 
 DEFAULT_PATH = ".run/intake.sqlite"
 MEMORY = ":memory:"
-# 재시작을 넘어 '본 것' 으로 치는 출처. 검색 결과와 손으로 넣은 문장은 한 번 읽으면 끝입니다 —
-# 재시작 뒤에 같은 페이지가 다시 사람 카드로 올라오면 안 됩니다. 시뮬레이터 공지(판마다 같은 id 로
-# 다시 옴)와 METAR(지금 유효한 관측은 판마다 다시 걸려야 함)는 여기 안 듭니다.
+# Sources whose items count as "seen" across a restart. A search result or a typed line is done
+# once read — the same page must not come back as a human card after a restart. Simulator notices
+# (resent with the same id every round) and METAR (the current observation must apply again every
+# round) are left out.
 DEDUPE_SOURCES = frozenset({"tavily", "manual"})
-# 사람을 기다리던 항목의 결과. 카드는 프로세스와 함께 사라지므로, 시작할 때 이 줄들을 다시
-# 읽게 돌려놓습니다(reopen_waiting). 안 그러면 사람이 한 번도 못 본 채 '본 것' 으로 남아 영영
-# 안 읽힙니다. 사람이 답하거나 창·판이 끝나면 decide_item 이 이 값을 그 끝으로 바꿉니다.
+# Outcome of an item waiting for a human. Cards die with the process, so on start these rows are
+# put back to be read again (reopen_waiting). Otherwise they would stay "seen" without a human
+# ever having seen them, and would never be read. When the human answers or the window or round
+# ends, decide_item replaces this value with how it ended.
 WAITING = "held"
-# 한 번의 읽기·쓰기가 잠긴 파일을 기다리는 최대 시간(초). 세계 스레드가 부르므로 짧게 — sqlite
-# 기본값(5초)이면 다른 연결이 파일을 쥔 동안 폴링마다 5초씩 멈췄습니다.
+# Longest a single read or write waits on a locked file (seconds). Short, because the world thread
+# calls it — with the sqlite default (5 s), every poll stalled 5 s while another connection held
+# the file.
 BUSY_TIMEOUT_S = 0.2
-# 호출이 실패한 뒤 파일을 다시 건드리기까지(초). 그 사이의 호출은 파일을 기다리지 않고 곧장
-# 돌아갑니다 — 잠긴 파일이 한 폴링에 여러 번 0.2초씩 쌓이지 않게.
+# Seconds after a failed call before the file is touched again. Calls in between return at once
+# without waiting on it, so a locked file cannot stack up 0.2 s several times in one poll.
 RETRY_AFTER_S = 30.0
 
 SCHEMA = (
@@ -61,17 +64,18 @@ SCHEMA = (
 ITEM_COLUMNS = ("id", "source", "kind", "text", "fetched_tick", "url", "read_by", "outcome")
 RULE_COLUMNS = ("id", "item_id", "kind", "from_tick", "until_tick", "applied", "lifted_by")
 WAITING_COLUMNS = ("id", "source", "kind", "text", "url", "hints")
-# 보고서에 싣는 최대 줄 수. 원장처럼 자라는 표라 마지막 것만.
+# Most rows the report carries. These tables grow like the ledger, so only the latest.
 REPORT_ROWS = 200
 
 
 class IntakeStore:
-    """연결 하나, 잠금 하나. 세계 스레드가 쓰고 보고서(HTTP 스레드)가 읽습니다.
+    """One connection, one lock. The world thread writes; the report (HTTP thread) reads.
 
-    최선을 다할 뿐입니다. 이 표는 판정이 아니라 기록이라, 파일이 깨졌거나 잠겼다고 런타임이 서거나
-    /state 가 500 이 되면 안 됩니다. 열지 못하면 이번 실행은 메모리로 돌고(open_error — 파일은
-    다음 시작 때 다시 봅니다), 돌다가 한 호출이 실패하면 그 호출은 빈 답을 돌려주고 RETRY_AFTER_S
-    동안 파일을 쉬게 둡니다(error — 다음 호출이 성공하면 비웁니다). 원장에 적는 것은 런타임입니다.
+    Best-effort only. These tables are a record, not a judgement, so a broken or locked file must
+    not stop the runtime or turn /state into a 500. If the file cannot be opened, this run goes
+    on in memory (open_error — the file is tried again on the next start); if a call fails
+    mid-run, it returns an empty answer and the file is left alone for RETRY_AFTER_S (error —
+    cleared by the next call that succeeds). Writing to the ledger is the runtime's job.
     """
 
     def __init__(self, path: str | Path | None = None):
@@ -84,19 +88,19 @@ class IntakeStore:
         try:
             self._db = _connect(wanted)
         except (sqlite3.Error, OSError) as error:
-            # 깨진 파일("file is not a database")·다른 프로세스가 쥔 파일·쓸 수 없는 자리.
-            # 판정은 계속되어야 합니다 — 이번 실행의 기록은 메모리에.
+            # A broken file ("file is not a database"), one another process holds, or a place
+            # that cannot be written. Judgement must go on — this run's record stays in memory.
             self.open_error = f"{wanted}: {type(error).__name__}: {error}"
             self.path = MEMORY
             self._db = _connect(MEMORY)
 
     @property
     def failing(self) -> bool:
-        """지금 기록이 파일에 들어가지 않고 있나(열지 못함, 또는 마지막 호출이 실패)."""
+        """True while records are not reaching the file (not opened, or the last call failed)."""
         return self.open_error is not None or self.error is not None
 
     def _run(self, work, default=None):
-        """한 번의 읽기·쓰기. 실패하면 default 를 돌려주고 RETRY_AFTER_S 동안 파일을 쉬게 둡니다."""
+        """One read or write. On failure, return default and back off for RETRY_AFTER_S."""
         with self._lock:
             if self._failed_at is not None and time.monotonic() - self._failed_at < RETRY_AFTER_S:
                 return default
@@ -111,13 +115,14 @@ class IntakeStore:
             self._failed_at, self.error = None, None
             return result
 
-    # ---------- 항목 ----------
+    # ---------- items ----------
 
     def seen(self, item_id: str, source: str) -> bool:
-        """재시작 전에 읽고 끝낸 것인가. 출처가 DEDUPE_SOURCES 에 들 때만 — 나머지는 판마다
-        다시 읽습니다. 받기만 하고 끝을 못 본 것(결과 없음: 읽다가 멈췄거나, 사람을 기다리다
-        카드를 잃어 reopen_waiting 이 되돌린 것)은 본 것이 아닙니다. 기록을 못 읽으면 본 적
-        없는 것으로 — 한 번 더 읽는 쪽이 영영 안 읽는 쪽보다 낫습니다."""
+        """Was this read and finished before the restart? Only for DEDUPE_SOURCES — the rest
+        are read again every round. An item received but never finished (no outcome: reading
+        stopped midway, or it lost its card while waiting for a human and reopen_waiting put it
+        back) is not seen. If the record cannot be read, treat it as unseen — reading it once
+        more beats never reading it."""
         if source not in DEDUPE_SOURCES:
             return False
         row = self._run(lambda db: db.execute("SELECT outcome FROM items WHERE id = ?",
@@ -126,10 +131,12 @@ class IntakeStore:
 
     def put_item(self, item_id: str, source: str, text: str, fetched_tick: int,
                  url: str = "", kind: str | None = None, hints: dict | None = None) -> None:
-        """받은 항목 한 줄. 같은 id 가 다시 오면(다음 판의 같은 공지) 틱만 새로 적습니다.
+        """One row per received item. When the same id arrives again (the same notice next
+        round), only the tick is rewritten.
 
-        hints 는 문장 밖의 구조화 값(주소·반경·창)입니다. 재시작 뒤에 다시 읽을 때 같이 돌려줍니다 —
-        문장만 있으면 주소로 온 사고를 못 읽습니다."""
+        hints are the structured values outside the text (address, radius, window). They come
+        back with the item when it is read again after a restart — from the text alone, an
+        incident given by address cannot be read."""
         packed = json.dumps(hints, ensure_ascii=False, sort_keys=True) if hints else None
         self._run(lambda db: db.execute(
             "INSERT INTO items (id, source, kind, text, fetched_tick, url, hints) "
@@ -144,16 +151,18 @@ class IntakeStore:
             (kind, read_by or None, outcome, item_id)))
 
     def decide_item(self, item_id: str, outcome: str) -> None:
-        """사람을 기다리던 항목의 끝: approved · refused · lapsed · round …. 기다리던 줄(held)만
-        고칩니다 — 문법이 읽고 곧장 걸린 줄은 규칙이 풀려도 '읽음' 그대로입니다."""
+        """How an item that waited for a human ended: approved · refused · lapsed · round ….
+        Only waiting rows (held) change — a row the grammar read and applied at once stays
+        "read" even after its rule is lifted."""
         self._run(lambda db: db.execute(
             "UPDATE items SET outcome = ? WHERE id = ? AND outcome = ?",
             (outcome, item_id, WAITING)))
 
     def reopen_waiting(self) -> list[dict]:
-        """시작할 때 한 번. 재시작 전에 사람을 기다리던 항목은 카드를 잃었습니다 — 돌려주어 다시
-        읽게(카드를 다시 올리게) 하고, 결과를 비워 '본 것' 이 아니게 합니다. 열린 규칙 줄은 전부
-        restart 로 닫습니다 — 메모리의 기상 대기·사고 구역·보류는 프로세스와 함께 사라졌습니다."""
+        """Once, on start. Items that were waiting for a human before the restart lost their
+        cards — return them to be read again (raising their cards again) and clear their outcome
+        so they are not "seen". Every open rule row is closed as restart — the in-memory weather
+        holds, incident zones and held rules died with the process."""
         def work(db) -> list[dict]:
             rows = db.execute(f"SELECT {', '.join(WAITING_COLUMNS)} FROM items "
                               "WHERE outcome = ? ORDER BY rowid", (WAITING,)).fetchall()
@@ -165,12 +174,13 @@ class IntakeStore:
         return self._run(work, [])
 
     def briefed(self, prefix: str, limit: int = REPORT_ROWS) -> list[dict]:
-        """이 앞머리로 시작하는 항목 중 끝을 본 것, 힌트까지. 표는 그대로이고 읽기만 합니다.
+        """Finished items whose id starts with this prefix, hints included. Read-only; the
+        tables are left as they are.
 
-        사전 브리핑(runtime/briefing.py)이 재시작 때 부릅니다. 읽은 쪽을 다시 받지도 다시 읽지도
-        않고, 그때 걸려 있던 조이는 규칙을 그대로 되겁니다 — 재시작이 규칙을 푸는 일이 되면 안
-        됩니다(푸는 것은 사람과 창뿐). 사람을 기다리던 줄은 여기가 아니라 reopen_waiting 이
-        돌려줍니다.
+        The pre-flight briefing (runtime/briefing.py) calls this on restart. It neither fetches
+        nor reads again what it already read, and re-applies the tightening rules that were in
+        force then — a restart must not become a way to loosen rules (only a human or the window
+        loosens). Rows that were waiting for a human come back through reopen_waiting, not here.
         """
         rows = self._run(lambda db: db.execute(
             "SELECT id, source, kind, text, url, read_by, outcome, hints FROM items "
@@ -187,11 +197,12 @@ class IntakeStore:
             out.append(record)
         return out
 
-    # ---------- 규칙 ----------
+    # ---------- rules ----------
 
     def open_rule(self, item_id: str, kind: str, from_tick: int | None,
                   until_tick: int | None, applied: bool = True) -> int | None:
-        """항목에서 나온 규칙 한 줄. 돌려주는 번호로 나중에 풀린 것을 적습니다(못 적었으면 None)."""
+        """One rule row from an item. The returned id is how its lifting is recorded later
+        (None if the row was not written)."""
         cursor = self._run(lambda db: db.execute(
             "INSERT INTO rules (item_id, kind, from_tick, until_tick, applied) VALUES (?,?,?,?,?)",
             (item_id, kind, from_tick, until_tick, int(applied))))
@@ -199,9 +210,9 @@ class IntakeStore:
 
     def close_rule(self, rule_id: int | None, lifted_by: str,
                    until_tick: int | None = None) -> None:
-        """규칙이 끝났습니다 — 사람이 풀었거나(human), 창이 닫혔거나(window), 판이
-        바뀌었거나(round), 사람이 거부했거나(refused), 확인 전에 지나갔거나(lapsed),
-        프로세스가 다시 시작했습니다(restart)."""
+        """The rule ended: a human lifted it (human), the window closed (window), the round
+        changed (round), a human refused it (refused), it passed before being confirmed
+        (lapsed), or the process restarted (restart)."""
         if rule_id is None:
             return
         if until_tick is None:
@@ -213,7 +224,7 @@ class IntakeStore:
                 (lifted_by, until_tick, rule_id)))
 
     def apply_rule(self, rule_id: int | None, from_tick: int | None = None) -> None:
-        """사람이 확인해 보류였던 규칙이 걸렸습니다(applied 0 → 1)."""
+        """A held rule took effect after human approval (applied 0 → 1)."""
         if rule_id is None:
             return
         if from_tick is None:
@@ -229,10 +240,10 @@ class IntakeStore:
         self._run(lambda db: db.execute("UPDATE rules SET until_tick = ? WHERE id = ?",
                                         (until_tick, rule_id)))
 
-    # ---------- 읽기 ----------
+    # ---------- reading ----------
 
     def items(self, limit: int = REPORT_ROWS) -> list[dict]:
-        # 열 이름을 적어서 읽습니다. hints 열을 나중에 붙인 파일은 열 순서가 다릅니다.
+        # Name the columns: a file that gained the hints column later has a different order.
         rows = self._run(lambda db: db.execute(
             f"SELECT {', '.join(ITEM_COLUMNS)} FROM items "
             "ORDER BY fetched_tick DESC, rowid DESC LIMIT ?", (limit,)).fetchall(), [])
@@ -249,7 +260,8 @@ class IntakeStore:
         return out
 
     def counts(self) -> dict:
-        """화면(/state.intake.store)과 보고서의 머리. 셀 수 없으면 None, 실패 이유는 error 에."""
+        """Header for the screen (/state.intake.store) and the report. None where a count
+        failed; the reason is in error."""
         counted = self._run(lambda db: (db.execute("SELECT COUNT(*) FROM items").fetchone()[0],
                                         db.execute("SELECT COUNT(*) FROM rules").fetchone()[0]))
         items, rules = counted if counted is not None else (None, None)
@@ -258,8 +270,8 @@ class IntakeStore:
                 "error": self.open_error or self.error}
 
     def report(self, limit: int = REPORT_ROWS) -> dict:
-        """보고서(/ledger/report)에 싣는 접수 기록. 원장이 결정의 기록이면 이것은 들어온 것의
-        기록입니다."""
+        """The intake record carried in the report (/ledger/report). The ledger records
+        decisions; this records what came in."""
         return {**self.counts(), "items": self.items(limit), "rules": self.rules(limit)}
 
     def close(self) -> None:
@@ -268,7 +280,8 @@ class IntakeStore:
 
 
 def _waiting_item(row) -> dict:
-    """다시 읽을 항목 하나. 힌트를 펼치고, 다시 올린 것임을 적습니다(원장의 받음 줄이 말하게)."""
+    """One item to read again. Unpacks its hints and marks it reopened (so the ledger's
+    received line says so)."""
     record = dict(zip(WAITING_COLUMNS, tuple(row), strict=True))
     try:
         hints = json.loads(record.pop("hints") or "{}")
@@ -279,16 +292,18 @@ def _waiting_item(row) -> dict:
 
 
 def _connect(path: str) -> sqlite3.Connection:
-    """연결을 열고 표를 만듭니다. 깨진 파일은 여기서(첫 문장에서) 드러납니다."""
+    """Open the connection and create the tables. A broken file shows up here, on the first
+    statement."""
     if path != MEMORY:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-    # 스레드마다 연결을 열지 않습니다 — 메모리 DB 는 연결마다 딴 DB 가 됩니다.
+    # One connection for all threads: an in-memory DB is a separate database per connection.
     db = sqlite3.connect(path, timeout=BUSY_TIMEOUT_S, check_same_thread=False)
     db.row_factory = sqlite3.Row
     try:
         for statement in SCHEMA:
             db.execute(statement)
-        # hints 열이 생기기 전의 파일. 표를 다시 만들지 않고 열만 붙입니다(옛 줄의 힌트는 빔).
+        # A file from before the hints column: add the column instead of rebuilding the table
+        # (old rows have no hints).
         if "hints" not in {row[1] for row in db.execute("PRAGMA table_info(items)")}:
             db.execute("ALTER TABLE items ADD COLUMN hints TEXT")
         db.commit()

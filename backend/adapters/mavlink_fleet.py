@@ -20,30 +20,33 @@ import threading
 import time
 from collections import deque
 
-# 착륙 지점. 실제 배치에서는 버티포트 좌표가 들어갑니다.
+# Landing points. A real deployment puts vertiport coordinates here.
 PAD_COORDS = {
     "pad:P1": (47.397971, 8.546164),
     "pad:P2": (47.398500, 8.547500),
 }
 DEPOT_ALT_M = 30.0
 
-# 이 높이(m)보다 높으면 떠 있는 것으로 봅니다. 자동조종이 착지 판정을 보내 주면 그것이 먼저입니다.
+# Above this height (m) the aircraft counts as airborne. If the autopilot reports its landed
+# state, that comes first.
 AIRBORNE_M = 1.0
-# 하트비트가 이만큼(초) 끊기면 화면에 링크를 lost 로 씁니다. PX4 는 자기 시계로 1초마다 보내는데,
-# 실시간보다 느리게 도는 SITL(이 Mac 에서 0.66배)이면 벽시계로 1.5초 간격이고, Docker Desktop 의
-# 주소 변환을 지나며 한 번 잃으면 3초가 넘습니다. 화면이 5초부터 오래됨으로 쓰는 것과 맞춥니다.
+# After this many seconds without a heartbeat the screen shows the link as lost. PX4 sends one
+# every second by its own clock, but a SITL running slower than real time (0.66x on this Mac)
+# makes that 1.5 s of wall clock, and losing one through Docker Desktop's address translation
+# pushes it past 3 s. Matches the screen marking data stale from 5 s.
 LINK_STALE_S = 5.0
-# 우리도 1초마다 하트비트를 보냅니다. udpout 으로 붙은 자동조종은 이것으로 우리 주소를 압니다.
+# We send a heartbeat every second too. An autopilot on udpout learns our address from it.
 GCS_HEARTBEAT_S = 1.0
-# 임무 개수(MISSION_COUNT)를 보내고 첫 요청이 안 오면 다시 보내는 횟수. UDP 는 잃어버립니다.
+# How many times to send the mission count (MISSION_COUNT) while no first request arrives.
+# UDP loses packets.
 MISSION_COUNT_TRIES = 3
-# 같은 항목을 이만큼 넘게 다시 달라면 규약이 어긋난 것으로 보고 올리기를 접습니다. 잃어버린 항목을
-# 한두 번 다시 달라는 것은 정상입니다(UDP). 끝없이 달라는 자동조종은 거울의 작업 스레드를
-# 붙잡습니다.
+# If the same item is requested again more than this many times, the protocol has gone wrong
+# and the upload is abandoned. Asking again once or twice for a lost item is normal (UDP). An
+# autopilot that keeps asking forever ties up the mirror's worker thread.
 MISSION_ITEM_RESENDS = 5
 STATUS_TEXT_KEEP = 6
 
-# PX4 는 HEARTBEAT.custom_mode 의 16~23비트에 main, 24~31비트에 sub 모드를 싣습니다.
+# PX4 puts the main mode in bits 16-23 of HEARTBEAT.custom_mode, the sub mode in bits 24-31.
 PX4_MAIN_MODES = {1: "MANUAL", 2: "ALTCTL", 3: "POSCTL", 4: "AUTO", 5: "ACRO", 6: "OFFBOARD",
                   7: "STABILIZED"}
 PX4_AUTO_MODES = {1: "READY", 2: "TAKEOFF", 3: "LOITER", 4: "MISSION", 5: "RTL", 6: "LAND",
@@ -52,17 +55,18 @@ PX4_MAIN_AUTO = 4
 PX4_AUTO_MISSION = 4
 LANDED_STATES = {1: "on_ground", 2: "in_air", 3: "taking_off", 4: "landing"}
 MISSION_REPLIES = ("MISSION_REQUEST_INT", "MISSION_REQUEST", "MISSION_ACK")
-# 자동조종에 보낼 것이 없는 행동. 짐 싣기(depart)는 땅의 일이고, 뜨는 것은 경로 임무가 합니다.
+# Actions with nothing to send to the autopilot. Loading (depart) is ground work; the route
+# mission does the takeoff.
 NO_AUTOPILOT_COMMAND = {"depart": "loading is ground work; the route mission is the departure"}
 
 
 def route_items(legs: list[dict], airborne: bool) -> list[dict]:
-    """승인된 경로 → 자동조종 임무. 점을 더하거나 빼지 않고 그대로 옮깁니다.
+    """Approved route → autopilot mission, carried over as is: no point added or removed.
 
-    legs[0] 은 신청할 때 기체가 있던 자리입니다. 땅에 있으면 거기서 첫 구간 고도로 이륙하고,
-    떠 있으면 그 자리도 경유점으로 밟습니다 — 자동조종이 늦게 가고 있어도 승인된 경로의
-    출발점부터 따라가게 하려는 것입니다. 마지막 점에서는 내립니다. 시뮬레이터도 목적지에
-    내려 짐을 내립니다.
+    legs[0] is where the aircraft was when it filed. On the ground, it takes off there to the
+    first leg's altitude; in the air, that spot is flown as a waypoint too — so an autopilot
+    running behind still follows the approved route from its start. It lands at the last
+    point. The simulator also lands at the destination to unload.
     """
     points = [_point(leg) for leg in legs]
     if len(points) < 2:
@@ -76,7 +80,8 @@ def route_items(legs: list[dict], airborne: bool) -> list[dict]:
 
 
 def exit_items(exit_point: dict, alt_m: float) -> list[dict]:
-    """회수 임무 두 항목. 런타임이 준 바깥 자리(exit)까지 지금 고도로 가서 내립니다."""
+    """Two-item recall mission: fly at the current altitude to the exit point the runtime
+    gave (exit), and land there."""
     at = {"lat": float(exit_point["lat"]), "lon": float(exit_point["lon"])}
     return [{"command": "waypoint", **at, "alt_m": round(float(alt_m), 1)},
             {"command": "land", **at, "alt_m": 0.0}]
@@ -111,8 +116,8 @@ def _blank_autopilot() -> dict:
 class MavlinkFleetAdapter:
     def __init__(self, endpoints: dict[str, str], world: str = "guarded",
                  ack_timeout_s: float = 3.0, link_timeout_s: float = 30.0):
-        """endpoints: {"drone-01": "udpin:0.0.0.0:14540", ...} — 기체 하나에 링크 하나."""
-        from pymavlink import mavutil  # 이 어댑터를 쓸 때만 필요합니다
+        """endpoints: {"drone-01": "udpin:0.0.0.0:14540", ...} — one link per aircraft."""
+        from pymavlink import mavutil  # only needed when this adapter is used
 
         self._mavutil = mavutil
         self._mav = mavutil.mavlink
@@ -127,16 +132,18 @@ class MavlinkFleetAdapter:
         self._state: dict[str, dict] = {
             asset_id: {"id": asset_id, "state": "unknown"} for asset_id in endpoints
         }
-        # 판정용 텔레메트리(_state)와 따로 둡니다. 자동조종만 아는 것 — 모드·임무 순번·상태 문장.
+        # Kept apart from the judgement telemetry (_state). What only the autopilot knows:
+        # mode, mission sequence, status text.
         self._autopilot: dict[str, dict] = {a: _blank_autopilot() for a in endpoints}
-        # 링크 하나는 스레드 하나만 읽습니다. 응답은 큐로 건네받습니다.
+        # Each link is read by one thread only; replies are handed over through queues.
         self._acks: dict[str, queue.Queue] = {a: queue.Queue() for a in endpoints}
         self._mission_replies: dict[str, queue.Queue] = {a: queue.Queue() for a in endpoints}
         self._ready: dict[str, threading.Event] = {a: threading.Event() for a in endpoints}
-        # 명령을 받을 자동조종의 (system, component). 하트비트를 받으면 그 값으로 바꿉니다.
-        # PX4 는 임무 메시지를 대상 번호가 자기 것일 때만 받습니다(0 = 모두 는 안 받습니다).
+        # (system, component) of the autopilot that takes commands; replaced by the values in
+        # its heartbeat. PX4 only accepts mission messages addressed to its own ids (not 0 = all).
         self._targets: dict[str, tuple[int, int]] = {a: (1, 1) for a in endpoints}
-        # 명령 하나는 여러 번의 왕복입니다. 둘이 겹치면 서로의 응답을 가져가서 한 번에 하나만.
+        # One command is several round trips. Two overlapping would take each other's replies,
+        # so one at a time.
         self._operations: dict[str, threading.RLock] = {a: threading.RLock() for a in endpoints}
         self._writes: dict[str, threading.Lock] = {a: threading.Lock() for a in endpoints}
         self._tick = 0
@@ -151,14 +158,14 @@ class MavlinkFleetAdapter:
             listener.start()
 
     def close(self) -> None:
-        """듣는 스레드를 멈추고 링크를 닫습니다. 시험이 포트를 비우려면 필요합니다."""
+        """Stops the listener threads and closes the links. Tests need this to free the ports."""
         self._closed.set()
         for listener in self._listeners:
             listener.join(timeout=2.0)
         for link in self.links.values():
             link.close()
 
-    # ---------- 텔레메트리 ----------
+    # ---------- telemetry ----------
 
     def _listen(self, asset_id: str) -> None:
         link = self.links[asset_id]
@@ -169,7 +176,7 @@ class MavlinkFleetAdapter:
                 next_beat = time.monotonic() + GCS_HEARTBEAT_S
             try:
                 message = link.recv_match(blocking=True, timeout=0.5)
-            except Exception as error:  # noqa: BLE001 — 듣는 스레드가 죽으면 옛 상태를 계속 보여 줍니다
+            except Exception as error:  # noqa: BLE001 — a dead listener keeps showing stale state
                 if self._closed.is_set():
                     return
                 print(f"mavlink {asset_id}: {error!r}", flush=True)
@@ -179,14 +186,14 @@ class MavlinkFleetAdapter:
                 self._route(asset_id, message)
 
     def _beat(self, asset_id: str) -> None:
-        """지상국 하트비트. udpin 은 아직 말을 걸어 온 쪽이 없으면 조용히 버립니다."""
+        """GCS heartbeat. udpin silently drops it while no peer has talked to us yet."""
         mav = self._mav
         try:
             with self._writes[asset_id]:
                 self.links[asset_id].mav.heartbeat_send(
                     mav.MAV_TYPE_GCS, mav.MAV_AUTOPILOT_INVALID, 0, 0, mav.MAV_STATE_ACTIVE)
         except OSError:
-            pass  # 받는 쪽이 아직 없으면(udpout 의 ICMP 거절) 다음 박동에 다시
+            pass  # no receiver yet (udpout's ICMP refusal): try again on the next beat
 
     def _route(self, asset_id: str, message) -> None:
         kind = message.get_type()
@@ -206,7 +213,7 @@ class MavlinkFleetAdapter:
         self._absorb(asset_id, message)
 
     def _from_vehicle(self, message) -> bool:
-        """기체의 하트비트인가. 지상국·카메라 같은 다른 구성품의 것은 대상으로 삼지 않습니다."""
+        """Is this the vehicle's heartbeat? Other components (GCS, cameras) are not targeted."""
         return (message.type != self._mav.MAV_TYPE_GCS
                 and message.autopilot != self._mav.MAV_AUTOPILOT_INVALID)
 
@@ -266,7 +273,8 @@ class MavlinkFleetAdapter:
             return {"tick": self._tick, "assets": {k: dict(v) for k, v in self._state.items()}}
 
     def airborne(self, asset_id: str) -> bool:
-        """떠 있나. PX4 의 착지 판정(EXTENDED_SYS_STATE)이 먼저이고, 없으면 시동과 고도로 봅니다."""
+        """Airborne? PX4's landed state (EXTENDED_SYS_STATE) comes first; without it, arming
+        and altitude decide."""
         with self._guard:
             landed = self._autopilot[asset_id]["landed"]
             entry = self._state[asset_id]
@@ -280,13 +288,13 @@ class MavlinkFleetAdapter:
             return float(self._state[asset_id].get("alt_m") or 0.0)
 
     def link_up(self, asset_id: str, within_s: float = LINK_STALE_S) -> bool:
-        """within_s 안에 하트비트를 들었나. 한 번도 못 들었으면 언제나 False 입니다."""
+        """Heard a heartbeat within within_s? Always False if none was ever heard."""
         with self._guard:
             beat = self._autopilot[asset_id]["last_beat"]
         return beat is not None and time.monotonic() - beat < within_s
 
     def autopilot_view(self, asset_id: str) -> dict:
-        """화면에 내보낼 자동조종 한 대의 상태. 읽기만 합니다."""
+        """One autopilot's state for the screen. Read-only."""
         now = time.monotonic()
         with self._guard:
             entry, extra = self._state[asset_id], self._autopilot[asset_id]
@@ -301,7 +309,7 @@ class MavlinkFleetAdapter:
                 "reached_seq": extra["reached_seq"], "status_text": list(extra["status_text"]),
             }
 
-    # ---------- 명령 ----------
+    # ---------- commands ----------
 
     def execute(
         self,
@@ -319,7 +327,8 @@ class MavlinkFleetAdapter:
             return {"ok": True, "note": NO_AUTOPILOT_COMMAND[action]}
         handler = getattr(self, f"_do_{action}", None)
         if handler is None:
-            # 지상 설비는 자동조종 소관이 아닙니다. 런타임이 원장에만 남깁니다.
+            # Ground equipment is not the autopilot's business. The runtime only records it in
+            # the ledger.
             return {"ok": True, "note": f"{action} is ground equipment, no autopilot command"}
         if not self._ready[asset_id].wait(timeout=self.link_timeout_s):
             return {"ok": False, "error": f"{asset_id} autopilot has not reported in"}
@@ -329,7 +338,7 @@ class MavlinkFleetAdapter:
         return self.fly_route(asset_id, params.get("legs") or [])
 
     def _do_reserve_pad(self, link, asset_id: str, params: dict) -> dict:  # noqa: D401
-        # 고장 기체의 착륙대 경로. 런타임이 legs 를 주면 그대로 임무로 갑니다.
+        # Route to a pad for a faulted aircraft. Legs from the runtime go into the mission as is.
         if params.get("legs"):
             return self.fly_route(asset_id, params["legs"])
         pad = params.get("pad")
@@ -357,16 +366,17 @@ class MavlinkFleetAdapter:
         return self.recall(asset_id, params.get("exit"))
 
     def _do_disengage_autonomy(self, link, asset_id: str, params: dict) -> dict:
-        """자동 조종을 놓고 사람에게 넘깁니다. 이 한 줄이 승객을 세우는 행동입니다."""
+        """Hands control from autonomy to a human. This one line is what strands the passengers."""
         with self._guard:
             self._state[asset_id]["guided"] = False
         return self._command(asset_id, self._mav.MAV_CMD_DO_SET_MODE,
                              self._mav.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED)
 
-    # ---------- 임무 수준의 명령 (거울도 이것들을 부릅니다) ----------
+    # ---------- mission-level commands (the mirror calls these too) ----------
 
     def fly_route(self, asset_id: str, legs: list[dict]) -> dict:
-        """승인된 경로를 임무로 올리고 바로 시작합니다(단독 배선). 거울은 둘을 따로 부릅니다."""
+        """Uploads the approved route as a mission and starts it at once (standalone wiring).
+        The mirror calls the two separately."""
         items = route_items(legs, self.airborne(asset_id))
         if not items:
             return {"ok": False, "error": "a route needs at least two legs"}
@@ -377,10 +387,11 @@ class MavlinkFleetAdapter:
                 "items": len(items)}
 
     def recall(self, asset_id: str, exit_point: dict | None) -> dict:
-        """승인 회수. 떠 있으면 런타임이 준 바깥 자리(exit)로 가서 내립니다.
+        """Recalls the approval. In the air, flies to the runtime's exit point (exit) and lands.
 
-        바깥 자리가 없으면(구역 밖에서 회수) 그 자리에 내립니다. 땅에 있으면 올려 둔 임무를
-        지웁니다 — 뜨지 않은 기체는 그 임무로 시동이 걸릴 길이 없어집니다.
+        With no exit point (recalled outside the zone) it lands where it is. On the ground it
+        clears the uploaded mission — an aircraft that has not taken off is left with no way to
+        arm on that mission.
         """
         if not self.airborne(asset_id):
             return {**self.clear_mission(asset_id), "did": "cleared"}
@@ -396,11 +407,12 @@ class MavlinkFleetAdapter:
     def upload_mission(self, asset_id: str, items: list[dict]) -> dict:
         """MISSION_COUNT → (MISSION_REQUEST_INT n → MISSION_ITEM_INT n)… → MISSION_ACK.
 
-        자동조종이 항목을 하나씩 달라고 합니다. 같은 번호를 다시 달라면 다시 보냅니다(잃어버린 것).
-        끝이 있습니다: 항목 하나를 MISSION_ITEM_RESENDS 번 넘게 다시 달라거나, 전체가 답 하나의
-        기다림 × (항목 수 + MISSION_COUNT 재시도)를 넘기면 접습니다. 끝이 없던 때는 같은 번호만
-        끝없이 달라는 자동조종에 작업 스레드가 붙잡혀, 뒤에 줄 선 회수가 영영 안 나갔습니다
-        (실측: 25초에 항목 1,866개를 보냈고 회수는 한 번도 안 나감).
+        The autopilot asks for the items one by one. A repeated request for the same number is
+        answered again (the item was lost). It is bounded: the upload is abandoned when one item
+        is requested again more than MISSION_ITEM_RESENDS times, or when the whole exchange
+        exceeds one reply's wait × (item count + MISSION_COUNT retries). Before it was bounded,
+        an autopilot asking for the same number forever held the worker thread, and the recall
+        queued behind it never went out (measured: 1,866 items sent in 25 s, not one recall).
         """
         if not items:
             return {"ok": False, "error": "empty mission"}
@@ -443,18 +455,19 @@ class MavlinkFleetAdapter:
         mav = self._mav
         command = {"takeoff": mav.MAV_CMD_NAV_TAKEOFF, "waypoint": mav.MAV_CMD_NAV_WAYPOINT,
                    "land": mav.MAV_CMD_NAV_LAND}[item["command"]]
-        # 고도는 이륙 자리(home) 기준. 시뮬의 고도도 땅 기준이고, SIH 의 땅은 home 높이입니다.
-        # 방향(param4)은 NaN — 자동조종이 진행 방향을 스스로 봅니다.
+        # Altitude is relative to the takeoff spot (home). The sim's altitude is above ground
+        # too, and SIH's ground is at home height. Yaw (param4) is NaN — the autopilot works
+        # out the heading itself.
         self._send(asset_id, "mission_item_int_send", seq, mav.MAV_FRAME_GLOBAL_RELATIVE_ALT,
                    command, 0, 1, 0.0, 0.0, 0.0, math.nan,
                    int(round(item["lat"] * 1e7)), int(round(item["lon"] * 1e7)),
                    float(item["alt_m"]))
 
     def start_mission(self, asset_id: str, arm: bool = True) -> dict:
-        """AUTO.MISSION 으로 두고, (땅이면) 시동을 걸고, 첫 항목부터 시작합니다.
+        """Sets AUTO.MISSION, arms (if on the ground) and starts from the first item.
 
-        한 단계라도 거절되면 거기서 멈추고 그 답을 그대로 돌려줍니다. 승인은 우리가 했어도
-        지금 뜰 수 있는지는 자동조종이 정합니다.
+        If any step is refused it stops there and returns that answer as is. We gave the
+        approval, but the autopilot decides whether it can take off now.
         """
         mav = self._mav
         steps = [("mode", mav.MAV_CMD_DO_SET_MODE,
@@ -490,7 +503,7 @@ class MavlinkFleetAdapter:
         return {"ok": False, "error": "autopilot did not acknowledge the clear"}
 
     def land_here(self, asset_id: str) -> dict:
-        # 위치(param5·6)는 NaN — 지금 자리에 내립니다. 0 을 넣으면 위도 0·경도 0 으로 읽힙니다.
+        # Position (param5/6) is NaN: land right here. Zero would be read as lat 0, lon 0.
         nan = math.nan
         return self._command(asset_id, self._mav.MAV_CMD_NAV_LAND, 0, 0, 0, nan, nan, nan, nan)
 
@@ -501,11 +514,11 @@ class MavlinkFleetAdapter:
             getattr(self.links[asset_id].mav, name)(*target, *args)
 
     def _command(self, asset_id: str, command: int, *params: float) -> dict:
-        """자동조종이 거절할 수도 있습니다. 승인은 우리가, 수락은 자동조종이 합니다."""
+        """The autopilot may refuse. We approve; the autopilot accepts."""
         values = [float(value) for value in params] + [0.0] * (7 - len(params))
         acks = self._acks[asset_id]
         with self._operations[asset_id]:
-            _drain(acks)  # 지난 응답을 먼저 비웁니다
+            _drain(acks)  # clear out stale replies first
             self._send(asset_id, "command_long_send", command, 0, *values)
             deadline = time.monotonic() + self.ack_timeout_s
             while (remaining := deadline - time.monotonic()) > 0:
@@ -514,7 +527,7 @@ class MavlinkFleetAdapter:
                 except queue.Empty:
                     break
                 if ack.command != command or ack.result == self._mav.MAV_RESULT_IN_PROGRESS:
-                    continue  # 다른 명령의 늦은 응답이거나 아직 하는 중
+                    continue  # a late reply to another command, or still in progress
                 accepted = ack.result == self._mav.MAV_RESULT_ACCEPTED
                 return {"ok": accepted, "result": int(ack.result)}
         return {"ok": False, "error": "autopilot did not acknowledge"}

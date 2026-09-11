@@ -59,7 +59,7 @@ class Verdicts:
 
 
 def read_commits(path: str | Path) -> list[dict]:
-    """실행까지 간 결정만. 거절된 것은 이미 안 일어난 일입니다."""
+    """Only decisions that reached execution. What was refused never happened."""
     entries: dict[str, dict] = {}
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -68,13 +68,13 @@ def read_commits(path: str | Path) -> list[dict]:
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
-        entries[entry["id"]] = entry  # 같은 id 의 마지막 줄이 최종 상태입니다
+        entries[entry["id"]] = entry  # the last line for an id is its final state
     return [e for e in entries.values() if e.get("outcome") == "done"]
 
 
 def replay(ledger_path: str | Path, authority: Authority,
            policies: list[Policy], telemetry: dict | None = None) -> Verdicts:
-    """지난 실행들을 새 규칙으로 다시 판정합니다."""
+    """Judge past executions again under the new rules."""
     book = PolicyBook(policies)
     check = AuthorityCheck(authority, book)
     result = Verdicts()
@@ -83,7 +83,7 @@ def replay(ledger_path: str | Path, authority: Authority,
         raw = entry["proposal"]
         proposal = Proposal.from_dict(raw)
         asset = (telemetry or {}).get(proposal.asset_id, {})
-        # 그때 기체가 어떤 기종이었는지는 신청서에 안 남으므로 넘겨받습니다
+        # The filing does not record what type the aircraft was back then, so it is passed in
         decision = check.evaluate(proposal, asset, tick=10**9)
         result.considered += 1
 

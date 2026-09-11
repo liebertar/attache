@@ -1,7 +1,7 @@
 .PHONY: up down logs dev-up dev test lint demo reset scoreboard
 
-# 로컬 스택 = docker-compose.local.yml + .env.local, dev 서버 = docker-compose.dev.yml + .env.dev.
-# env 파일이 없으면 예시에서 복사합니다(키는 비어 있어도 규칙만으로 뜸).
+# Local stack = docker-compose.local.yml + .env.local; dev server = docker-compose.dev.yml + .env.dev.
+# A missing env file is copied from its example (empty keys still start the stack, on rules).
 COMPOSE_LOCAL = docker compose -f docker-compose.local.yml --env-file .env.local
 COMPOSE_DEV = docker compose -f docker-compose.dev.yml --env-file .env.dev
 

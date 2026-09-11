@@ -23,67 +23,77 @@ from shared.geo import (
     required_top_along,
 )
 
-# 구간 고도는 "그 구간에서 가장 낮은 안전 고도"입니다: 아래 가장 높은 옥상 + 이격 50m, 최소
-# FLOOR. 그게 그 자리의 천장(FAA 격자, 최대 CRUISE)을 넘으면 그 구간은 못 지나고 옆으로
-# 돕니다. 그래서 강 위에서는 40m, 저층 위에서는 70m, 탑 옆에서는 돌아가는 식으로 고도가
-# 구간마다 달라집니다 — 한 높이로만 다니면 고도를 판정한다는 게 화면에 안 보입니다.
-CRUISE_ALT_M = 120.0      # 올라갈 수 있는 최대. FAA 기본 상한 400ft(121.9m) 바로 아래
-# 판정 자료에 없는 건물(20 m 미만) 위로도 50 m 가 남아야 합니다. 40 m 로 두었더니 33~37 m 건물을
-# 40 m 로 지나는 경로가 승인됐고, 화면에서 회랑이 그 건물을 뚫고 갔습니다. 천장이 70 m 미만인
-# FAA 격자 칸(15/30/61 m)은 이 값으로 지나갈 수 없게 됩니다 — 그 칸을 도는 것이 맞습니다.
-FLOOR_ALT_M = 70.0        # 아무것도 없는 곳(강·공원)의 순항 최소 = 자료 문턱 20 m + 이격 50 m
+# Each leg flies at its lowest safe altitude: tallest roof below + 50 m clearance, at least
+# FLOOR. If that exceeds the local ceiling (FAA grid, at most CRUISE), the leg can't be flown
+# and the route goes around. So altitude changes leg by leg — 40 m over the river, 70 m over
+# low-rises, a detour beside a tower. Fly one height everywhere and the screen never shows that
+# altitude is being judged.
+CRUISE_ALT_M = 120.0      # highest we climb; just under the FAA default cap of 400 ft (121.9 m)
+# Buildings missing from the judgement data (under 20 m) still need 50 m above them. At 40 m, a
+# route crossing 33-37 m buildings at 40 m was approved, and on screen its corridor cut right
+# through them. FAA grid cells with a ceiling under 70 m (15/30/61 m) become impassable at this
+# value — going around them is correct.
+FLOOR_ALT_M = 70.0        # cruise floor over river/park = 20 m data cutoff + 50 m clearance
 
-# 목적지에서 이만큼 벗어난 곳까지는 우회로로 봅니다. 도시 한 구역을 크게
-# 돌아가는 경로가 나올 수 있어야 합니다.
+# Detours may stray this far from the destination. A route that swings wide around a whole
+# district has to be possible.
 SEARCH_REACH_M = 12_000.0
 
-# ---------- 후보 경로 (candidates) ----------
-# 계획기는 규정 안의 길을 셋까지 내놓고, 고르는 것은 운영사의 모델입니다
+# ---------- candidate routes ----------
+# The planner offers up to three legal routes; the operator's model picks one
 # (drone/agent/chooser.py).
-# 모델에게 좌표를 쓰게 했더니 맨해튼을 길게 가로지르는 초안은 판정을 거의 못 넘었습니다 — 기하는
-# 탐색 문제입니다. 고르기는 판단 문제라 모델이 맡고, 무엇을 고르든 런타임이 같은 규칙으로
-# 판정합니다.
+# When the model wrote coordinates itself, drafts crossing a long stretch of Manhattan almost
+# never passed judgement — geometry is a search problem. Choosing is a judgement call, so the
+# model does it, and whatever it picks, the runtime judges by the same rules.
 CANDIDATE_LABELS = {"a": "shortest", "b": "lowest altitude", "c": "clear of traffic"}
 VARIANT_TAGS = {"b": "lowest-altitude", "c": "clear-of-traffic"}
-# 두 경로의 모든 점이 서로 이만큼 안이면 같은 길로 칩니다. 이름만 다른 같은 길 셋을 주면 모델은
-# 고르는 것이 아니라 제비를 뽑습니다.
+# Two routes whose every point lies within this distance of the other count as one route.
+# Hand the model the same route three times under different names and it draws lots instead
+# of choosing.
 DISTINCT_M = 100.0
-# (b) 고도 벌점. 구간 순항 고도가 최저(70 m)에서 최대(120 m)로 오르면 그 구간 비용이 (1 + 이 값)배.
-# 1.0 이면 120 m 로 1 km 가 70 m 로 2 km 와 같습니다 — 강·공원 위로 돌아 낮게 가는 길이 나오되,
-# 한 블록 넘자고 두 배를 돌지는 않습니다.
+# (b) altitude penalty. A leg whose cruise altitude rises from the floor (70 m) to the max
+# (120 m) costs (1 + this) times as much. At 1.0, 1 km at 120 m equals 2 km at 70 m — enough to
+# route low over the river and parks, not enough to double the distance to skip one block.
 ALTITUDE_WEIGHT = 1.0
-# (c) 이격 벌점. 다른 기체의 승인 회랑·사고 원·공지 구역에서 이 거리 안의 격자점은 가까울수록
-# 비쌉니다(맞닿으면 1 + CLEAR_WEIGHT 배). 회랑 반폭(30 m + 항법 10 m)의 여섯 배쯤입니다 — 교차
-# 거절은 시각까지 맞아야 나지만, '겹칠 걱정 없는 길' 을 고를 수 있으려면 공간으로 떨어진 길이
-# 하나는 있어야 합니다. 구역 자체는 이미 금지(40 m 이격)라 이 값은 그 위의 여유입니다.
+# (c) separation penalty. Grid points within this distance of another aircraft's approved
+# corridor, an incident circle or a notice zone cost more the closer they get (1 + CLEAR_WEIGHT
+# times when touching). About six times the corridor half-width (30 m + 10 m navigation) — a
+# crossing refusal needs the times to overlap as well, but to choose a route with no overlap
+# worry at all, one route has to be apart in space. The zones themselves are already forbidden
+# (40 m clearance); this value is margin on top of that.
 CLEAR_MARGIN_M = 250.0
 CLEAR_WEIGHT = 4.0
-# (b)(c) 탐색 하나의 시간 한도(초). (a)는 오늘의 A* 그대로라 한도가 없습니다(없으면 갈 길이
-# 없는 것). 나머지는 선택지일 뿐이라 늦으면 뺍니다. 간선 기억(_edge_memo)을 같이 쓰므로 (a) 뒤에는
-# 대개 한도보다 훨씬 빨리 끝납니다. 탐색 도중 이만큼마다 시계를 봅니다(매번 보면 그것도 비용).
+# Time limit (s) for one (b)/(c) search. (a) is the existing A* unchanged and has no limit (no
+# (a) means no route at all). The others are only options, so a slow one is dropped. They share
+# the edge memo (_edge_memo), so after (a) they usually finish well inside the limit. The search
+# looks at the clock every DEADLINE_CHECK_EVERY nodes (looking every time costs too).
 VARIANT_BUDGET_S = 12.0
 DEADLINE_CHECK_EVERY = 512
-# 벌점 탐색의 휴리스틱 배율(가중 A*). 거리 휴리스틱은 벌점이 붙은 비용에 비해 너무 작아서, 그대로
-# 두면 탐색이 거의 다익스트라가 되어 할렘까지 12초 안에 못 끝냅니다(실측: 제한 시간 초과로 후보가
-# (a) 하나만 남았습니다). 휴리스틱을 실제 비용 배율 쯤으로 부풀리면 최단이라는 보장은 잃고 속도를
-# 얻습니다 — 여기서 필요한 것은 최적해가 아니라 '규정 안의 다른 길' 이고, 합법은 first_breach 가
-# 따로 봅니다.
+# Heuristic scale for the penalised searches (weighted A*). The distance heuristic is far below
+# the penalised cost, so left as is the search degrades to near-Dijkstra and can't reach Harlem
+# within 12 s (measured: timeouts left only candidate (a)). Inflating it to roughly the real cost
+# multiplier trades the shortest-path guarantee for speed — what we need here is 'another legal
+# route', not the optimum, and first_breach checks legality separately.
 HEURISTIC_SCALE = {"b": 1.0 + ALTITUDE_WEIGHT / 2.0, "c": 1.2}
-# 벌점 후보의 줄 당기기 창(격자 칸, 약 1.2 km). (a) 는 80칸이지만, (b) 는 지름길마다 그 선분의 안전
-# 고도를 새로 셈해야 해서(긴 선분일수록 비쌉니다) 80칸이면 할렘 한 판에 37초가 걸렸습니다(실측).
+# String-pulling window for penalised candidates (grid cells, about 1.2 km). (a) uses 80, but (b)
+# has to recompute the safe altitude of every shortcut segment (the longer, the costlier), and at
+# 80 cells one Harlem run took 37 s (measured).
 VARIANT_PULL_WINDOW = 24
-# 탐색이 한도를 거의 다 쓰고 길을 찾았을 때, 그 길을 버리지 않도록 줄 당기기에 더 주는 시간(초).
+# Extra time (s) for string-pulling, so a route found just before the limit isn't thrown away.
 PULL_GRACE_S = 2.0
-# 벌점 탐색은 (a) 둘레 이만큼(m) 안에서만 합니다. 대안은 최단의 이웃이지 도시 반대편이 아닙니다 —
-# 그리고 할렘처럼 0ft 격자를 크게 도는 여정에서 창(12 km) 전체를 벌점 탐색하면 노드 한도(12만)를
-# 4초 만에 다 쓰고도 못 찾았습니다(실측: (b)(c) 없음, 후보 (a) 하나). 폭은 (c) 가 회랑에서 벌점
-# 거리(250 m)만큼 비킬 자리가 넉넉히 남도록 잡습니다. 한도는 시간(deadline)이 따로 쥡니다.
+# Penalised searches stay within this many metres of (a). An alternative is a neighbour of the
+# shortest route, not the far side of the city — and on trips that swing wide around 0 ft grid
+# cells, like Harlem, a penalised search over the whole window (12 km) used up the node budget
+# (120,000) in 4 s without finding anything (measured: no (b) or (c), only candidate (a)). The
+# width leaves (c) plenty of room to stand off a corridor by the penalty distance (250 m). The
+# deadline bounds time separately.
 VARIANT_TUBE_M = 1200.0
 VARIANT_NODE_BUDGET = 400_000
-# (a) 보다 이만큼 넘게 긴 후보는 뺍니다. 두 배 가까이 도는 길은 고를 거리가 아니라
-# 배터리 문제입니다.
+# Drop candidates longer than this multiple of (a). A route nearly twice as long isn't a choice,
+# it's a battery problem.
 MAX_VARIANT_STRETCH = 1.8
-# 경로를 점으로 펼칠 때의 간격(m). 같은 길인지, 무엇 옆을 지나는지를 이 점들로 잽니다.
+# Spacing (m) when sampling a route into points. These points decide whether two routes are the
+# same and what a route passes near.
 SAMPLE_STEP_M = 25.0
 
 
@@ -119,16 +129,17 @@ class Route:
 class Router:
     def __init__(self, airspace: Airspace, cell_deg: float = 0.00045,
                  min_alt_m: float = 20.0, cruise_alt_m: float = 0.0):
-        """cell_deg 0.00045 는 약 50 m. 건물 하나 크기입니다.
+        """cell_deg 0.00045 is about 50 m, the size of one building.
 
-        200m 로 잡던 시절에는 FAA 격자(약 900m)만 피하면 됐습니다. 건물이 들어오면
-        간선 하나가 200m 라 맨해튼에서는 거의 모든 간선이 건물을 스쳐 그래프가 끊깁니다.
-        50m 로 내리면 골목이 열리고, 100m·28m 보다도 빠릅니다 — 전자는 간선이 자주
-        막혀 탐색이 헤매고, 후자는 같은 거리를 더 잘게 나눠 걷기 때문입니다.
+        With 200 m cells, only the FAA grid (about 900 m) had to be avoided. Once buildings came
+        in, every 200 m edge grazed a building almost everywhere in Manhattan and the graph fell
+        apart. At 50 m the side streets open up, and it is faster than both 100 m and 28 m — the
+        former blocks edges so often that the search wanders, the latter walks the same
+        distance in smaller steps.
 
-        cruise_alt_m 은 허용 천장이 아니라 이 기체가 다니고 싶은 높이입니다. 실제
-        배달 드론은 40~60m 로 납니다(Wing 이 약 45m). 천장까지 최대한 올라가면
-        도시의 건물은 대부분 그 아래에 깔려서, 경로가 건물을 아예 안 봅니다.
+        cruise_alt_m is not the allowed ceiling but the height this aircraft wants to fly. Real
+        delivery drones fly at 40-60 m (Wing at about 45 m). Climb as high as the ceiling allows
+        and most of the city's buildings sit below, so the route never sees them.
         """
         self.airspace = airspace
         self.cell = cell_deg
@@ -138,19 +149,19 @@ class Router:
         self._blocked_memo: dict[tuple[int, int], bool] = {}
         self._edge_memo: dict[tuple, float | None] = {}
         self._route_memo: dict[tuple, Route | None] = {}
-        # (b)(c) 후보의 기억. 찾은 것만 기억합니다 — 한도에 걸려 못 찾은 것은 다음에 기억이 더 찬
-        # 채로 다시 찾으면 나올 수 있습니다.
+        # Memo for (b)/(c) candidates. Only successes are kept — a search that hit the limit may
+        # succeed when retried with a fuller memo.
         self._variant_memo: dict[tuple, list[dict]] = {}
         self._memo_for = -1
-        # 마지막 candidates() 의 후보별 소요 시간(초). 측정과 로그용입니다.
+        # Per-candidate time (s) of the last candidates() call, for measurement and logs.
         self.last_timings: dict[str, float] = {}
 
     @staticmethod
     def cruise_alt_default() -> float:
-        """기체가 다니고 싶은 기본 높이. 이 숫자를 두 곳에 적으면 반드시 갈라집니다."""
+        """Default height an aircraft wants to fly. Written in two places, it would drift."""
         return CRUISE_ALT_M
 
-    # ---------- 격자 ----------
+    # ---------- grid ----------
 
     def _node(self, lat: float, lon: float) -> tuple[int, int]:
         return (round(lat / self.cell), round(lon / self.cell))
@@ -159,11 +170,11 @@ class Router:
         return (node[0] * self.cell, node[1] * self.cell)
 
     def _forbidden_at(self, lat: float, lon: float) -> bool:
-        """여기를 우리가 날 고도로 지날 수 있는가.
+        """Is this point off-limits at the altitude we would fly it?
 
-        그 고도는 순항 높이와 그 자리의 천장 중 낮은 쪽입니다 — _to_legs 가 구간마다
-        붙이는 값과 같은 규칙입니다. 두 곳이 다른 높이를 쓰면 계획기가 통과라고 본
-        경로를 판정자가 거절합니다.
+        That altitude is the lower of the cruise height and the local ceiling — the same rule
+        _to_legs applies to each leg. If the two used different heights, the runtime would
+        refuse routes the planner considered clear.
         """
         return self.airspace.too_close(lat, lon, self._altitude_at(lat, lon))
 
@@ -173,7 +184,7 @@ class Router:
         return max(self.min_alt_m, min(self.cruise_alt_m, allowed))
 
     def _blocked(self, node: tuple[int, int]) -> bool:
-        """격자점 하나의 답은 안 바뀝니다. 탐색 중에 같은 점을 수십 번 다시 봅니다."""
+        """A grid point's answer never changes; the search revisits a point dozens of times."""
         known = self._blocked_memo.get(node)
         if known is None:
             known = self._forbidden_at(*self._coords(node))
@@ -181,19 +192,21 @@ class Router:
         return known
 
     def leg_altitude(self, start: tuple[float, float], goal: tuple[float, float]) -> float | None:
-        """이 선분을 지날 수 있는 가장 낮은 안전 고도. 못 지나면 None.
+        """Lowest safe altitude for this segment, or None if it can't be flown.
 
-        아래 가장 높은 옥상 + 이격(50m), 최소 FLOOR. 그게 선분 위 가장 낮은 천장(-1m, 최대
-        CRUISE)을 넘으면 옆으로 돌아야 하는 구간입니다. 마지막에 판정자와 같은 first_breach 로
-        한 번 더 봅니다 — 옆 이격·격자·구역은 거기서 잡힙니다.
+        Tallest roof below + clearance (50 m), at least FLOOR. If that exceeds the lowest ceiling
+        along the segment (minus 1 m, at most CRUISE), the route has to go around. A final check
+        runs the same first_breach the runtime uses — lateral clearance, the grid and zones are
+        caught there.
         """
         here = {"lat": start[0], "lon": start[1]}
         nxt = {"lat": goal[0], "lon": goal[1]}
         allowed = min(self._altitude_at(*start), self._altitude_at(*goal),
                       self._ceiling_allowance(start, goal))
         top = required_top_along(self.airspace, here, nxt)
-        # 최저 순항(70 m)은 천장이 허락하는 곳에서만입니다. 천장이 낮은 칸(61 m)에서는 천장 - 1.
-        # 건물 Volume 은 옥상 + 이격까지를 막습니다(닫힌 구간). 딱 그 높이는 아직 안이라 0.5m 더.
+        # The cruise floor (70 m) applies only where the ceiling allows; in a low cell (61 m) it
+        # is ceiling - 1. A building Volume blocks up to roof + clearance inclusive (closed
+        # interval); exactly that height is still inside, so add 0.5 m.
         floor_here = min(self.floor_alt_m, allowed)
         needed = max(floor_here, self.min_alt_m, top + 0.5 if top > 0 else 0.0)
         if needed > allowed:
@@ -202,7 +215,7 @@ class Router:
         return None if first_breach(self.airspace, legs) is not None else needed
 
     def _ceiling_allowance(self, start, goal, samples: int = 24) -> float:
-        """선분 위에서 가장 낮은 천장 - 1m. 천장이 없으면 최대 순항."""
+        """Lowest ceiling along the segment minus 1 m; max cruise if there is no ceiling."""
         lowest = self.cruise_alt_m
         for step in range(samples + 1):
             fraction = step / samples
@@ -213,7 +226,7 @@ class Router:
         return max(self.min_alt_m, lowest)
 
     def _edge(self, a: tuple[int, int], b: tuple[int, int]) -> float | None:
-        """격자 간선의 고도(못 지나면 None). 같은 간선을 탐색 중 수십 번 다시 봅니다."""
+        """Grid edge altitude, None if impassable. The search revisits edges dozens of times."""
         key = (a, b) if a <= b else (b, a)
         if key in self._edge_memo:
             return self._edge_memo[key]
@@ -222,15 +235,16 @@ class Router:
         return altitude
 
     def _crosses(self, a: tuple[int, int], b: tuple[int, int], samples: int = 0) -> bool:
-        """두 격자점을 잇는 선분을 어느 고도로도 못 지나는가.
+        """Is the segment between two grid points impassable at every altitude?
 
-        격자점만 보면 모서리를 잘라먹습니다. 판정자가 선분을 보므로 계획기도 선분을 봅니다.
+        Checking only grid points cuts corners. The runtime checks segments, so the planner
+        does too.
         """
         return self._edge(a, b) is None
 
     def _ceiling_between(self, a: tuple[int, int], b: tuple[int, int],
                          samples: int = 48) -> float | None:
-        """구간 위의 가장 낮은 천장. 판정자(40 표본)보다 촘촘하게 봅니다."""
+        """Lowest ceiling along the leg, sampled more finely than the runtime (40 samples)."""
         lat_a, lon_a = self._coords(a)
         lat_b, lon_b = self._coords(b)
         ceilings = []
@@ -242,17 +256,18 @@ class Router:
                 ceilings.append(ceiling)
         return min(ceilings) if ceilings else None
 
-    # ---------- 길찾기 ----------
+    # ---------- pathfinding ----------
 
     def plan(self, start: tuple[float, float], goal: tuple[float, float]) -> Route | None:
         if self._memo_for != self.airspace.revision:
-            self._blocked_memo.clear()          # 공역이 바뀌면 기억한 답도 버립니다
+            self._blocked_memo.clear()          # airspace changed: drop the memoised answers
             self._edge_memo.clear()
             self._route_memo.clear()
             self._variant_memo.clear()
             self._memo_for = self.airspace.revision
-        # 같은 자리에서 같은 착륙장으로는 판마다 다시 갑니다. 건물 3만 4천 동에 천장 낮은 칸을 도는
-        # 탐색은 한 번에 1~3분이라, 같은 공역 판본 안에서는 답을 기억합니다(20 m 안은 같은 자리).
+        # The same trip from the same spot to the same landing site comes up run after run. A
+        # search through 34,000 buildings around low-ceiling cells takes 1-3 min each time, so
+        # answers are memoised within one airspace revision (within 20 m counts as the same spot).
         key = (round(start[0], 4), round(start[1], 4), round(goal[0], 4), round(goal[1], 4))
         if key in self._route_memo:
             return self._route_memo[key]
@@ -262,11 +277,11 @@ class Router:
 
     def _plan(self, start: tuple[float, float], goal: tuple[float, float]) -> Route | None:
         if self.airspace.landing_breach(*goal) is not None:
-            return None  # 내려앉을 수 없는 자리입니다. 길이 있어도 소용없습니다
+            return None  # can't land there, so a route would be useless
         starts = self._free_nodes_near(start)
         goals = self._free_nodes_near(goal)
         if not starts or not goals:
-            return None  # 출발점이나 목적지 둘레에 열린 격자점이 없습니다
+            return None  # no open grid point around the start or the destination
 
         direct = self._straight(starts[0], goals[0])
         if direct is not None:
@@ -277,8 +292,8 @@ class Router:
         path = self._search(starts, goals)
         if path is None:
             return None
-        # 줄을 당겨 곧게 편 것부터 씁니다. 안 되면 꺾인 점만 남긴 것, 그것도 안 되면
-        # 격자를 한 칸씩 밟은 원본. 어느 쪽이든 마지막에 판정자가 다시 봅니다.
+        # Try the string-pulled path first, then the turns-only version, then the raw
+        # cell-by-cell path. Whichever it is, the runtime's check runs on it again at the end.
         for nodes in (self._pull(path), self._simplify(path), path):
             if not self._legal_chain(nodes):
                 continue
@@ -288,14 +303,16 @@ class Router:
         return None
 
     def _free_nodes_near(self, point: tuple[float, float]) -> list[tuple[int, int]]:
-        """이 지점에서 이어 붙일 수 있는 열린 격자점들, 가까운 순.
+        """Open grid points this point can connect to, nearest first.
 
-        격자점은 실제 지점에서 최대 35m 벗어납니다. 주소는 건물 옆이고, 회수돼 떠 있는 자리는
-        구역 경계 바로 밖이라, 딱 떨어지는 격자점이 건물 안이거나 이격 거리 안인 일이 흔합니다.
-        그러면 목적지가 멀쩡한데도 '길이 없다'가 나왔습니다. 둘레 두 칸 안에서 지점까지의
-        직선이 통과하는 점들을 전부 씁니다 — 가장 가까운 점 하나가 건물 사이 막힌 주머니에
-        갇혀 있을 수 있어서(센트럴파크 북쪽에서 돌아오는 길이 그래서 안 났습니다) 탐색은
-        여럿에서 동시에 시작하고 어느 하나에 닿으면 끝납니다. _pin 이 실제 지점으로 잇습니다.
+        A grid point can be up to 35 m off the real point. Addresses sit beside buildings and a
+        recalled aircraft hovers just outside a zone boundary, so the nearest grid point often
+        falls inside a building or within the clearance distance — and a perfectly good
+        destination came back as 'no route'. So every point within two cells whose straight
+        line to the point is passable is used: the single nearest one can be trapped in a
+        pocket between buildings (that is why the way back from north of Central Park failed),
+        so the search starts from all of them at once and ends on reaching any one. _pin joins
+        the real point.
         """
         centre = self._node(*point)
         candidates = sorted(
@@ -316,36 +333,38 @@ class Router:
 
     def _attach(self, legs: list[Leg], start: tuple[float, float],
                 goal: tuple[float, float]) -> list[Leg]:
-        """실제 출발점·목적지를 격자 경로의 양 끝에 잇습니다.
+        """Join the real start and destination to the two ends of the grid path.
 
-        탐색은 격자점 위에서 하므로 경로가 목적지에서 최대 35m 떨어진 곳에서 끝납니다.
-        예전에는 끝 격자점을 실제 지점으로 바꿔치기했는데, 그러면 마지막 구간이 판정한 적 없는
-        새 선분이 되어 건물 모서리를 스치고 통째로 거절되는 일이 있었습니다(유니언스퀘어).
-        격자점은 그대로 두고 실제 지점까지 짧은 구간을 하나 덧붙입니다 — 그 구간은
-        _free_nodes_near 가 이미 통과를 확인한 선분입니다. 고도는 양쪽 중 낮은 쪽.
+        The search runs on grid points, so the path ends up to 35 m from the destination. We
+        used to swap the end grid point for the real point, but then the last leg became a new,
+        never-judged segment that could graze a building corner and get the whole route refused
+        (Union Square). Now the grid point stays and a short leg is appended to the real point —
+        a segment _free_nodes_near has already cleared. Altitude: the lower of the two sides.
         """
         if not legs:
             return legs
         head_alt = self.leg_altitude(start, (legs[0].lat, legs[0].lon))
         tail_alt = self.leg_altitude((legs[-1].lat, legs[-1].lon), goal)
         if head_alt is None or tail_alt is None:
-            return legs      # _free_nodes_near 가 이미 확인한 구간이라 여기 올 일은 없습니다
+            return legs      # unreachable: _free_nodes_near already cleared these legs
         legs[0] = Leg(legs[0].lat, legs[0].lon, head_alt)
         return ([Leg(start[0], start[1], head_alt)] + legs
                 + [Leg(goal[0], goal[1], tail_alt)])
 
     def _pull(self, path: list[tuple[int, int]], window: int = 80,
               keep=None, deadline: float | None = None) -> list[tuple[int, int]]:
-        """줄을 당깁니다. 막는 게 없는 구간은 곧게 펴집니다.
+        """Pull the string: stretches with nothing in the way become straight.
 
-        A* 는 같은 길이면 어느 쪽으로 꺾든 값이 같아서, 뻥 뚫린 강 위에서도 격자를
-        한 칸씩 밟은 계단이 나옵니다. 꺾인 점만 남기는 방식은 한 군데라도 걸리면
-        경로 전체를 원본으로 되돌려서, 장애물이 없는 구간까지 같이 계단이 됐습니다.
-        여기서는 갈 수 있는 데까지 곧게 가고, 막히는 자리에서만 꺾습니다.
+        A* scores equal-length paths the same whichever way they turn, so even over the open
+        river it produces a staircase of single grid steps. Keeping only the turns reverted the
+        whole path to the original if any one stretch failed, so obstacle-free stretches became
+        staircases too. Here the path runs straight as far as it can and turns only where it
+        is blocked.
 
-        keep(i, j) 가 있으면 i→j 지름길이 그 후보의 성격(낮게·떨어져)을 지킬 때만 당깁니다. 안
-        그러면 낮게 돌던 길이 곧게 펴지며 탑 위로 올라가고, 비켜 가던 길이 회랑을 가로지릅니다.
-        deadline 이 지나면 남은 구간은 당기지 않고 꺾인 점만 남겨 붙입니다((a) 는 넘기지 않음).
+        With keep(i, j), the i→j shortcut is taken only if it keeps the candidate's character
+        (low, or clear). Otherwise a low detour straightens out over a tower and a route that
+        stood off cuts across the corridor. Past the deadline the rest is not pulled, only
+        reduced to its turns ((a) passes no deadline).
         """
         if len(path) < 3:
             return path
@@ -367,7 +386,7 @@ class Router:
         return kept
 
     def _legal_chain(self, nodes: list[tuple[int, int]]) -> bool:
-        """이어 붙인 구간이 금지 구역을 안 지나는가. 격자점이 아니라 선분을 봅니다."""
+        """Do the joined legs stay out of forbidden areas? Checks segments, not grid points."""
         return all(
             not self._blocked(a) and not self._blocked(b)
             and not self._crosses(a, b)
@@ -379,12 +398,13 @@ class Router:
 
     def _search(self, starts, goals, budget: int = 120_000, step_cost=None,
                 deadline: float | None = None, heuristic_scale: float = 1.0, allowed=None):
-        """여러 출발 격자점에서 동시에 시작해 목적지 격자점 중 아무 데나 닿으면 끝납니다.
+        """Start from several grid points at once; stop on reaching any goal grid point.
 
-        step_cost(node, nxt, step) 가 있으면 간선 비용을 그것으로 셉니다(후보 (b)(c) 의 벌점).
-        heuristic_scale 은 그 벌점에 맞춰 휴리스틱을 부풀리는 배율(가중 A*)이고, deadline
-        (monotonic)이 지나면 None, allowed(node) 가 False 인 격자점은 밟지 않습니다(대안의 관).
-        (a) 는 넷 다 없이 부르므로 오늘과 한 칸도 다르지 않습니다.
+        step_cost(node, nxt, step), if given, prices each edge (the (b)/(c) penalties).
+        heuristic_scale inflates the heuristic to match those penalties (weighted A*). Past the
+        deadline (monotonic) it returns None, and it never steps on a grid point where
+        allowed(node) is False (the tube for alternatives). (a) passes none of the four, so it
+        behaves exactly as before, step for step.
         """
         starts = [starts] if isinstance(starts, tuple) else list(starts)
         goals = {goals} if isinstance(goals, tuple) else set(goals)
@@ -417,10 +437,11 @@ class Router:
             for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1),
                            (1, 1), (1, -1), (-1, 1), (-1, -1)):
                 nxt = (node[0] + di, node[1] + dj)
-                # 탐색 범위는 거리로 잡습니다. 노드 수로 잡으면 격자를 촘촘하게 할수록
-                # 볼 수 있는 범위가 같이 좁아져서, 멀리 있는 목적지를 아예 못 찾습니다.
-                # 목적지 둘레만 보면 갈 때는 되는데 올 때는 안 되는 길이 생깁니다 — 갈 때
-                # 목적지 둘레 안에서 멀리 돌아간 길이 올 때는 창 밖이라서. 양쪽 둘레를 다 봅니다.
+                # The search range is a distance. As a node count, a finer grid would shrink the
+                # reachable range with it and far destinations would never be found. Looking
+                # only around the destination yields routes that work out but not back — a wide
+                # detour inside the destination's window on the way out lies outside the window
+                # on the way back. So both windows count.
                 if ((abs(nxt[0] - goal[0]) > reach or abs(nxt[1] - goal[1]) > reach)
                         and (abs(nxt[0] - origin[0]) > reach or abs(nxt[1] - origin[1]) > reach)):
                     continue
@@ -438,7 +459,7 @@ class Router:
 
     @staticmethod
     def _simplify(path: list[tuple[int, int]]) -> list[tuple[int, int]]:
-        """같은 방향으로 이어지는 칸은 하나로 묶습니다. 꺾이는 지점만 남습니다."""
+        """Merge runs of cells in the same direction, leaving only the turning points."""
         if len(path) < 3:
             return path
         kept = [path[0]]
@@ -451,7 +472,7 @@ class Router:
         return kept
 
     def _to_legs(self, nodes: list[tuple[int, int]]) -> list[Leg]:
-        """구간마다 그 구간의 가장 낮은 안전 고도(_edge)를 붙입니다. 한 구간 안에서는 한 고도."""
+        """Give each leg its lowest safe altitude (_edge); one altitude per leg."""
         legs = []
         for index, node in enumerate(nodes):
             lat, lon = self._coords(node)
@@ -462,25 +483,26 @@ class Router:
             legs.append(Leg(lat, lon, self.floor_alt_m if altitude is None else altitude))
         return legs
 
-    # ---------- 후보 ----------
+    # ---------- candidates ----------
 
     def candidates(self, start: tuple[float, float], goal: tuple[float, float],
                    context: dict | None = None, budget_s: float | None = None) -> list[dict]:
-        """규정 안의 길을 셋까지: (a) 최단 (b) 가장 낮게 (c) 다른 기체·사고 구역에서 떨어져.
+        """Up to three legal routes: (a) shortest, (b) lowest, (c) clear of other aircraft and
+        incident zones.
 
-        셋 다 우리 사본의 first_breach 를 통과한 것만 나옵니다 — 합법은 고른 뒤가 아니라 만들 때
-        정해집니다. 거의 같은 길(DISTINCT_M 안)은 하나로 칩니다. context 는 비켜 갈 것
-        (keep_clear_shapes 의 입력)이고, 비켜 갈 것이 없으면 (c) 는 (a) 와 같은 길이라 만들지
-        않습니다.
-        이 파일은 고르지 않습니다 — 고르는 것은 운영사의 모델이고, 무엇을 고르든 런타임이
-        판정합니다.
-        후보 하나: {id, label, legs, length_m, max_alt_m, min_alt_m, reason_tags}.
+        Only routes that pass our copy of first_breach come out — legality is settled when a
+        route is built, not after it is chosen. Near-identical routes (within DISTINCT_M) count
+        as one. context is what to keep clear of (input to keep_clear_shapes); with nothing to
+        keep clear of, (c) would be the same route as (a), so it isn't built.
+        This file doesn't choose — the operator's model does, and whatever it picks, the runtime
+        judges.
+        One candidate: {id, label, legs, length_m, max_alt_m, min_alt_m, reason_tags}.
         """
         began = time.monotonic()
         shortest = self.plan(start, goal)
         self.last_timings = {"a": round(time.monotonic() - began, 3)}
         if shortest is None:
-            return []   # (a) 가 없으면 갈 길이 없는 것입니다. 벌점을 붙인 탐색도 같은 벽에 막힙니다
+            return []   # no (a) means no route; a penalised search would hit the same wall
         shapes = keep_clear_shapes(context)
         budget = VARIANT_BUDGET_S if budget_s is None else max(0.0, float(budget_s))
         found = [self._candidate("a", [leg.to_dict() for leg in shortest.legs], shapes,
@@ -506,10 +528,10 @@ class Router:
     def _variant(self, variant: str, start: tuple[float, float], goal: tuple[float, float],
                  shapes: list["KeepClear"], budget_s: float,
                  around: list[dict]) -> list[dict] | None:
-        """벌점을 붙인 A* 로 (b) 또는 (c) 를 찾습니다. 통과한 legs 또는 None.
+        """Find (b) or (c) with a penalised A*. Returns legs that pass, or None.
 
-        그 뒤는 (a) 와 같습니다: 줄 당기기(성격을 지킬 때만) → 꺾인 점만 → 원본, 마지막에
-        first_breach.
+        From there it matches (a): string-pulling (only where the character holds) → turns
+        only → raw path, with first_breach last.
         """
         key = (variant, round(start[0], 4), round(start[1], 4), round(goal[0], 4),
                round(goal[1], 4), tuple(shape.key for shape in shapes) if variant == "c" else ())
@@ -535,7 +557,7 @@ class Router:
                                 HEURISTIC_SCALE["c"], tube)
             keep = None if path is None else self._keeps_clear(path, penalty, shapes)
         if path is None:
-            # 한도 안에 못 찾았습니다. 기억하지 않습니다 — 다음엔 간선 기억이 더 차 있습니다
+            # Not found within the limit. Not memoised — next time the edge memo will be fuller
             return None
         pull_by = max(deadline, time.monotonic() + PULL_GRACE_S)
         pulled = self._pull(path, window=VARIANT_PULL_WINDOW, keep=keep, deadline=pull_by)
@@ -549,8 +571,8 @@ class Router:
         return None
 
     def _tube(self, legs: list[dict], width_m: float):
-        """격자점이 legs 에서 width_m 안인가. 탐색 중 같은 점을 여러 번 보므로
-        이번 탐색 동안만 기억합니다."""
+        """Is a grid point within width_m of legs? The search checks the same point many
+        times, so answers are memoised for this search only."""
         points = [(float(leg["lat"]), float(leg["lon"])) for leg in legs]
         segments = list(zip(points, points[1:], strict=False))
         known: dict[tuple[int, int], bool] = {}
@@ -566,15 +588,17 @@ class Router:
         return inside
 
     def _altitude_cost(self, node, nxt, step: float) -> float:
-        """(b) 의 간선 비용. 그 간선의 가장 낮은 안전 고도가 높을수록 비쌉니다(_edge 는 기억)."""
+        """Edge cost for (b): the higher its lowest safe altitude, the more it costs (_edge is
+        memoised)."""
         altitude = self._edge(node, nxt)
         if altitude is None:
-            return step        # 막힌 간선은 _search 가 먼저 거릅니다. 여기 올 일은 없습니다
+            return step        # unreachable: _search filters out blocked edges first
         span = max(1.0, self.cruise_alt_m - self.floor_alt_m)
         return step * (1.0 + ALTITUDE_WEIGHT * max(0.0, altitude - self.floor_alt_m) / span)
 
     def _penalty_for(self, shapes: list["KeepClear"]):
-        """(c) 의 격자점 벌점. 같은 점을 탐색 중에 여러 번 보므로 이 탐색 동안만 기억합니다."""
+        """Grid-point penalty for (c). The search revisits points, so it is memoised for this
+        search only."""
         known: dict[tuple[int, int], float] = {}
 
         def penalty(node: tuple[int, int]) -> float:
@@ -587,7 +611,7 @@ class Router:
         return penalty
 
     def _keeps_low(self, path: list[tuple[int, int]]):
-        """지름길이 그 사이 원래 길의 가장 높은 구간보다 높아지지 않을 때만 당깁니다."""
+        """Pull only if the shortcut flies no higher than the highest leg it replaces."""
         altitudes = [self._edge(a, b) for a, b in zip(path, path[1:], strict=False)]
         altitudes = [self.cruise_alt_m if alt is None else alt for alt in altitudes]
 
@@ -598,7 +622,8 @@ class Router:
         return keep
 
     def _keeps_clear(self, path: list[tuple[int, int]], penalty, shapes: list["KeepClear"]):
-        """지름길 위 어느 점도 그 사이 원래 길보다 비킬 것에 가깝지 않을 때만 당깁니다."""
+        """Pull only if no point on the shortcut is closer to a keep-clear shape than the
+        stretch of path it replaces."""
         along = [penalty(node) for node in path]
 
         def keep(index: int, candidate: int) -> bool:
@@ -613,8 +638,8 @@ class Router:
 
     def _candidate(self, variant: str, legs: list[dict], shapes: list["KeepClear"],
                    tags: list[str]) -> dict:
-        """후보 한 줄. 무엇 옆(CLEAR_MARGIN_M 안)을 지나는지 태그로 붙입니다 — 모델과 규칙이
-        읽습니다."""
+        """One candidate row, tagged with what it passes near (within CLEAR_MARGIN_M) — the
+        model and the rules read the tags."""
         altitudes = [float(leg["alt_m"]) for leg in legs]
         near = [f"near-{kind}:{name}" for kind, name in exposure(legs, shapes)]
         return {"id": variant, "label": CANDIDATE_LABELS[variant], "legs": legs,
@@ -623,19 +648,20 @@ class Router:
                 "reason_tags": list(tags) + near}
 
 
-# ---------- 비켜 갈 것 (후보 (c)) ----------
+# ---------- what to keep clear of (candidate (c)) ----------
 
 
 @dataclass(frozen=True)
 class KeepClear:
-    """(c) 후보가 비켜 가는 것 하나: 다른 기체의 승인 회랑(선분들) 또는 원(사고·공지 구역)."""
+    """One thing candidate (c) keeps clear of: another aircraft's approved corridor (segments)
+    or a circle (incident or notice zone)."""
 
     id: str
     kind: str                                  # traffic | keepout
     segments: tuple = ()                       # (((lat, lon), (lat, lon)), ...)
-    centre: tuple | None = None                # 원의 중심 (lat, lon)
+    centre: tuple | None = None                # circle centre (lat, lon)
     radius_m: float = 0.0
-    box: tuple = (0.0, 0.0, 0.0, 0.0)          # (south, north, west, east) — 벌점 거리만큼 넓힘
+    box: tuple = (0.0, 0.0, 0.0, 0.0)          # (south, north, west, east) + penalty distance
 
     def in_box(self, lat: float, lon: float) -> bool:
         south, north, west, east = self.box
@@ -649,7 +675,7 @@ class KeepClear:
 
     @property
     def key(self) -> tuple:
-        """같은 모양이면 같은 값(좌표 약 10 m 로 반올림). (c) 기억의 열쇠입니다."""
+        """Same shape, same value (coordinates rounded to about 10 m). Key for the (c) memo."""
         centre = tuple(round(value, 4) for value in (self.centre or ()))
         segments = tuple((round(a[0], 4), round(a[1], 4), round(b[0], 4), round(b[1], 4))
                          for a, b in self.segments)
@@ -657,12 +683,13 @@ class KeepClear:
 
 
 def keep_clear_shapes(context: dict | None) -> list[KeepClear]:
-    """비켜 갈 것들. context = {"traffic": [{"id", "legs": [{"lat", "lon"}, ...]}],
-    "keepouts": [{"id", "lat", "lon", "radius_m"} 또는 {"id", "polygon": [[lat, lon], ...]}]}.
+    """Shapes to keep clear of. context = {"traffic": [{"id", "legs": [{"lat", "lon"}, ...]}],
+    "keepouts": [{"id", "lat", "lon", "radius_m"} or {"id", "polygon": [[lat, lon], ...]}]}.
 
-    다각형은 무게중심과 가장 먼 꼭짓점까지의 원으로 잽니다. 판정이 아니라 벌점이라 넉넉한 쪽이
-    맞습니다 — 구역 자체는 이미 금지 부피로 공역 사본에 있고 계획기는 그걸 절대 안 지납니다.
-    못 읽는 항목은 건너뜁니다(런타임 /state 의 모양이 바뀌어도 후보 (c) 만 빠질 뿐입니다).
+    A polygon becomes a circle from its centroid to its farthest vertex. This is a penalty, not
+    a judgement, so erring wide is right — the zone itself is already a forbidden volume in the
+    airspace copy and the planner never crosses it. Unreadable items are skipped (if the
+    runtime's /state changes shape, only candidate (c) is lost).
     """
     context = context or {}
     shapes: list[KeepClear] = []
@@ -685,7 +712,8 @@ def keep_clear_shapes(context: dict | None) -> list[KeepClear]:
 
 
 def clear_penalty(lat: float, lon: float, shapes: list[KeepClear]) -> float:
-    """가장 가까운 비킬 것까지의 거리로 셈한 벌점. 벌점 거리 밖이면 0, 맞닿으면 CLEAR_WEIGHT."""
+    """Penalty by distance to the nearest shape: 0 beyond the penalty distance, CLEAR_WEIGHT
+    when touching."""
     nearest = math.inf
     for shape in shapes:
         if shape.in_box(lat, lon):
@@ -696,7 +724,7 @@ def clear_penalty(lat: float, lon: float, shapes: list[KeepClear]) -> float:
 
 
 def exposure(legs: list[dict], shapes: list[KeepClear]) -> list[tuple[str, str]]:
-    """경로가 벌점 거리 안으로 지나는 것들 [(kind, id)]."""
+    """Shapes the route passes within the penalty distance of, as [(kind, id)]."""
     points = route_samples(legs)
     near = []
     for shape in shapes:
@@ -707,7 +735,7 @@ def exposure(legs: list[dict], shapes: list[KeepClear]) -> list[tuple[str, str]]
 
 
 def route_samples(legs: list[dict], step_m: float = SAMPLE_STEP_M) -> list[tuple[float, float]]:
-    """경로를 step_m 간격의 점으로 펼칩니다(끝점 포함)."""
+    """Sample the route into points step_m apart (end point included)."""
     points = [(float(leg["lat"]), float(leg["lon"])) for leg in legs]
     samples: list[tuple[float, float]] = []
     for a, b in zip(points, points[1:], strict=False):
@@ -725,7 +753,7 @@ def route_length_m(legs: list[dict]) -> float:
 
 
 def same_route(first: list[dict], second: list[dict], limit_m: float = DISTINCT_M) -> bool:
-    """두 경로의 모든 점이 서로 limit_m 안인가(양방향 하우스도르프 거리). 그러면 같은 길입니다."""
+    """Same route if every point of each lies within limit_m of the other (two-way Hausdorff)."""
     return _within(first, second, limit_m) and _within(second, first, limit_m)
 
 
@@ -758,7 +786,7 @@ def _points_of(raw) -> list[tuple[float, float]]:
 
 
 def _circle_of(item: dict) -> tuple[tuple[float, float] | None, float]:
-    """원 하나로. 중심·반경이 있으면 그대로, 다각형이면 무게중심 + 가장 먼 꼭짓점."""
+    """As one circle: centre and radius as given, or polygon centroid + farthest vertex."""
     try:
         if item.get("lat") is not None and item.get("lon") is not None:
             return (float(item["lat"]), float(item["lon"])), max(0.0, float(item.get("radius_m")

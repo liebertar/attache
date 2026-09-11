@@ -11,14 +11,17 @@ class PolicyBook:
         self._policies = [p for p in self._policies if p.id != policy.id] + [policy]
 
     def remove(self, policy_id: str) -> None:
-        """푸는 쪽. 부르는 곳은 사람의 답과 창의 끝뿐입니다 — 코드가 스스로 풀지 않습니다."""
+        """The loosening side. Called only by a human's answer or the end of the window.
+
+        The code never lifts a ban on its own.
+        """
         self._policies = [p for p in self._policies if p.id != policy_id]
 
     def all(self) -> list[Policy]:
         return list(self._policies)
 
     def clear(self) -> None:
-        """판이 바뀌면 비웁니다. 공지는 새 판에서 다시 게시되고 그때 다시 걸립니다."""
+        """Emptied on a new round; notices are reposted in that round and apply again."""
         self._policies = []
 
     def active(self, tick: int) -> list[Policy]:

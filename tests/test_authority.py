@@ -56,7 +56,7 @@ class AuthorityTest(unittest.TestCase):
         self.assertIs(decision.verdict, Verdict.HUMAN)
 
     def test_fleet_limit_binds_before_per_asset_limits_are_reached(self):
-        # 기체당 200, 기체 셋이면 600. 기단 한도 500 에서 먼저 걸립니다.
+        # 200 per aircraft, 600 for three. The fleet limit of 500 binds first.
         for asset in ("drone-01", "drone-02"):
             for _ in range(10):
                 proposal = make(asset_id=asset, cost_usd=20.0)
@@ -68,7 +68,7 @@ class AuthorityTest(unittest.TestCase):
         self.assertEqual(decision.authority_hit, "fleet_usd")
 
     def test_a_closed_zone_denies_the_resource_inside_it(self):
-        """비행금지 구역은 '그 패드를 쓰지 마라'로 내려옵니다. 행동이 아니라 자원입니다."""
+        """A no-fly zone comes down as 'do not use that pad'. It is a resource, not an action."""
         self.policies.add(Policy("nofly-1", "병원 응급헬기", forbid_resource="pad:P2"))
         blocked = make(action="reserve_pad", cost_usd=28.0, resource="pad:P2")
         allowed = make(action="reserve_pad", cost_usd=28.0, resource="pad:P1")

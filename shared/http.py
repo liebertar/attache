@@ -18,8 +18,9 @@ def route(method: str, pattern: str) -> tuple:
 
 
 class _QuietServer(ThreadingHTTPServer):
-    """브라우저가 요청 도중 연결을 끊으면(새로고침·탭 닫기) 받을 상대가 없을 뿐 오류가 아닙니다.
-    그 경우만 조용히 넘기고, 나머지 오류는 표준 처리(트레이스백)대로 둡니다."""
+    """A browser dropping the connection mid-request (reload, closed tab) just leaves no one
+    to answer — not an error. Only that case is passed over quietly; other errors keep the
+    standard handling (traceback)."""
 
     def handle_error(self, request, client_address):
         if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError)):
@@ -49,7 +50,7 @@ class JsonServer:
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
-            def log_message(self, *args):  # 데모 로그를 어지럽히지 않습니다
+            def log_message(self, *args):  # keep the demo log clean
                 pass
 
             def _cors(self):
@@ -74,9 +75,9 @@ class JsonServer:
                     body = {}
                 try:
                     status, payload = server._dispatch(verb, parsed.path, query, body)
-                except Exception as exc:  # noqa: BLE001 - 데모 서버는 죽지 않는 편이 낫습니다
+                except Exception as exc:  # noqa: BLE001 - better the demo server never dies
                     status, payload = 500, {"error": str(exc)}
-                # 문자열 본문은 그대로 보냅니다(마크다운 보고서). 나머지는 전부 JSON 입니다.
+                # A string body is sent as is (the markdown report); everything else is JSON.
                 if isinstance(payload, str):
                     encoded, content_type = payload.encode(), "text/markdown; charset=utf-8"
                 else:
@@ -90,10 +91,9 @@ class JsonServer:
                 try:
                     self.wfile.write(encoded)
                 except (BrokenPipeError, ConnectionResetError):
-                    # 화면이 폴링 도중 탭을 닫거나 새로고침하면 답을 받을 상대가 없습니다. 스레드
-                    # 서버가
-                    # 스택 트레이스를 찍어 로그를 더럽히던 것이라 조용히 접습니다. 판정과는
-                    # 무관합니다.
+                    # If the screen closes the tab or reloads mid-poll, there's no one to take
+                    # the answer. The threading server used to print a stack trace and litter
+                    # the log, so this folds quietly. Unrelated to judgement.
                     return
 
             def do_GET(self):
@@ -124,11 +124,12 @@ def post_json(url: str, payload: dict, timeout: float = 20.0, headers: dict | No
 
 def post_json_status(url: str, payload: dict, timeout: float = 20.0,
                      headers: dict | None = None) -> tuple[int, dict | None]:
-    """(HTTP 상태, 본문). 닿지 못했으면 (0, None).
+    """(HTTP status, body). (0, None) if unreachable.
 
-    모델 서버가 어떤 인자를 거절했는지(400)와 그냥 느린 것(타임아웃)은 다르게 다뤄야 합니다.
-    전자는 그 인자를 빼고 한 번 더 내면 되고, 후자는 다시 내봐야 또 기다리기만 합니다.
-    None 하나로 뭉치면 둘을 구분할 수 없어서 상태 코드를 같이 돌려줍니다.
+    A model server rejecting some argument (400) and one that is just slow (timeout) need
+    different handling: the first is fixed by resending without that argument, the second
+    only waits again if resent. Lumped into a single None they'd be indistinguishable, so the
+    status code comes back too.
     """
     data = json.dumps(payload, ensure_ascii=False).encode()
     request = urllib.request.Request(url, data=data, method="POST")

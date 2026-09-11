@@ -56,7 +56,8 @@ class ReportTest(unittest.TestCase):
     def setUp(self):
         self.runtime, self.adapter = make_runtime()
         self.runtime.absorb([ZONE_ITEM])
-        # drone-01: 직선이 거절되고, 같은 id 로 낸 우회로가 승인됩니다 — 비행 하나, 원장 줄 넷.
+        # drone-01: the straight line is refused and a detour filed under the same id is
+        # approved — one flight, four ledger lines.
         self.first = Proposal(asset_id="drone-01", action="fly_route", cost_usd=12.0,
                               blast_radius="schedule", rationale="배달",
                               params={"legs": THROUGH_ZONE, "drafter": "straight",
@@ -66,7 +67,8 @@ class ReportTest(unittest.TestCase):
         approved = self.runtime.file(self.first.to_dict())
         self.assertTrue(approved.committed)
         self.intent = self.runtime.intents.get("drone-01")
-        # 날다가 새 구역이 우회로 위에 닫힙니다 → 회수. 그 전에 창보다 일찍 뜬 기록도 하나.
+        # In flight, a new zone closes over the detour → recall. Before that, one record of
+        # taking off ahead of its window too.
         self.runtime._ledger_nonconformance(self.intent, self.intent.depart_tick)
         self.runtime.tick = 650
         self.runtime.telemetry["drone-01"] = {"lat": 40.7150, "lon": -73.9950, "alt_m": 60.0,
@@ -80,7 +82,7 @@ class ReportTest(unittest.TestCase):
                                                  "TICK 640-800", "until_tick": 800}])
         self.assertEqual([s[:2] for s in self.adapter.sent if s[1] == "divert_ground"],
                          [("drone-01", "divert_ground")])
-        # drone-02: 세 번 거절되고 권고를 받습니다.
+        # drone-02: refused three times, then gets an advisory.
         self.runtime.tick = 660
         for _ in range(3):
             self.runtime.file(Proposal(asset_id="drone-02", action="fly_route", cost_usd=12.0,
@@ -96,7 +98,7 @@ class ReportTest(unittest.TestCase):
                          (660, self.runtime.airspace.revision))
         self.assertEqual([a["asset"] for a in report["assets"]], ["drone-01", "drone-02"])
         flights = report["assets"][0]["flights"]
-        self.assertEqual(len(flights), 1, "같은 id 로 다시 낸 것은 한 비행입니다")
+        self.assertEqual(len(flights), 1, "a refiling under the same id is one flight")
         flight = flights[0]
         self.assertEqual((flight["proposal"], flight["intent"], flight["action"]),
                          (self.first.id, self.intent.id, "fly_route"))
@@ -132,7 +134,7 @@ class ReportTest(unittest.TestCase):
         text = self.runtime.report(fmt="md")
         self.assertTrue(text.startswith("# Ledger report — tick 660"))
         rows = [line for line in text.splitlines() if line.startswith("| drone-01 |")]
-        self.assertEqual(len(rows), 1, "비행 하나가 한 줄입니다")
+        self.assertEqual(len(rows), 1, "one flight is one row")
         row = rows[0]
         for piece in (f"fly_route {self.first.id}", "tick 600", "rules", "astar", "| 2 |",
                       "t600 forbidden:nofly-t", "tick 600 (within_limits)", "tick 650 (nofly-r)"):
@@ -161,7 +163,7 @@ class ReportTest(unittest.TestCase):
         flights = report["assets"][0]["flights"]
         last = next(f for f in flights if f["proposal"] == flight["id"])
         self.assertEqual((last["duplicates"], len(last["refusals"])), (1, 1),
-                         "중복 거절은 거절 목록이 아니라 따로 셉니다")
+                         "duplicate refusals are counted apart from the refusal list")
         broken = next(f for f in flights if f["proposal"] == "p_failed")
         self.assertIsNone(broken["approved"])
         self.assertEqual(broken["failed"]["outcome"], "failed: not on a pad")
