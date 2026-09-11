@@ -9,18 +9,22 @@ They still fail, because a rule that lives in each agent is not a rule.
 """
 
 import json
+import math
 import random
 import re
 import unittest
+from concurrent.futures import Future
+from types import SimpleNamespace
 
 from holdshort.agent.detect import detect
 from holdshort.agent.drafter import ModelDrafter, service_bbox
-from holdshort.agent.loop import ALTITUDE_SHIFT_M, MAX_DELAY_TRIES, ROUTE_REFUSALS
+from holdshort.agent.loop import ROUTE_REFUSALS, GuardedAgent
 from holdshort.agent.planner import OperatorPlanner
 from holdshort.agent.propose import COSTS, by_rule
+from holdshort.agent.trace import route_part
 from holdshort.core.config import load as config_load
-from holdshort.core.geo import first_breach
-from holdshort.core.models import Proposal, Verdict
+from holdshort.core.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, first_breach, nearest_exit
+from holdshort.core.models import Verdict
 from holdshort.core.route import Router
 from holdshort.llm.client import LlmReply, TieredLlm
 from holdshort.runtime.service import Runtime
@@ -81,21 +85,109 @@ BUDGET_ESCALATIONS = {"per_asset_usd", "fleet_usd"}
 PERSON_ONLY_CARDS = {"human_notice", "human_weather", "human_lift", "human_lost_link"}
 
 
+class DecisionView(dict):
+    """POST /proposals 가 돌려주는 그 dict(Decision.to_dict) 에 원래 Decision 객체를 붙인 것.
+
+    loop.py 의 흐름은 dict 를 읽고, 하네스의 점수·재신청 간격은 Decision 을 읽습니다.
+    """
+
+    def __init__(self, decision):
+        super().__init__(decision.to_dict())
+        self.decision = decision
+
+
+class InProcessAgent(GuardedAgent):
+    """loop.py 의 GuardedAgent 그대로입니다. 전선만 같은 프로세스 호출로 바꿨습니다.
+
+    신청(_send)은 runtime.file, 상태(_runtime_state)는 runtime.snapshot, 텔레메트리는 이번 틱의
+    스냅숏입니다. 작업 스레드는 그 자리에서 돌고, 거절 표시를 기다리는 5.6초(redraw_s)는 0 입니다.
+    예전에는 이 흐름을 여기에 따로 옮겨 적었습니다. loop.py 가 '후보 셋 → 고르기 → 차례로 신청' 으로
+    바뀐 뒤에도 하네스는 옛 흐름(직선 → A* 하나)을 돌아, 하네스의 0 이 새 흐름에 대해서는 아무것도
+    말하지 않았습니다. 이제 옮겨 적은 것이 없어서 두 흐름이 갈라질 수 없습니다.
+    """
+
+    def __init__(self, asset_id: str, runtime):
+        rules = TieredLlm(models={}, record_dir="")   # 모델 없음: 신청서도 고르기도 규칙
+        super().__init__(asset_id, "http://in-process", SimpleNamespace(llm=rules), rules)
+        self.runtime = runtime
+        self.redraw_s = 0.0
+        self.now: dict = {}
+        self.choices: list = []
+
+    def telemetry(self) -> dict:
+        return self.now
+
+    def _send(self, payload: dict):
+        return DecisionView(self.runtime.file(payload))
+
+    def _runtime_state(self) -> dict:
+        return self.runtime.snapshot()
+
+    def _in_background(self, work, *args) -> Future:
+        future: Future = Future()
+        try:
+            future.set_result(work(*args))
+        except BaseException as error:  # noqa: BLE001 - 실제 흐름처럼 결과로 넘깁니다
+            future.set_exception(error)
+        return future
+
+    def _log_choice(self, outcome) -> None:
+        # 실주행은 한 줄씩 찍습니다. 한 판에 백 번 가까이 불리므로 여기서는 적어만 둡니다.
+        self.choices.append(outcome)
+
+
+class DraftFirstAgent(InProcessAgent):
+    """시험 전용 순서: 거절 뒤에 모델 초안을 후보보다 먼저 냅니다.
+
+    실제 흐름(loop.py)에서 초안은 후보가 전부 거절된 뒤의 마지막 수단이라 한 판에 거의 불리지
+    않습니다. 모델이 그린 선이 판정 앞에 서는 일을 일부러 많이 만들려고(혼돈 초안·녹음 초안 시험)
+    초안을 앞에 둡니다. 초안이 거절되면 그 뒤는 실제 흐름 그대로(후보 → 마지막 초안 → 반려)이고,
+    교차 거절 뒤에는 실제 흐름처럼 묻지 않습니다. 런타임 쪽 운영사를 거칠게 만드는 것이라 직결
+    세계는 건드리지 않습니다(G6).
+    """
+
+    def _file_candidates(self, proposal, telemetry, here, goal, moved_to, outcome, refusal):
+        legs, draft, drew = self._last_resort_draft(here, goal, refusal)
+        if legs:
+            decision = self._file_legs(proposal, legs, drew, route_part("draft", None, draft),
+                                       airborne=False)
+            if not decision or decision.get("policy_hit") not in ROUTE_REFUSALS:
+                return decision
+            refusal = decision
+        return super()._file_candidates(proposal, telemetry, here, goal, moved_to, outcome,
+                                        refusal)
+
+
 class GuardedSide:
     """운영사 쪽. 길은 우리가 그리고, 되는지는 런타임에 묻습니다.
 
-    loop.py 의 _file_with_route 를 그대로 옮겨 적었습니다(sleep 만 뺌).
-    drafter 가 있으면 거절 뒤에 모델이 먼저, 안 되면 A* — 같은 순서입니다.
+    길을 내는 흐름은 loop.py 의 GuardedAgent._file_with_route 를 그대로 부릅니다(InProcessAgent):
+    직선 → 교차 사다리 → 후보 셋과 고르기(모델이 없으니 규칙) → 차례로 신청 → 마지막 초안 → 반려.
+    여기 남은 것은 틱으로 세는 재신청 간격, 배운 금지, 원격 관제사뿐입니다.
     """
 
-    def __init__(self, runtime, drafter=None):
+    def __init__(self, runtime, drafter=None, draft_first: bool = False):
         self.runtime = runtime
         self.planner = OperatorPlanner(runtime.airspace)
-        self.drafter = drafter          # None 이면 A* 만. 시험이 stub/fixture/chaos 를 꽂습니다
-        self.preferred_alt_m = Router.cruise_alt_default()
+        self.drafter = drafter          # None 이면 초안 없음. 시험이 stub/fixture/chaos 를 꽂습니다
+        self.draft_first = draft_first
         self.pad_index = {}
         self.banned = {}
         self.cooldown = {}
+        self.agents: dict[str, InProcessAgent] = {}
+
+    def agent(self, asset_id: str) -> InProcessAgent:
+        found = self.agents.get(asset_id)
+        if found is None:
+            kind = DraftFirstAgent if self.draft_first else InProcessAgent
+            found = self.agents[asset_id] = kind(asset_id, self.runtime)
+        # 계획기와 초안기는 기체들이 나눠 씁니다(런타임과 같은 공역 사본). 시험이 도중에 바꿔
+        # 끼우기도 해서 부를 때마다 맞춥니다.
+        found.planner = self.planner
+        found.drafter = self.drafter
+        found.pads = {name: {"lat": at[0], "lon": at[1]}
+                      for name, at in (self.runtime.pad_coords or {}).items()}
+        return found
 
     def run_tick(self, snapshot):
         for asset_id, telemetry in snapshot["assets"].items():
@@ -124,93 +216,11 @@ class GuardedSide:
         self.runtime._settle_contended()
         self._controller_reviews()
 
-    def _destination(self, proposal, telemetry):
-        if proposal.action == "fly_route" and telemetry.get("job_lat") is not None:
-            return (telemetry["job_lat"], telemetry["job_lon"])
-        if proposal.action == "reserve_pad" and proposal.resource:
-            at = self.runtime.pad_coords.get(proposal.resource)
-            return at
-        return None
-
     def _file(self, proposal, telemetry):
-        here = (telemetry.get("lat"), telemetry.get("lon"))
-        goal = self._destination(proposal, telemetry)
-        if here[0] is None or goal is None:
-            return self.runtime.file(proposal.to_dict())
-
-        airborne = float(telemetry.get("alt_m") or 0.0) > 1.0
-        # 먼저 최단 직선으로 냅니다. 운영사는 원래 제일 싼 길을 냅니다.
-        proposal.params = {**proposal.params, "legs": self.planner.straight(here, goal),
-                           "drafter": "straight", "draft_attempts": 0}
-        decision = self.runtime.file(proposal.to_dict())
-        if decision.policy_hit not in ROUTE_REFUSALS:
-            return decision
-        if decision.policy_hit == "traffic":
-            # 다른 기체의 회랑과 겹칩니다. 길은 맞으니 높이나 시각을 바꿔 봅니다.
-            decision = self._resolve_traffic(proposal, proposal.params["legs"], decision, airborne)
-            if decision.policy_hit not in ROUTE_REFUSALS:
-                return decision
-        # 다시 그리라고 했습니다. 모델이 먼저, 안 되면 A*.
-        legs, drafter, attempts = self._redraw(here, goal, decision)
-        if not legs:
-            if proposal.action != "fly_route" or self.planner.start_blocked(here, telemetry):
-                return decision   # 이륙장을 못 간다고, 출발점이 막혔다고 주문을 반려하지는 않습니다
-            declined = Proposal.from_dict({**proposal.to_dict(), "action": "decline_job",
-                                           "cost_usd": 0.0, "blast_radius": "none",
-                                           "params": {}, "resource": None})
-            return self.runtime.file(declined.to_dict())
-        redrawn = Proposal.from_dict({**proposal.to_dict(),
-                                      "params": {**proposal.params, "legs": legs,
-                                                 "drafter": drafter, "draft_attempts": attempts}})
-        decision = self.runtime.file(redrawn.to_dict())
-        if decision.policy_hit == "traffic":
-            decision = self._resolve_traffic(redrawn, legs, decision, airborne)
-        return decision
-
-    def _resolve_traffic(self, proposal, legs, refusal, airborne):
-        """loop.py GuardedAgent._resolve_traffic 와 같은 사다리. 고도 +30m → 출발 지연."""
-        detail = refusal.detail or {}
-        other = detail.get("blocked_asset") or refusal.forbids
-        lifted = self.planner.lift(legs, ALTITUDE_SHIFT_M)
-        decision = refusal
-        if lifted is not None:
-            raised = Proposal.from_dict({**proposal.to_dict(), "params": {
-                **proposal.params, "legs": lifted, "resolution": "altitude",
-                "altitude_shift_m": ALTITUDE_SHIFT_M, "holding_for": None}})
-            decision = self.runtime.file(raised.to_dict())
-            if decision.policy_hit != "traffic":
-                return decision
-            detail = decision.detail or {}
-            other = detail.get("blocked_asset") or other
-        if airborne:
-            return decision
-        until = detail.get("blocked_until_tick")
-        for _ in range(MAX_DELAY_TRIES):
-            if until is None:
-                break
-            delayed = Proposal.from_dict({**proposal.to_dict(), "params": {
-                **proposal.params, "legs": legs, "resolution": "delay",
-                "holding_for": other, "depart_after_tick": int(until)}})
-            decision = self.runtime.file(delayed.to_dict())
-            if decision.policy_hit != "traffic":
-                return decision
-            detail = decision.detail or {}
-            later = detail.get("blocked_until_tick")
-            if later is None or int(later) <= int(until):
-                break
-            until, other = later, detail.get("blocked_asset") or other
-        return decision
-
-    def _redraw(self, here, goal, refusal):
-        """loop.py GuardedAgent._redraw 와 같은 순서. 모델 초안 → 안 되면 A*. 교차 뒤는 A* 만."""
-        attempts = 0
-        if self.drafter is not None and refusal.policy_hit != "traffic":
-            legs = self.drafter.draft(here, goal, {"reason": refusal.reason,
-                                                   "forbids": refusal.forbids})
-            attempts = self.drafter.last_attempts
-            if legs:
-                return legs, self.drafter.name, attempts
-        return self.planner.draw(here, goal), "astar", attempts
+        """loop.py 가 내는 그대로 냅니다. 마지막 판정(Decision)을 돌려줍니다."""
+        agent = self.agent(proposal.asset_id)
+        agent.now = telemetry
+        return agent._file_with_route(proposal, telemetry).decision
 
     def _controller_reviews(self):
         """원격 관제사. 안전 때문에 올라온 건 승인하고, 예산 초과는 거부합니다."""
@@ -292,8 +302,9 @@ CONFIG = "configs/fleet.yaml"
 
 
 def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_factory=None,
-        seed: int = 7):
-    """한 판. drafter_factory(runtime, planner) 가 있으면 운영사가 그 초안기를 먼저 씁니다.
+        seed: int = 7, draft_first: bool = False):
+    """한 판. drafter_factory(runtime, planner) 가 있으면 운영사가 그 초안기를 씁니다 — 실제
+    흐름대로면 후보가 전부 거절된 뒤에만, draft_first 면 후보보다 먼저(DraftFirstAgent).
 
     adapter_factory(world, clock, airspace) 로 조종장치 문턱을 바꿔 낄 수 있습니다.
     """
@@ -320,12 +331,14 @@ def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_facto
         for name, at in opening["pad_coords"].items()
     }
     runtime.landing_areas = list(opening.get("landing_areas") or [])
-    guarded = GuardedSide(runtime)
+    guarded = GuardedSide(runtime, draft_first=draft_first)
     if drafter_factory is not None:
         guarded.drafter = drafter_factory(runtime, guarded.planner)
     direct = DirectSide(simulation.worlds["direct"])
     # 기체가 판 동안 무엇을 했는지. 점수판은 규칙 위반을 세고, 이건 순환이 실제로 도는지 봅니다.
-    trace = {vid: {"states": set(), "delivered": 0, "hovering": 0, "max_load": 0, "home": 0}
+    # zone_ticks·inside_at_closure: 점수판의 zone_dwell_ticks 를 기체별로 나눈 것(같은 셈법).
+    trace = {vid: {"states": set(), "delivered": 0, "hovering": 0, "max_load": 0, "home": 0,
+                   "zone_ticks": 0, "inside_at_closure": False}
              for vid in guarded_world.vehicles}
     at_home = dict.fromkeys(guarded_world.vehicles, True)
 
@@ -345,6 +358,7 @@ def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_facto
             if home and not at_home[vid]:
                 row["home"] += 1
             at_home[vid] = home or vehicle.state in ("loading", "landed", "charging")
+            _count_zone_tick(row, vehicle, tick)
 
         # 제한하는 공지는 런타임이 도착 즉시 겁니다. 푸는 정책만 사람이 풉니다.
         # 실서비스와 같은 코드로 받습니다 — 두 벌로 적으면 갈라집니다.
@@ -365,6 +379,59 @@ def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_facto
     )
 
 
+def _count_zone_tick(row: dict, vehicle, tick: int) -> None:
+    """sim.world._detect_zone_incursions 와 같은 셈을 기체별로. 창 안에서, 멈춘 기체는 빼고."""
+    if not (sim_world.ZONE_TICK <= tick <= sim_world.ZONE_UNTIL) or vehicle.state == "grounded":
+        return
+    inside = sim_world.ZONE_VOLUME.covers(*sim_world.to_latlon(vehicle.x, vehicle.y))
+    if inside:
+        row["zone_ticks"] += 1
+    if tick == sim_world.ZONE_TICK:
+        row["inside_at_closure"] = inside
+
+
+def zone_exit_ticks(samples: int = 24) -> int:
+    """닫힌 구역 안 어디서든 가장 가까운 바깥(이격 포함, 런타임의 nearest_exit)까지 순항으로 몇 틱.
+
+    구역 안을 촘촘히 짚어 가장 먼 자리를 씁니다. 회수가 닿는 틱과 끝자리 반올림으로 두 틱을
+    더합니다.
+    """
+    volume = sim_world.ZONE_VOLUME
+    lats = [point[0] for point in volume.polygon]
+    lons = [point[1] for point in volume.polygon]
+    farthest = 0.0
+    for i in range(samples + 1):
+        for j in range(samples + 1):
+            lat = min(lats) + (max(lats) - min(lats)) * i / samples
+            lon = min(lons) + (max(lons) - min(lons)) * j / samples
+            door = nearest_exit(volume, lat, lon)
+            if door is None:
+                continue
+            farthest = max(farthest, math.hypot((door[0] - lat) * METRES_PER_DEG_LAT,
+                                                (door[1] - lon) * METRES_PER_DEG_LON))
+    per_tick = sim_world.CRUISE_MPS * sim_world.SIM_SECONDS_PER_TICK
+    return math.ceil(farthest / per_tick) + 2
+
+
+def min_distance_m(legs: list[dict], centre) -> float:
+    """경로(구간들)와 한 점 사이의 가장 가까운 거리(m). 한 동네 안이라 평면으로 셉니다."""
+    lat0, lon0 = ((centre["lat"], centre["lon"]) if isinstance(centre, dict)
+                  else (centre[0], centre[1]))
+
+    def local(point):
+        return ((float(point["lat"]) - float(lat0)) * METRES_PER_DEG_LAT,
+                (float(point["lon"]) - float(lon0)) * METRES_PER_DEG_LON)
+
+    best = math.inf
+    for here, nxt in zip(legs, legs[1:], strict=False):
+        (ay, ax), (by, bx) = local(here), local(nxt)
+        dy, dx = by - ay, bx - ax
+        span = dy * dy + dx * dx
+        along = 0.0 if span == 0 else max(0.0, min(1.0, -(ay * dy + ax * dx) / span))
+        best = min(best, math.hypot(ay + dy * along, ax + dx * along))
+    return best
+
+
 def fleet_bbox():
     return service_bbox([(a["lat"], a["lon"]) for a in LANDING_AREAS])
 
@@ -379,7 +446,13 @@ def ledger_stats(path: str) -> dict:
              "incident_refusals": 0, "weather_holds": 0, "incidents": 0,
              # 링크 두절: 끊긴 줄, 돌아온 줄(순응했나), 끊긴 기체의 예약에 걸린 교차 거절.
              "links_lost": 0, "links_restored": 0, "links_nonconforming": 0,
-             "dark_refusals": 0}
+             "dark_refusals": 0,
+             # 병원 구역이 닫혀 회수된 기체와 그 틱. 닫히는 순간 안에 있던 기체는 그 틱에 나가라는
+             # 명령을 받아야 합니다.
+             "zone_recalls": [],
+             # 화재 원(중심·반경·창)과 실행된 경로들(틱, 기체, legs). 원이 닫힌 동안 승인한 경로가
+             # 원을 비켜 가는지 봅니다.
+             "incident_area": None, "cleared_routes": []}
     incident_id = sim_world.INCIDENT["id"]
     seen = set()
     with open(path, encoding="utf-8") as handle:
@@ -394,6 +467,10 @@ def ledger_stats(path: str) -> dict:
                 stats["weather_holds"] += 1
             if decision.get("code") == "incident_keepout":
                 stats["incidents"] += 1
+                stats["incident_area"] = {
+                    "centre": params.get("centre"), "radius_m": params.get("radius_m"),
+                    "from_tick": (entry.get("context") or {}).get("tick"),
+                    "until_tick": params.get("until_tick")}
             if proposal.get("action") == "link_lost":
                 stats["links_lost"] += 1
                 dark_assets = stats.setdefault("dark_assets", [])
@@ -421,12 +498,19 @@ def ledger_stats(path: str) -> dict:
                 if decision.get("code") == "duplicate":
                     stats["duplicates"] += 1
                 continue
+            routed = proposal.get("action") in ("fly_route", "reserve_pad")
+            if entry["outcome"] == "done" and routed and params.get("legs"):
+                stats["cleared_routes"].append(((entry.get("context") or {}).get("tick"),
+                                                proposal.get("asset_id"), params["legs"]))
             if entry["outcome"] == "done" and params.get("resolution") in ("altitude", "delay"):
                 stats["resolutions"][params["resolution"]] += 1
             if decision.get("code") == "withdrawn":
                 stats["withdrawn"] += 1
             if decision.get("code") == "recalled":
                 stats["recalled"] += 1
+                if decision.get("policy_hit") == sim_world.ZONE["id"]:
+                    stats["zone_recalls"].append({"asset": proposal.get("asset_id"),
+                                                  "tick": (entry.get("context") or {}).get("tick")})
                 if decision.get("policy_hit") == "weather-hold":
                     stats["weather_grounded"] += 1
                 if decision.get("policy_hit") == incident_id:
@@ -521,9 +605,15 @@ class RecklessDrafter(ModelDrafter):
 
 
 class ChaosDraftsNeverFlyTest(unittest.TestCase):
-    """모델이 무엇을 그리든 실행되는 경로는 전부 판정을 지난 신청서에서 옵니다."""
+    """모델이 무엇을 그리든 실행되는 경로는 전부 판정을 지난 신청서에서 옵니다.
 
-    TICKS = 1500
+    3000틱입니다. 실제 흐름에서 초안은 땅에서 받은 공역 거절 뒤에만 불립니다(떠 있으면
+    A* 로 바로, 교차 거절 뒤에는 묻지 않음). 1500틱에는 그런 자리가 열 번뿐이라 혼돈 초안의
+    종류가 다 안 나왔습니다(16번, 7가지). 예전 하네스는 떠 있을 때도 직선부터 내서 초안을
+    더 자주 불렀습니다 — loop.py 에는 없는 순서였습니다.
+    """
+
+    TICKS = 3000
 
     @classmethod
     def setUpClass(cls):
@@ -535,7 +625,10 @@ class ChaosDraftsNeverFlyTest(unittest.TestCase):
         def drafter(runtime, planner):
             llm = ChaosLlm(runtime.airspace)
             cls.llms.append(llm)
-            return RecklessDrafter(llm, planner, bbox=fleet_bbox())
+            # 물러섬 0: 혼돈 모델의 '답 없음' 뒤 30초(벽시계)를 물러서면, 몇 번 묻는지가
+            # 기계 속도에 따라 갈립니다(실측: 3000틱에 82번 중 69번을 건너뜀). 여기서 보는
+            # 것은 판정이지 물러섬이 아닙니다 — RecordedNanoDraftsFlyTest 와 같은 이유입니다.
+            return RecklessDrafter(llm, planner, bbox=fleet_bbox(), backoff_s=0.0)
 
         def adapter(world, clock, airspace):
             made = JudgingAdapter(world, clock, airspace)
@@ -546,7 +639,7 @@ class ChaosDraftsNeverFlyTest(unittest.TestCase):
             cls.ledger_path = handle.name
             cls.guarded, cls.direct, cls.trace = run(handle.name, ticks=cls.TICKS,
                                                      drafter_factory=drafter,
-                                                     adapter_factory=adapter)
+                                                     adapter_factory=adapter, draft_first=True)
 
     def test_the_chaos_model_was_actually_asked_and_served_every_kind(self):
         llm = self.llms[0]
@@ -622,7 +715,7 @@ class RecordedNanoDraftsFlyTest(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             cls.ledger_path = handle.name
             cls.guarded, _, _ = run(handle.name, ticks=500, drafter_factory=drafter,
-                                    seed=cls.seed)
+                                    seed=cls.seed, draft_first=True)
 
     def test_a_nano_route_was_executed_and_the_ledger_says_so(self):
         self.assertGreater(len(self.llms[0].served), 0, "fixture 가 한 번도 답하지 않았습니다")
@@ -712,14 +805,29 @@ class TwoWorldsTest(unittest.TestCase):
         """규칙이 도착했을 때 안에 있던 기체를 누가 빼내느냐.
 
         침범 횟수가 아니라 머문 시간을 봅니다. 규칙이 도착한 순간 안에 있던 것은 아무도
-        잘못한 게 아닙니다. 갈리는 것은 그 다음입니다 — 한쪽은 회항 명령을 받고,
-        다른 쪽은 기체가 스스로 공지를 확인할 때까지 남아 있습니다.
+        잘못한 게 아닙니다. 갈리는 것은 그 다음입니다 — 런타임 쪽은 닫힌 그 틱에 회수 명령(가장
+        가까운 바깥으로)을 받아 머문 시간이 거기까지 나는 시간뿐이고, 직결 쪽은 기체가 스스로
+        공지를 확인할 때까지 남아 있습니다.
+
+        직결 세계와 크기를 견주지는 않습니다. 두 세계의 기체는 다른 길(판정받은 길 · 직선)을 날아
+        닫히는 순간 안에 있는 기체가 다릅니다. 씨앗 7 에서 후보 (c) 로 돌아간 drone-03 은 런타임
+        세계에서만 안에 있었습니다(런타임 7틱, 직결 0). 예전 단언(런타임 ≤ 직결)은 두 쪽 다 0 이라
+        지나갔을 뿐, 이 차이를 본 적이 없습니다.
         """
         self.assertEqual(self.guarded["zone_incursions"], 0)
-        # 머문 시간은 그 판에 누가 어디 있었느냐에 달려 있어서 '반드시 더 짧다'로 묶으면
-        # 시나리오가 조금만 달라져도 깨집니다. 더 오래 남지 않는다는 것만 봅니다.
-        self.assertLessEqual(self.guarded["zone_dwell_ticks"],
-                             self.direct["zone_dwell_ticks"])
+        recalled_at = {row["asset"]: row["tick"] for row in self.stats["zone_recalls"]}
+        bound = zone_exit_ticks()
+        for asset, row in self.trace.items():
+            with self.subTest(asset=asset):
+                if not row["inside_at_closure"]:
+                    self.assertEqual(row["zone_ticks"], 0, "닫힌 뒤에 들어갔습니다")
+                    continue
+                self.assertEqual(recalled_at.get(asset), sim_world.ZONE_TICK,
+                                 "닫힌 그 틱에 회수되어야 합니다")
+                self.assertLessEqual(row["zone_ticks"], bound,
+                                     "가장 가까운 바깥까지 나는 시간보다 오래 머물렀습니다")
+        self.assertEqual(sum(row["zone_ticks"] for row in self.trace.values()),
+                         self.guarded["zone_dwell_ticks"], "기체별 셈과 점수판은 같은 것을 셉니다")
 
     def test_takeoffs_are_held_by_the_weather_report_only_where_something_reads_it(self):
         """돌풍 28 kt 관측이 문장으로 옵니다. 런타임은 읽고 한도와 비교해 이륙을 세웁니다 —
@@ -734,13 +842,25 @@ class TwoWorldsTest(unittest.TestCase):
 
     def test_the_incident_circle_pulls_or_refuses_a_guarded_corridor_and_nobody_flies_into_it(self):
         """주소 하나로 온 화재. 런타임은 지명 사전에서 자리를 찾아 원을 닫고, 그리로 가던 승인
-        회랑을 회수하거나 새 경로를 거절합니다. 이 씨앗에서는 drone-02 의 갠트리행 회랑이 틱 3000
-        에 회수됩니다. 직결 세계의 대조는 기상 대기 쪽이 맡습니다(같은 창에 갠트리를 안 지남).
+        회랑을 회수하거나 새 경로를 거절합니다. 원이 닫힌 동안 승인한 경로는 전부 원을 비켜 갑니다.
+
+        그 원을 지나려던 기체가 이 판에 있었는지는 보지 않습니다 — 누가 어디로 가느냐에 달렸습니다.
+        예전 흐름(직선 → A* 하나)의 씨앗 7 에서는 drone-02 의 갠트리행 회랑이 틱 3000 에 회수됐고,
+        후보 흐름에서는 그 창에 원을 지나려던 기체가 없습니다. 회수·거절 자체는
+        test_runtime_intake 의 test_a_grammar_read_incident_is_a_keep_out_circle_that_recalls_
+        refuses_and_grounds 가 정해진 자리에서 봅니다. 직결 세계의 대조는 기상 대기 쪽이 맡습니다.
         """
         self.assertEqual(self.guarded["incident_incursions"], 0)
         self.assertEqual(self.stats["incidents"], 1, self.stats)
-        self.assertGreater(self.stats["incident_recalls"] + self.stats["incident_refusals"], 0,
-                           self.stats)
+        area = self.stats["incident_area"]
+        during = [(tick, asset, legs) for tick, asset, legs in self.stats["cleared_routes"]
+                  if tick is not None and area["from_tick"] <= tick <= area["until_tick"]]
+        self.assertTrue(during, "원이 닫힌 동안에도 기단은 날았습니다 — 없으면 이 단언은 빈 것")
+        for tick, asset, legs in during:
+            with self.subTest(tick=tick, asset=asset):
+                # 원은 다각형으로 걸립니다(안쪽으로 조금 깎임). 그만큼만 봐 줍니다.
+                self.assertGreater(min_distance_m(legs, area["centre"]),
+                                   0.95 * float(area["radius_m"]))
         self.assertTrue(self.direct["weather_hold_takeoffs"] > 0
                         or self.direct["incident_incursions"] > 0)
 
@@ -773,10 +893,9 @@ class TwoWorldsTest(unittest.TestCase):
     def test_nothing_hovers_in_the_air_waiting_for_a_route(self):
         """멈추는 것은 지상에서 일할 때뿐입니다. 공중 대기는 회수당했을 때 정도만 남습니다.
 
-        한 판에 회수가 둘입니다(구역 폐쇄, 사고 원). 사고 회수 뒤 새 목적지로 가는 길이 남의 회랑과
-        겹치면 그 회랑이 빌 때까지 떠서 기다립니다 — 씨앗 7 에서 drone-02 가 틱 3000 에 회수돼
-        drone-03 의 회랑(틱 3218 까지)이 빌 때까지 110틱. 그것도 판정이 시킨 대기라 여기서는 상한만
-        봅니다.
+        회수(구역 폐쇄, 사고 원) 뒤 새 목적지로 가는 길이 남의 회랑과 겹치면 그 회랑이 빌 때까지
+        떠서 기다립니다 — 예전 흐름의 씨앗 7 에서 drone-02 가 틱 3000 에 회수돼 drone-03 의 회랑이
+        빌 때까지 110틱. 그것도 판정이 시킨 대기라 여기서는 상한만 봅니다.
         """
         for asset, row in self.trace.items():
             with self.subTest(asset=asset):
