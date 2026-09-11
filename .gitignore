@@ -8,3 +8,4 @@ ledger.jsonl
 models/
 *.jsonl
 .run/
+ARCHITECTURE.md
