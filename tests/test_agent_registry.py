@@ -13,14 +13,14 @@ import threading
 import time
 import unittest
 
-from holdshort.agent.chooser import Choice
-from holdshort.agent.loop import GuardedAgent, ModelHealth, Registration, identity
-from holdshort.agent.propose import Proposer
-from holdshort.agent.trace import form_part
-from holdshort.core.config import model_display
-from holdshort.llm.client import TieredLlm
-from holdshort.runtime import service as service_module
-from holdshort.runtime.service import Runtime
+from backend import service as service_module
+from backend.service import Runtime
+from drone.agent.chooser import Choice
+from drone.agent.loop import GuardedAgent, ModelHealth, Registration, identity
+from drone.agent.propose import Proposer
+from drone.agent.trace import form_part
+from shared.config import model_display
+from shared.llm.client import TieredLlm
 from sim.world import Simulation
 
 CONFIG = "configs/fleet.yaml"

@@ -54,13 +54,13 @@ class LedgerTruthTest(unittest.TestCase):
     def test_the_closing_entry_reports_what_actually_happened(self):
         import tempfile
 
-        from holdshort.core.config import Authority
-        from holdshort.core.models import Decision, Proposal, Verdict
-        from holdshort.runtime.authority import AuthorityCheck
-        from holdshort.runtime.commit import Committer
-        from holdshort.runtime.ledger import Ledger
-        from holdshort.runtime.locks import LockTable
-        from holdshort.runtime.policy import PolicyBook
+        from backend.authority import AuthorityCheck
+        from backend.commit import Committer
+        from backend.ledger import Ledger
+        from backend.locks import LockTable
+        from backend.policy import PolicyBook
+        from shared.config import Authority
+        from shared.models import Decision, Proposal, Verdict
 
         simulation = Simulation()
         world = simulation.worlds["guarded"]
@@ -107,7 +107,7 @@ class AirspaceTest(unittest.TestCase):
 
         그래서 판정 코드가 한 줄도 안 늘어납니다. 같은 first_breach 가 답합니다.
         """
-        from holdshort.core.geo import first_breach
+        from shared.geo import first_breach
         from sim.world import AIRSPACE, BUILDINGS
 
         if not BUILDINGS:
@@ -125,7 +125,7 @@ class AirspaceTest(unittest.TestCase):
         del above   # 옥상 위는 FAA 천장이 따로 보므로 여기서는 건물만 봅니다
 
     def test_a_sub_sample_building_crossing_is_rejected_in_both_directions(self):
-        from holdshort.core.geo import Airspace, Volume, box, first_breach
+        from shared.geo import Airspace, Volume, box, first_breach
 
         # 100m 경로의 8m 표본 사이에 폭 1m 장애물을 놓습니다. 건물이라 이격은 10m 입니다.
         obstacle = Volume("bldg-thin", "thin building", box(-.0001, .000031, .0001, .000041),
@@ -143,7 +143,7 @@ class AirspaceTest(unittest.TestCase):
 
     def test_a_low_line_across_lower_manhattan_hits_a_building(self):
         """기체가 승인된 경로에서 건물 모서리를 139틱 스치던 실측 구간. 8m 표본으로는 놓쳤습니다."""
-        from holdshort.core.geo import first_breach
+        from shared.geo import first_breach
         from sim.world import AIRSPACE
 
         legs = [{"lat": 40.7106, "lon": -73.985, "alt_m": 55},
@@ -165,9 +165,9 @@ class AirspaceTest(unittest.TestCase):
     def test_the_runtime_refuses_a_route_through_restricted_airspace(self):
         import tempfile
 
-        from holdshort.core.geo import Volume
-        from holdshort.core.models import Verdict
-        from holdshort.runtime.service import Runtime
+        from backend.service import Runtime
+        from shared.geo import Volume
+        from shared.models import Verdict
         from sim.world import Simulation as Sim
 
         simulation = Sim()
@@ -208,8 +208,8 @@ class RouterAgreesWithTheJudgeTest(unittest.TestCase):
     """
 
     def test_a_diagonal_step_that_clips_a_corner_is_not_a_free_step(self):
-        from holdshort.core.geo import Airspace, Volume, first_breach
-        from holdshort.core.route import Router
+        from shared.geo import Airspace, Volume, first_breach
+        from shared.route import Router
 
         airspace = Airspace()
         airspace.add(Volume(
@@ -232,8 +232,8 @@ class RouterAgreesWithTheJudgeTest(unittest.TestCase):
         self.assertIsNotNone(breach, "판정자는 위반이라고 하는데 계획기가 통과시키면 안 됩니다")
 
     def test_every_route_the_planner_hands_over_survives_the_judge(self):
-        from holdshort.agent.planner import OperatorPlanner
-        from holdshort.core.geo import first_breach
+        from drone.agent.planner import OperatorPlanner
+        from shared.geo import first_breach
         from sim.world import Simulation as Sim
 
         planner = OperatorPlanner()
@@ -270,7 +270,7 @@ class WeavingBetweenBuildingsTest(unittest.TestCase):
     GOAL = (40.7308, -73.9973)
 
     def _router(self):
-        from holdshort.core.route import Router
+        from shared.route import Router
         from sim.world import AIRSPACE, BUILDINGS
 
         if not BUILDINGS:
@@ -278,7 +278,7 @@ class WeavingBetweenBuildingsTest(unittest.TestCase):
         return Router(AIRSPACE)
 
     def test_a_route_through_the_city_exists_and_survives_the_judge(self):
-        from holdshort.core.geo import first_breach
+        from shared.geo import first_breach
 
         router = self._router()
         route = router.plan(self.START, self.GOAL)
@@ -295,8 +295,8 @@ class WeavingBetweenBuildingsTest(unittest.TestCase):
         고도를 안 보고 발자국만 피하면 20m 건물도 영영 벽이 되고, 고도를 한 값으로만 두면
         옥상 이격이 판정된다는 것이 화면에 안 보입니다.
         """
-        from holdshort.core.geo import required_top_along
-        from holdshort.core.route import CRUISE_ALT_M, FLOOR_ALT_M
+        from shared.geo import required_top_along
+        from shared.route import CRUISE_ALT_M, FLOOR_ALT_M
 
         router = self._router()
         # 강 위: 아무것도 없으니 바닥 고도 — 단, 천장이 낮은 칸이면 천장 - 1 (최저 70 m 는 천장이
@@ -335,7 +335,7 @@ class WeavingBetweenBuildingsTest(unittest.TestCase):
         self.assertAlmostEqual(route.legs[-1].lon, goal[1], places=5)
 
     def test_a_building_taller_than_the_cruise_altitude_is_not_a_shortcut(self):
-        from holdshort.core.geo import first_breach
+        from shared.geo import first_breach
         from sim.world import AIRSPACE
 
         router = self._router()

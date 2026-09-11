@@ -87,7 +87,7 @@ intake:
     - "Manhattan building fire today"
   metar_stations: [KNYC, KLGA]
 
-# 사전 브리핑(holdshort/runtime/briefing.py). 판이 시작할 때, 그리고 방금 승인한 회랑이 이 판에 아직
+# 사전 브리핑(backend/briefing.py). 판이 시작할 때, 그리고 방금 승인한 회랑이 이 판에 아직
 # 안 물어본 동네(약 cell_km 칸)에 들어설 때 관제탑이 그 자리·그 시간을 Tavily 로 묻습니다: 행사·군중
 # (9월에는 유엔 총회 주간의 VIP 비행 제한), 타워크레인(건물 자료에 없음), 착륙장인 공원·부두의 폐쇄,
 # 임시 비행 제한, 기상 주의보. 문법이 읽고(못 읽는 산문만 Super 가 양식을 채움) 코드가 검사합니다.

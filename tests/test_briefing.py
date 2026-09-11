@@ -18,8 +18,16 @@ import time
 import unittest
 from unittest import mock
 
-from holdshort.agent.planner import OperatorPlanner
-from holdshort.core.intake import (
+from backend.briefing import (
+    CLOSED_CEILING_M,
+    RECORDED_PREFIX,
+    cell_of,
+    domain_of,
+    trusted_domain,
+)
+from backend.service import Runtime
+from drone.agent.planner import OperatorPlanner
+from shared.intake import (
     Gazetteer,
     UnknownPlace,
     eastern_offset_hours,
@@ -28,8 +36,8 @@ from holdshort.core.intake import (
     read_hazard,
     read_window,
 )
-from holdshort.core.models import Proposal
-from holdshort.core.tavily import (
+from shared.models import Proposal
+from shared.tavily import (
     BudgetExhausted,
     CreditBook,
     IntakePoller,
@@ -38,14 +46,6 @@ from holdshort.core.tavily import (
     TavilyClient,
     load_tavily_fixtures,
 )
-from holdshort.runtime.briefing import (
-    CLOSED_CEILING_M,
-    RECORDED_PREFIX,
-    cell_of,
-    domain_of,
-    trusted_domain,
-)
-from holdshort.runtime.service import Runtime
 from sim import world as sim_world
 from tests.fixture_llm import FixtureLlm
 

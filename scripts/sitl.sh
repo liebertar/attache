@@ -16,7 +16,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 IMAGE="${PX4_IMAGE:-px4io/px4-sitl-gazebo:v1.18.0-beta2}"
-NAME="${PX4_CONTAINER:-holdshort-px4}"
+NAME="${PX4_CONTAINER:-sky-net-px4}"
 MIRROR="${MAVLINK_MIRROR:-drone-01}"
 PORT="${MAVLINK_PORT:-14540}"
 # PX4(SIH)는 1배속으로 돌립니다. 이 Mac 의 Docker 에서 SIH 락스텝이 버티는 것은 1배뿐입니다

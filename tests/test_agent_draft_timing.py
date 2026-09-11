@@ -14,13 +14,13 @@ import time
 import unittest
 from unittest import mock
 
-from holdshort.agent import loop as loop_module
-from holdshort.agent.drafter import ModelDrafter
-from holdshort.agent.loop import GuardedAgent
-from holdshort.agent.planner import OperatorPlanner
-from holdshort.agent.propose import Proposer
-from holdshort.core.models import Proposal
-from holdshort.llm.client import TieredLlm
+from drone.agent import loop as loop_module
+from drone.agent.drafter import ModelDrafter
+from drone.agent.loop import GuardedAgent
+from drone.agent.planner import OperatorPlanner
+from drone.agent.propose import Proposer
+from shared.llm.client import TieredLlm
+from shared.models import Proposal
 from tests.fixture_llm import FixtureLlm
 
 HERE = (40.70178, -73.96920)

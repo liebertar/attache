@@ -29,7 +29,7 @@ import time
 import weakref
 from pathlib import Path
 
-from holdshort.core.http import get_json, post_json_status
+from shared.http import get_json, post_json_status
 from sim.world import (
     CRUISE_MPS,
     DEPOT,

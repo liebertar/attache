@@ -15,18 +15,18 @@ import threading
 import time
 import unittest
 
-from holdshort.core.config import WeatherLimits
-from holdshort.core.intake import (
+from backend.intake import IntakeBook, WeatherHold
+from backend.service import Runtime
+from shared.config import WeatherLimits
+from shared.intake import (
     Gazetteer,
     normalise_address,
     parse_incident,
     parse_weather,
 )
-from holdshort.core.models import Proposal, Verdict
-from holdshort.core.notam import Clock
-from holdshort.core.tavily import IntakePoller, TavilyClient, reduce_results
-from holdshort.runtime.intake import IntakeBook, WeatherHold
-from holdshort.runtime.service import Runtime
+from shared.models import Proposal, Verdict
+from shared.notam import Clock
+from shared.tavily import IntakePoller, TavilyClient, reduce_results
 from sim import world as sim_world
 from tests.fixture_llm import FixtureLlm, load_fixtures
 
@@ -487,7 +487,7 @@ class IncidentTest(unittest.TestCase):
         self.assertEqual(decision.verdict, Verdict.AUTO)
 
     def test_a_manual_line_with_a_building_id_becomes_a_keep_out_around_that_building(self):
-        from holdshort.core.geo import Volume
+        from shared.geo import Volume
 
         self.runtime.airspace.add(Volume.from_dict({
             "id": "bldg-t777", "name": "건물 60m", "ceiling_m": 60.0,
@@ -1115,7 +1115,7 @@ class SimSceneTest(unittest.TestCase):
         incident = parse_incident(sim_world.INCIDENT_TEXT, book.gazetteer, sim_world.CLOCK)
         self.assertEqual(incident.name, "FIRE · 4705 Center Boulevard")
         # 착륙장이 원의 착륙 둘레 안에 있어야 장면이 됩니다.
-        from holdshort.core.intake import distance_m
+        from shared.intake import distance_m
         self.assertLess(distance_m(incident.centre, GANTRY), incident.radius_m + 50.0)
 
     def test_the_scoreboard_counts_a_takeoff_during_the_hold_and_an_entry_into_the_circle(self):

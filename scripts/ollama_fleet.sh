@@ -20,7 +20,7 @@
 #
 # 로그는 .run/ollama-<port>.log, pid 는 .run/ollama-<port>.pid. 띄운 뒤 찍히는
 # LLM_PER_ASSET_URLS 를 export 하고 scripts/dev.sh 를 돌리면 기체 i 가 i 번째 서버를 씁니다
-# (.env.example 의 "로컬 함대" 블록).
+# (.env.local.example 의 "로컬 함대" 블록).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .run

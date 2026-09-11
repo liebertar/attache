@@ -4,11 +4,11 @@ import json
 import tempfile
 import unittest
 
-from holdshort.core.models import Proposal, Verdict
-from holdshort.core.notam import format_dms
-from holdshort.runtime.ledger import Ledger
-from holdshort.runtime.reports.ledger import build_report, to_markdown
-from holdshort.runtime.service import Runtime
+from backend.ledger import Ledger
+from backend.reports.ledger import build_report, to_markdown
+from backend.service import Runtime
+from shared.models import Proposal, Verdict
+from shared.notam import format_dms
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"

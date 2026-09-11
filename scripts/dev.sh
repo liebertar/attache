@@ -7,9 +7,11 @@ cd "$(dirname "$0")/.."
 export PYTHONPATH=.
 mkdir -p .run
 
-# .env 가 있으면 읽습니다(.env.example 참고). 이미 환경에 있는 값이 우선입니다 —
+# .env.local 이 있으면 읽습니다(없으면 옛 이름 .env, 예시는 .env.local.example). 이미 환경에 있는 값이 우선입니다 —
 # 셸에서 LLM_BASE_URL=… ./scripts/dev.sh 로 한 번만 바꿔 띄울 수 있어야 합니다.
-if [ -f .env ]; then
+ENV_FILE=.env.local
+[ -f "$ENV_FILE" ] || ENV_FILE=.env
+if [ -f "$ENV_FILE" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|'#'*) continue ;; esac
     key="${line%%=*}"
@@ -22,7 +24,7 @@ if [ -f .env ]; then
       \'*\') value="${value#\'}"; value="${value%\'}" ;;
     esac
     export "$key=$value"
-  done < .env
+  done < "$ENV_FILE"
 fi
 
 # 모델·정보 수집 경로를 고릅니다. 결과는 STACK_MODEL, LLM_BASE_URL(런타임), PER_ASSET_URLS(기체마다),
@@ -57,7 +59,7 @@ PORT=$SIM_PORT TICK_SECONDS="${TICK_SECONDS:-0.2}" FLEET_LIMIT_USD=720 DIRECT_MO
   python3 -m sim.service & sleep 1
 # 둘째 스택은 원장도 따로 둡니다(LEDGER_PATH, INTAKE_DB) — 같은 파일에 두 런타임이 쓰면 보고서가 섞입니다.
 PORT=$RT_PORT CONFIG=configs/fleet.yaml SIM_URL=http://$LOOPBACK:$SIM_PORT MODEL_SUPER="$RUNTIME_SUPER" \
-  LEDGER_PATH="${LEDGER_PATH:-.run/ledger.jsonl}" python3 -m holdshort.runtime.service & sleep 1
+  LEDGER_PATH="${LEDGER_PATH:-.run/ledger.jsonl}" python3 -m backend.service & sleep 1
 
 # 기체 i 는 i 번째 서버(PER_ASSET_URLS, Ollama 함대)를, 없으면 LLM_BASE_URL 을 씁니다. Ollama 는 이
 # 모델 계열에 동시 처리 1을 강제해 서버 하나를 넷이 나누면 초안이 줄을 서서 잘립니다. 대역(Super)은
@@ -69,13 +71,13 @@ for asset in drone-01 drone-02 drone-03 drone-04; do
   agent_url="${PER_ASSET_URLS[$index]:-$LLM_BASE_URL}"
   agent_nano="$(agent_nano_for "$agent_url")"
   ASSET_ID=$asset RUNTIME_URL=http://$LOOPBACK:$RT_PORT LLM_BASE_URL="$agent_url" MODEL_NANO="$agent_nano" \
-    MODEL_SUPER="$MODEL_SUPER" python3 -m holdshort.agent.loop &
+    MODEL_SUPER="$MODEL_SUPER" python3 -m drone.agent.loop &
   ASSET_ID=$asset TRANSPORT=http SIM_URL=http://$LOOPBACK:$SIM_PORT LLM_BASE_URL="$DIRECT_LLM_URL" \
-    MODEL_NANO="$DIRECT_NANO" python3 -m direct_agent.loop &
+    MODEL_NANO="$DIRECT_NANO" python3 -m drone.direct.loop &
   index=$((index + 1))
 done
 
-python3 scripts/serve_ui.py "$UI_PORT" ui >/dev/null 2>&1 &
+python3 frontend/serve.py "$UI_PORT" frontend >/dev/null 2>&1 &
 echo
 print_stack_table
 UI_QUERY=""

@@ -1,9 +1,9 @@
 import unittest
 
-from holdshort.core.config import Authority, Policy
-from holdshort.core.models import Proposal, Verdict
-from holdshort.runtime.authority import AuthorityCheck
-from holdshort.runtime.policy import PolicyBook
+from backend.authority import AuthorityCheck
+from backend.policy import PolicyBook
+from shared.config import Authority, Policy
+from shared.models import Proposal, Verdict
 
 
 def make(**kwargs) -> Proposal:

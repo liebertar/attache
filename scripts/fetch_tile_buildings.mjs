@@ -22,7 +22,7 @@ const PAGE = `<!doctype html><meta charset="utf-8"><div id="m" style="width:1400
 <script>
   const map = new maplibregl.Map({container:'m', style:'https://tiles.openfreemap.org/styles/positron',
     center:[-73.97, 40.72], zoom:14.2, pitch:0, attributionControl:false});
-  window.__holdshort = {map};
+  window.__skynet = {map};
   map.on('load', () => { map.addLayer({id:'b', type:'fill', source:'openmaptiles', 'source-layer':'building',
     paint:{'fill-opacity':0.01}}); window.ready = true; });
 </script>`;
@@ -35,7 +35,7 @@ const seen = new Map();
 for (let lat = BBOX.south; lat < BBOX.north; lat += STEP.lat) {
   for (let lon = BBOX.west; lon < BBOX.east; lon += STEP.lon) {
     const rows = await page.evaluate(async ([lat, lon, minH]) => {
-      const map = window.__holdshort.map;
+      const map = window.__skynet.map;
       map.jumpTo({center: [lon, lat], zoom: 14.2, pitch: 0, bearing: 0});
       await new Promise(resolve => map.once('idle', resolve));
       await new Promise(resolve => setTimeout(resolve, 200));

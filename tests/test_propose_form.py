@@ -8,9 +8,9 @@ not filing what its own aircraft cannot do.
 
 import unittest
 
-from holdshort.agent.detect import Concern, detect
-from holdshort.agent.propose import ALLOWED_ACTIONS, Proposer, possible_now
-from holdshort.llm.client import LlmReply, TieredLlm
+from drone.agent.detect import Concern, detect
+from drone.agent.propose import ALLOWED_ACTIONS, Proposer, possible_now
+from shared.llm.client import LlmReply, TieredLlm
 
 
 class ScriptedLlm(TieredLlm):

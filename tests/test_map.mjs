@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import * as geometry from '../ui/map-route.mjs';
+import * as geometry from '../frontend/map-route.mjs';
 
 const start = {lon:-73.97, lat:40.70};
 const route = [{lon:-73.97, lat:40.71}, {lon:-73.96, lat:40.71},
@@ -70,7 +70,7 @@ function scene(overrides = {}) {
     if (!sources.has(id)) sources.set(id,{setData(data){this.data=data;}});
     return sources.get(id);
   }};
-  const html = readFileSync(new URL('../ui/map.html',import.meta.url),'utf8');
+  const html = readFileSync(new URL('../frontend/map.html',import.meta.url),'utf8');
   const imports = Object.fromEntries(html.match(/import \{([^}]+)\}/)[1]
     .split(',').map(name=>[name.trim(), geometry[name.trim()]]));
   const {document:documentOverrides, ...rest} = overrides;
@@ -566,8 +566,8 @@ test('the feed shows the advisory as a runtime line naming the chosen option; it
 });
 
 test('the api ports come from ?rt= and ?sim=, and default to 8000/8100', () => {
-  // 모듈의 const 는 vm 문맥의 전역이 아니라, 디버그 핸들(window.__holdshort.api)로 읽습니다.
-  const api = ui => JSON.stringify(ui.get('window').__holdshort.api);
+  // 모듈의 const 는 vm 문맥의 전역이 아니라, 디버그 핸들(window.__skynet.api)로 읽습니다.
+  const api = ui => JSON.stringify(ui.get('window').__skynet.api);
   const plain = scene({window:{}});
   assert.equal(api(plain), JSON.stringify({sim:'http://localhost:8100', rt:'http://localhost:8000'}));
   const second = scene({window:{}, location:{hostname:'localhost', search:'?rt=8010&sim=8110'}, URLSearchParams});
@@ -744,7 +744,7 @@ test('intake and weather ledger lines read as words, and opening a hold raises n
 // 기체 이름 아랫줄. 어느 모델이 이 기체를 모는지 — 런타임 쪽은 /state.agents, 직접 쪽은 시뮬레이터 필드.
 test('the second label line names the model flying the aircraft, or "rules" when there is none', () => {
   // 직접 쪽 이름표도 봐야 하므로 BOTH 로 엽니다(지도는 기본으로 런타임 쪽만 그립니다).
-  const ui = scene({localStorage:{getItem:key => key === 'holdshort-show' ? 'both' : null, setItem(){}}});
+  const ui = scene({localStorage:{getItem:key => key === 'skynet-show' ? 'both' : null, setItem(){}}});
   const snap = snapshot();
   snap.worlds.direct.assets['drone-01'].agent_model = 'nvidia/nemotron-3-super-120b-a12b';
   ui.run('renderSnapshot', snap, {ledger:[], llm:{enabled:true, models:{nano:'nemotron-3-nano:4b'}, host:'ollama'},
@@ -950,7 +950,7 @@ test('the corridor outline is four thin rails just outside the corridor, at its 
 
 // 승인 화면. 링크 두절 통보 카드가 사람 말로 오르고, 배너가 끊긴 기체를 말합니다.
 async function tower(state, compare) {
-  const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
   const elements = new Map();
   const noop = new Proxy({}, {get: () => () => {}});
   const element = id => {
@@ -1014,7 +1014,7 @@ test('a drone request is tagged with the drone\'s own model even when the tower 
 // 패널마다 접기·펼치기. 상태는 저장소에 남고, 저장소가 막혀도 화면은 돕니다.
 test('every panel minimizes and expands, the state persists, and a blocked storage breaks nothing', () => {
   const saved = {};
-  const ui = scene({localStorage:{getItem:key => key === 'holdshort-panels' ? '{"keys":true}' : null,
+  const ui = scene({localStorage:{getItem:key => key === 'skynet-panels' ? '{"keys":true}' : null,
                                   setItem(key, value){ saved[key] = value; }}});
   assert.equal(ui.run('isMinimized', 'keys'), true, '저장된 상태로 시작합니다');
   ui.run('applyLanguage');
@@ -1026,7 +1026,7 @@ test('every panel minimizes and expands, the state persists, and a blocked stora
     ui.run('setMinimized', id, false);
     assert.equal(ui.run('isMinimized', id), false, id);
   }
-  assert.deepEqual(JSON.parse(saved['holdshort-panels']).keys, false);
+  assert.deepEqual(JSON.parse(saved['skynet-panels']).keys, false);
   ui.run('setMinimized', 'banner', true);
   const bulletin = {id:'n1', kind:'notam', text:'AREA BOUNDED BY 404310N0735920W SFC-400FT AGL 0907-0912Z',
                     published_tick:525, until_tick:900};
@@ -1254,7 +1254,7 @@ test('the hover card says when rules wrote the form, and when the model draft fa
 });
 
 test('an older line without a trace shows only who wrote and who drew it, in either language', () => {
-  const ui = scene({localStorage:{getItem:key => key === 'holdshort-lang' ? 'ko' : null, setItem(){}}});
+  const ui = scene({localStorage:{getItem:key => key === 'skynet-lang' ? 'ko' : null, setItem(){}}});
   ui.run('renderSnapshot', snapshot(), {ledger:[approval('old1', {proposal:{asset_id:'drone-01',
     action:'fly_route', author:'rules', params:{legs:[start, ...route], drafter:'astar'}},
     decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}})], locks:{}});
@@ -1312,7 +1312,7 @@ test('a route the model chose says who chose it and why, on the corridor and in 
 
 // ── 관제탑과 신호선. 파란 기체에는 선이 있고 직결에는 없습니다. ────────────────────
 test('a guarded aircraft has a dotted line to the tower, a direct one has none, a lost link is grey and broken', () => {
-  const ui = scene({localStorage:{getItem:key => key === 'holdshort-show' ? 'both' : null, setItem(){}}});
+  const ui = scene({localStorage:{getItem:key => key === 'skynet-show' ? 'both' : null, setItem(){}}});
   const snap = snapshot(2, 1, route, {lon:-73.97, lat:40.705, alt_m:110, state:'delivering'});
   snap.worlds.direct.assets = {'drone-09':{...snap.worlds.guarded.assets['drone-01'], id:'drone-09'}};
   ui.run('renderSnapshot', snap, {ledger:[], notices:[]});
@@ -1330,7 +1330,7 @@ test('a guarded aircraft has a dotted line to the tower, a direct one has none, 
   const broken = ui.source('signal-line').features;
   assert.ok(broken.length && broken.every(f => f.properties.kind === 'lost'), '끊긴 링크는 회색 선');
   assert.ok(broken.length < lines.length, '가운데가 비어 토막이 줄어듭니다');
-  assert.match(ui.element('legend').innerHTML, /HOLDSHORT TOWER[\s\S]*lost link/);
+  assert.match(ui.element('legend').innerHTML, /SKY-NET TOWER[\s\S]*lost link/);
   assert.match(ui.element('legend').innerHTML, /symbolic position/);
 });
 
@@ -1464,7 +1464,7 @@ test('a PX4 mirror draws a ghost with its mode and mission step; without the fie
 
 // 화면 말은 두 언어가 같은 자리(%s)를 가져야 합니다 — 자막·카드는 값을 순서대로 끼웁니다.
 test('every screen text key exists in both languages with the same number of placeholders', () => {
-  const html = readFileSync(new URL('../ui/map.html', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../frontend/map.html', import.meta.url), 'utf8');
   const TEXT = vm.runInNewContext(`(${html.match(/const TEXT = (\{[\s\S]*?\n\});/)[1]})`);
   const holes = text => (String(text).match(/%s/g) || []).length;
   const missing = Object.keys(TEXT.en).filter(key => !(key in TEXT.ko));
@@ -1474,7 +1474,7 @@ test('every screen text key exists in both languages with the same number of pla
 });
 
 test('captions speak Korean with the language toggle', () => {
-  const ui = demoScene({localStorage:{getItem:key => key === 'holdshort-lang' ? 'ko' : null, setItem(){}}});
+  const ui = demoScene({localStorage:{getItem:key => key === 'skynet-lang' ? 'ko' : null, setItem(){}}});
   ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[],
     links:{'drone-01':{status:'lost', since_tick:3800, last_seen_tick:3799}}});
   ui.time(50); ui.run('draw');

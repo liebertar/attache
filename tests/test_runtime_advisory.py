@@ -9,10 +9,7 @@ import json
 import tempfile
 import unittest
 
-from holdshort.core.geo import Volume, box
-from holdshort.core.models import Proposal, Verdict
-from holdshort.llm.client import LlmReply, TieredLlm
-from holdshort.runtime.advisory import (
+from backend.advisory import (
     ADVISORY_AFTER,
     CLIMB_M,
     AdvisoryDesk,
@@ -22,7 +19,10 @@ from holdshort.runtime.advisory import (
     parse_advice,
     rule_pick,
 )
-from holdshort.runtime.service import Runtime
+from backend.service import Runtime
+from shared.geo import Volume, box
+from shared.llm.client import LlmReply, TieredLlm
+from shared.models import Proposal, Verdict
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"

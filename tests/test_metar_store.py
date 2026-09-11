@@ -19,11 +19,11 @@ import threading
 import unittest
 from unittest import mock
 
-from holdshort.core.intake import parse_weather
-from holdshort.core.metar import MetarClient, MetarFailed, MetarPoller, parse_observation
-from holdshort.core.notam import Clock
-from holdshort.runtime.service import Runtime
-from holdshort.runtime.store import IntakeStore
+from backend.service import Runtime
+from backend.store import IntakeStore
+from shared.intake import parse_weather
+from shared.metar import MetarClient, MetarFailed, MetarPoller, parse_observation
+from shared.notam import Clock
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"

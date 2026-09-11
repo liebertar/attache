@@ -9,8 +9,8 @@ import json
 import tempfile
 import unittest
 
-from holdshort.core.models import Proposal, Verdict
-from holdshort.runtime.service import Runtime
+from backend.service import Runtime
+from shared.models import Proposal, Verdict
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"

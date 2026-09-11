@@ -10,20 +10,7 @@ import math
 import tempfile
 import unittest
 
-from holdshort.core.config import load as config_load
-from holdshort.core.geo import (
-    METRES_PER_DEG_LAT,
-    METRES_PER_DEG_LON,
-    TRAFFIC_LATERAL_M,
-    TRAFFIC_VERTICAL_M,
-    Airspace,
-    Volume,
-    box,
-    first_breach,
-    vertical_column,
-)
-from holdshort.core.models import Proposal, Verdict
-from holdshort.runtime.intents import (
+from backend.intents import (
     ACCEPTED,
     ACTIVATED,
     CONTINGENCY,
@@ -36,7 +23,20 @@ from holdshort.runtime.intents import (
     first_conflict,
     schedule,
 )
-from holdshort.runtime.service import Runtime
+from backend.service import Runtime
+from shared.config import load as config_load
+from shared.geo import (
+    METRES_PER_DEG_LAT,
+    METRES_PER_DEG_LON,
+    TRAFFIC_LATERAL_M,
+    TRAFFIC_VERTICAL_M,
+    Airspace,
+    Volume,
+    box,
+    first_breach,
+    vertical_column,
+)
+from shared.models import Proposal, Verdict
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"
@@ -565,9 +565,9 @@ class ResolutionLadderTest(unittest.TestCase):
     def test_the_ladder_is_finite(self):
         """고도도 지연도 안 되면 후보를 차례로 내고(후보마다 같은 사다리), 그것도 안 되면 이번
         차례는 접습니다. 사다리는 직선 하나 + 후보마다 하나(loop.py _file_candidates)까지입니다."""
-        from holdshort.agent.loop import MAX_DELAY_TRIES
-        from holdshort.core.route import CANDIDATE_LABELS
-        from holdshort.runtime.intents import Volume4D
+        from backend.intents import Volume4D
+        from drone.agent.loop import MAX_DELAY_TRIES
+        from shared.route import CANDIDATE_LABELS
 
         filings = []
         original = self.runtime.file
@@ -758,7 +758,7 @@ class LedgerContextTest(unittest.TestCase):
         self.assertEqual(entry["context"]["checks_run"], ["dedupe"])
 
     def test_policies_in_force_are_named(self):
-        from holdshort.core.config import Policy
+        from shared.config import Policy
 
         self.runtime.policies.add(Policy("ad-1", "지시", forbid_action="fast_charge"))
         self.runtime.policies.add(Policy("later", "나중", forbid_action="charge",
@@ -767,7 +767,7 @@ class LedgerContextTest(unittest.TestCase):
         self.assertEqual(ledger_lines(self.runtime)[-1]["context"]["policies"], ["ad-1"])
 
     def test_replay_still_reads_the_ledger(self):
-        from holdshort.runtime.replay import read_commits
+        from backend.replay import read_commits
 
         self.runtime.file(route("drone-01", self.legs))
         commits = read_commits(self.runtime.ledger.path)

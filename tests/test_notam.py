@@ -9,9 +9,11 @@ import json
 import tempfile
 import unittest
 
-from holdshort.core.geo import box
-from holdshort.core.models import Proposal, Verdict
-from holdshort.core.notam import (
+from backend.service import Runtime
+from shared.geo import box
+from shared.llm.client import LlmReply, TieredLlm
+from shared.models import Proposal, Verdict
+from shared.notam import (
     MAX_AREA_M2,
     Clock,
     Notice,
@@ -21,8 +23,6 @@ from holdshort.core.notam import (
     parse_notice,
     validate,
 )
-from holdshort.llm.client import LlmReply, TieredLlm
-from holdshort.runtime.service import Runtime
 from sim import world as sim_world
 from tests.fixture_llm import FixtureLlm, load_fixtures
 

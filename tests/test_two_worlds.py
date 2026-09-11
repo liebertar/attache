@@ -16,18 +16,18 @@ import unittest
 from concurrent.futures import Future
 from types import SimpleNamespace
 
-from holdshort.agent.detect import detect
-from holdshort.agent.drafter import ModelDrafter, service_bbox
-from holdshort.agent.loop import ROUTE_REFUSALS, GuardedAgent
-from holdshort.agent.planner import OperatorPlanner
-from holdshort.agent.propose import COSTS, by_rule
-from holdshort.agent.trace import route_part
-from holdshort.core.config import load as config_load
-from holdshort.core.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, first_breach
-from holdshort.core.models import Verdict
-from holdshort.core.route import Router
-from holdshort.llm.client import LlmReply, TieredLlm
-from holdshort.runtime.service import Runtime
+from backend.service import Runtime
+from drone.agent.detect import detect
+from drone.agent.drafter import ModelDrafter, service_bbox
+from drone.agent.loop import ROUTE_REFUSALS, GuardedAgent
+from drone.agent.planner import OperatorPlanner
+from drone.agent.propose import COSTS, by_rule
+from drone.agent.trace import route_part
+from shared.config import load as config_load
+from shared.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, first_breach
+from shared.llm.client import LlmReply, TieredLlm
+from shared.models import Verdict
+from shared.route import Router
 from sim import world as sim_world
 from sim.world import LANDING_AREAS, Simulation
 
@@ -321,7 +321,7 @@ def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_facto
     runtime.adapter = adapter
     runtime.committer.adapter = adapter
 
-    from holdshort.core.geo import Volume
+    from shared.geo import Volume
 
     opening = guarded_world.snapshot(0, volumes=True)
     for raw in opening["volumes"]:

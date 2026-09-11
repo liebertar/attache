@@ -21,8 +21,8 @@ import time
 import unittest
 from unittest import mock
 
-from holdshort.agent import loop as loop_module
-from holdshort.agent.chooser import (
+from drone.agent import loop as loop_module
+from drone.agent.chooser import (
     CHOICE_TOOL,
     REASON_CHARS,
     RouteChooser,
@@ -31,19 +31,19 @@ from holdshort.agent.chooser import (
     rule_choice,
     situation_from_state,
 )
-from holdshort.agent.detect import Concern
-from holdshort.agent.loop import GuardedAgent
-from holdshort.agent.planner import OperatorPlanner
-from holdshort.agent.propose import Proposer
-from holdshort.agent.trace import TRACE_BYTES, choice_part, form_part, model_trace, route_part
-from holdshort.core.geo import first_breach
-from holdshort.core.models import Proposal
-from holdshort.core.route import keep_clear_shapes, route_samples, same_route
-from holdshort.llm import client as client_module
-from holdshort.llm.client import LlmReply, LlmTier, TieredLlm
+from drone.agent.detect import Concern
+from drone.agent.loop import GuardedAgent
+from drone.agent.planner import OperatorPlanner
+from drone.agent.propose import Proposer
+from drone.agent.trace import TRACE_BYTES, choice_part, form_part, model_trace, route_part
+from shared.geo import first_breach
+from shared.llm import client as client_module
+from shared.llm.client import LlmReply, LlmTier, TieredLlm
+from shared.models import Proposal
+from shared.route import keep_clear_shapes, route_samples, same_route
 from tests.fixture_llm import FIXTURE_DIR, FixtureLlm, load_fixtures
 
-RUNTIME_DIR = pathlib.Path(__file__).resolve().parent.parent / "holdshort" / "runtime"
+RUNTIME_DIR = pathlib.Path(__file__).resolve().parent.parent / "backend"
 CHOICE_FIXTURES = FIXTURE_DIR / "choices_nano.json"
 
 # 빈 공역에서 북쪽으로 2.2 km. 다른 기체의 승인 회랑이 한가운데를 동서로 가로지릅니다.

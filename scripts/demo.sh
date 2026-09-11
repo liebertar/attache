@@ -49,7 +49,7 @@ stop_port() {
 stop_orphan_agents() {
   local pid
   for pid in $(ps -Eww -ax -o pid=,command= 2>/dev/null \
-      | grep -E "holdshort[.]agent[.]loop|direct_agent[.]loop" \
+      | grep -E "drone[.]agent[.]loop|drone[.]direct[.]loop" \
       | grep -E "(RUNTIME_URL|SIM_URL)=http://$LOOPBACK:($RT_PORT|$SIM_PORT)( |$)" \
       | awk '{print $1}'); do
     kill "$pid" 2>/dev/null || true

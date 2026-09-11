@@ -176,7 +176,7 @@ class RouteItemsTest(unittest.TestCase):
     """경로 → 임무 항목. 네트워크가 필요 없는 부분이라 pymavlink 없이도 돕니다."""
 
     def test_a_grounded_aircraft_takes_off_where_it_stands(self):
-        from holdshort.adapters.mavlink_fleet import route_items
+        from backend.adapters.mavlink_fleet import route_items
 
         items = route_items(LEGS, airborne=False)
         self.assertEqual([item["command"] for item in items],
@@ -186,26 +186,26 @@ class RouteItemsTest(unittest.TestCase):
         self.assertEqual((items[-1]["lat"], items[-1]["lon"]), (LEGS[-1]["lat"], LEGS[-1]["lon"]))
 
     def test_an_airborne_aircraft_flies_the_first_leg_too(self):
-        from holdshort.adapters.mavlink_fleet import route_items
+        from backend.adapters.mavlink_fleet import route_items
 
         items = route_items(LEGS, airborne=True)
         self.assertEqual([item["command"] for item in items],
                          ["waypoint", "waypoint", "waypoint", "land"])
 
     def test_half_a_route_is_no_mission(self):
-        from holdshort.adapters.mavlink_fleet import route_items
+        from backend.adapters.mavlink_fleet import route_items
 
         self.assertEqual(route_items([LEGS[0]], airborne=False), [])
 
     def test_the_exit_mission_is_the_way_out_and_a_landing(self):
-        from holdshort.adapters.mavlink_fleet import exit_items
+        from backend.adapters.mavlink_fleet import exit_items
 
         items = exit_items({"lat": 40.705, "lon": -73.975}, 55.0)
         self.assertEqual([item["command"] for item in items], ["waypoint", "land"])
         self.assertEqual(items[0]["alt_m"], 55.0)
 
     def test_px4_mode_names_come_from_the_heartbeat(self):
-        from holdshort.adapters.mavlink_fleet import px4_mode_name
+        from backend.adapters.mavlink_fleet import px4_mode_name
 
         self.assertEqual(px4_mode_name((4 << 16) | (4 << 24)), "AUTO.MISSION")
         self.assertEqual(px4_mode_name((4 << 16) | (6 << 24)), "AUTO.LAND")
@@ -215,7 +215,7 @@ class RouteItemsTest(unittest.TestCase):
 @unittest.skipUnless(HAS_PYMAVLINK, "pymavlink 미설치 (pip install pymavlink)")
 class MavlinkAdapterTest(unittest.TestCase):
     def _adapter(self, **stub_options):
-        from holdshort.adapters.mavlink_fleet import MavlinkFleetAdapter
+        from backend.adapters.mavlink_fleet import MavlinkFleetAdapter
 
         port = next_port()
         stub = AutopilotStub(port, **stub_options).start()

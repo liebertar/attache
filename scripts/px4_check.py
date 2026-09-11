@@ -17,7 +17,7 @@ is the whole command path the demo needs, end to end.
 import sys
 import time
 
-from holdshort.adapters.mavlink_fleet import MavlinkFleetAdapter, route_items
+from backend.adapters.mavlink_fleet import MavlinkFleetAdapter, route_items
 
 ASSET = "vehicle"
 HOP_ALT_M = 20.0

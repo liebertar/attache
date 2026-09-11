@@ -15,7 +15,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from holdshort.core.geo import (
+from shared.geo import (
     DEFAULT_CEILING_M,
     METRES_PER_DEG_LAT,
     METRES_PER_DEG_LON,
@@ -27,7 +27,7 @@ from holdshort.core.geo import (
     building_clearance_m,
     nearest_exit,
 )
-from holdshort.core.notam import Clock, parse_notice
+from shared.notam import Clock, parse_notice
 
 # 물류 기지는 브루클린 네이비야드. 배달지는 이스트강 건너 맨해튼입니다.
 # 실제 배송 기업이 도심 배달 거점을 두는 자리이고, 강을 건너야 해서 헬리포트 주변
@@ -102,9 +102,9 @@ LOAD_TICKS = PARCELS_PER_TRIP * BOX_TICKS   # 창고에서 싣는 시간(36틱, 
 DROP_TICKS = PARCELS_PER_STOP * BOX_TICKS   # 배달지에서 내리는 시간(18틱, 3.6초)
 # 승인을 확인하고 출발하기까지. 화면의 승인 표시(노란 선 2.4초 + 판정 0.6초 + 초록 깜빡임
 # 1.4초 = 4.4초, 22틱)가 끝난 다음 떠야 '승인 전에 날아간다'로 보이지 않습니다.
-# 폴링 0.5초 여유를 더합니다. ui/map-route.mjs 의 GROW/CHECK/APPROVED_HOLD 와 같이 바꿀 것.
+# 폴링 0.5초 여유를 더합니다. frontend/map-route.mjs 의 GROW/CHECK/APPROVED_HOLD 와 같이 바꿀 것.
 # 거절은 여기서 세지 않습니다 — 운영사가 화면의 거절 표시가 끝난 뒤에 다시 그리므로
-# (holdshort/agent/loop.py REDRAW_DELAY_S) 거절과 승인은 실제 시간에서 이미 떨어져 있습니다.
+# (drone/agent/loop.py REDRAW_DELAY_S) 거절과 승인은 실제 시간에서 이미 떨어져 있습니다.
 CLEARANCE_TICKS = 25
 DESCENT_MPS = 1.75
 # 지상에서 일하는 상태. 이 동안 들어온 승인은 상태를 바꾸지 않고 기다렸다가 ready 에서 띄웁니다.

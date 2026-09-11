@@ -338,7 +338,7 @@ class WhichDispatcherTest(unittest.TestCase):
     def test_the_runtime_knows_nothing_about_dispatch(self):
         """배차는 운영사의 일입니다. 런타임 파일이 이 이름들을 알면 그 경계가 무너진 것입니다."""
         import pathlib
-        runtime = pathlib.Path(__file__).resolve().parent.parent / "holdshort" / "runtime"
+        runtime = pathlib.Path(__file__).resolve().parent.parent / "backend"
         for path in runtime.rglob("*.py"):
             text = path.read_text(encoding="utf-8")
             for word in ("sim.dispatch", "dispatcher_for", "Dispatcher", "cuopt", "cuOpt",

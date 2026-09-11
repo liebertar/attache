@@ -11,8 +11,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from holdshort.llm import client as client_module
-from holdshort.llm.client import (
+from shared.llm import client as client_module
+from shared.llm.client import (
     LlmTier,
     TieredLlm,
     host_of,
@@ -265,8 +265,8 @@ class RecordedFormsTest(unittest.TestCase):
         self.llm = FixtureLlm(records=self.records)
 
     def test_the_model_writes_a_form_and_signs_it_with_its_id(self):
-        from holdshort.agent.detect import Concern
-        from holdshort.agent.propose import ALLOWED_ACTIONS, Proposer
+        from drone.agent.detect import Concern
+        from drone.agent.propose import ALLOWED_ACTIONS, Proposer
 
         telemetry = {"id": "drone-01", "model": "dv-x500", "state": "ready", "battery": 88.0,
                      "vibration": 0.1, "autonomy_health": 1.0, "passengers": 0, "cargo": 6}
@@ -283,8 +283,8 @@ class RecordedFormsTest(unittest.TestCase):
         self.assertEqual(by_rules.author, "rules")
 
     def test_the_arbiter_uses_the_recorded_choice_and_keeps_the_reason(self):
-        from holdshort.core.models import Proposal
-        from holdshort.runtime.arbiter import Arbiter
+        from backend.arbiter import Arbiter
+        from shared.models import Proposal
 
         def candidate(asset_id, blast, why):
             return Proposal(asset_id=asset_id, action="reserve_pad", cost_usd=28.0,

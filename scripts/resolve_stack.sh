@@ -4,7 +4,7 @@
 #
 # 모델 경로(먼저 맞는 것 하나):
 #   1) LLM_BASE_URL 을 직접 줬으면 그것. 단 키 없는 Nebius 주소는 없는 것으로 봅니다 — 호출이 전부 401 이라
-#      신청서는 규칙이 쓰면서 화면에는 모델 이름이 붙습니다(.env.example 을 그대로 복사하면 이렇게 됨).
+#      신청서는 규칙이 쓰면서 화면에는 모델 이름이 붙습니다(.env.local.example 을 그대로 복사하면 이렇게 됨).
 #   2) NEBIUS_API_KEY 가 있으면 Nebius Token Factory + nvidia/... 모델 id.
 #   3) Ollama 함대(11435..11438, scripts/ollama_fleet.sh)가 답하면 기체마다 4B. 런타임의 대역(stand-in)은
 #      관제 서버(11439, 문맥 8k)가 답하면 거기, 아니면 11434 가 답할 때 거기(Ollama 앱은 문맥을 256k 로

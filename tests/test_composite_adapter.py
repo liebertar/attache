@@ -52,12 +52,12 @@ class FakeWorld:
 @unittest.skipUnless(HAS_PYMAVLINK, "pymavlink 미설치 (pip install pymavlink)")
 class CompositeAdapterTest(unittest.TestCase):
     def _composite(self, world=None, wait_link=True, **stub_options):
-        from holdshort.adapters.composite import (
+        from backend.adapters.composite import (
             AutopilotJournal,
             AutopilotMirror,
             CompositeAdapter,
         )
-        from holdshort.adapters.mavlink_fleet import MavlinkFleetAdapter
+        from backend.adapters.mavlink_fleet import MavlinkFleetAdapter
 
         port = next_port()
         stub = AutopilotStub(port, **stub_options).start()
@@ -205,12 +205,12 @@ class CompositeAdapterTest(unittest.TestCase):
 
     def test_a_missing_autopilot_is_recorded_and_nothing_else_changes(self):
         # 아무도 듣지 않는 포트. PX4 컨테이너가 없을 때의 배선입니다.
-        from holdshort.adapters.composite import (
+        from backend.adapters.composite import (
             AutopilotJournal,
             AutopilotMirror,
             CompositeAdapter,
         )
-        from holdshort.adapters.mavlink_fleet import MavlinkFleetAdapter
+        from backend.adapters.mavlink_fleet import MavlinkFleetAdapter
 
         autopilot = MavlinkFleetAdapter({MIRROR: f"udpin:127.0.0.1:{next_port()}"},
                                         ack_timeout_s=1.0, link_timeout_s=1.0)
@@ -269,7 +269,7 @@ class RuntimeWithAMirrorTest(unittest.TestCase):
     """런타임이 거절하면 조종장치에 아무것도 가지 않습니다. 거울까지 그 보장 안입니다."""
 
     def _runtime(self, adapter):
-        from holdshort.runtime.service import Runtime
+        from backend.service import Runtime
 
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             runtime = Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)
@@ -278,9 +278,9 @@ class RuntimeWithAMirrorTest(unittest.TestCase):
         return runtime
 
     def test_a_refused_filing_never_reaches_the_autopilot(self):
-        from holdshort.adapters.composite import AutopilotMirror, CompositeAdapter
-        from holdshort.adapters.mavlink_fleet import MavlinkFleetAdapter
-        from holdshort.core.models import Proposal, Verdict
+        from backend.adapters.composite import AutopilotMirror, CompositeAdapter
+        from backend.adapters.mavlink_fleet import MavlinkFleetAdapter
+        from shared.models import Proposal, Verdict
 
         port = next_port()
         stub = AutopilotStub(port).start()

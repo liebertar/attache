@@ -13,10 +13,7 @@ import json
 import tempfile
 import unittest
 
-from holdshort.core import config as config_module
-from holdshort.core.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, Volume, box
-from holdshort.core.models import Proposal, Verdict
-from holdshort.runtime.intents import (
+from backend.intents import (
     ACTIVATED,
     ENDED,
     LOST_LINK_MARGIN_TICKS,
@@ -26,7 +23,10 @@ from holdshort.runtime.intents import (
     first_conflict,
     schedule,
 )
-from holdshort.runtime.service import Runtime
+from backend.service import Runtime
+from shared import config as config_module
+from shared.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, Volume, box
+from shared.models import Proposal, Verdict
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"

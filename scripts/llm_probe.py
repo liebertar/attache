@@ -16,11 +16,11 @@ import sys
 import urllib.error
 import urllib.request
 
-from holdshort.agent.detect import Concern
-from holdshort.agent.propose import Proposer, system_for
-from holdshort.llm.client import LlmTier, TieredLlm, parse_json_object
-from holdshort.runtime.arbiter import SYSTEM as ARBITER_SYSTEM
-from holdshort.runtime.arbiter import parse_verdict
+from backend.arbiter import SYSTEM as ARBITER_SYSTEM
+from backend.arbiter import parse_verdict
+from drone.agent.detect import Concern
+from drone.agent.propose import Proposer, system_for
+from shared.llm.client import LlmTier, TieredLlm, parse_json_object
 
 
 def list_models(base_url: str, api_key: str) -> list[str]:
@@ -44,7 +44,7 @@ def main() -> int:
         "ultra": os.getenv("MODEL_ULTRA", ""),
     })
     if not llm.enabled:
-        print("LLM_BASE_URL 과 MODEL_* 가 필요합니다 (.env.example 참고)")
+        print("LLM_BASE_URL 과 MODEL_* 가 필요합니다 (.env.local.example 참고)")
         return 1
     print(f"server {llm.base_url} ({llm.host}), timeout {llm.timeout_s:.0f}s, "
           f"extra {json.dumps(llm.request_extra)}")
