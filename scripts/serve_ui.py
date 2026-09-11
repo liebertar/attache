@@ -1,7 +1,7 @@
 """화면 정적 서버. 캐시를 끕니다.
 
-python3 -m http.server 는 Cache-Control 을 안 보내서 브라우저가 옛 map.html 을 며칠씩 들고 있었습니다.
-바뀐 화면을 보려고 매번 강제 새로고침을 시키는 대신, 아예 저장하지 말라고 합니다.
+python3 -m http.server 는 Cache-Control 을 안 보내서 브라우저가 옛 map.html 을 며칠씩 들고
+있었습니다. 바뀐 화면을 보려고 매번 강제 새로고침을 시키는 대신, 아예 저장하지 말라고 합니다.
 """
 import sys
 from functools import partial

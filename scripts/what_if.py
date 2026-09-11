@@ -41,10 +41,7 @@ def main() -> int:
             applies_to={"model": args.model} if args.model else {},
         ))
 
-    telemetry = {}
-    if args.model:
-        telemetry = {}  # 기종은 아래에서 모든 자산에 적용합니다
-
+    # 기종(--model)은 기록에 나온 모든 자산에 적용합니다.
     result = replay(args.ledger, authority, policies,
                     telemetry={a: {"model": args.model} for a in _assets(args.ledger)}
                     if args.model else None)

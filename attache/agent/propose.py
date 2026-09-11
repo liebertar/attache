@@ -26,11 +26,11 @@ FAULT_ACTIONS = {"motor_fault": {"reserve_pad"}, "needs_pad": {"reserve_pad"},
 def allowed_for(concern: Concern) -> set[str]:
     return ROUTINE_ACTIONS | FAULT_ACTIONS.get(concern.kind, set())
 
-COSTS = {"decline_job": 0.0, "fly_route": 12.0, "reserve_pad": 28.0, "charge": 22.0, "fast_charge": 60.0,
-         "divert_ground": 35.0, "disengage_autonomy": 0.0, "depart": 0.0}
+COSTS = {"decline_job": 0.0, "fly_route": 12.0, "reserve_pad": 28.0, "charge": 22.0,
+         "fast_charge": 60.0, "divert_ground": 35.0, "disengage_autonomy": 0.0, "depart": 0.0}
 
-BLAST = {"decline_job": "none", "fly_route": "schedule", "reserve_pad": "schedule", "charge": "none",
-         "fast_charge": "none", "divert_ground": "cargo",
+BLAST = {"decline_job": "none", "fly_route": "schedule", "reserve_pad": "schedule",
+         "charge": "none", "fast_charge": "none", "divert_ground": "cargo",
          "disengage_autonomy": "public", "depart": "none"}
 
 def system_for(pads: tuple[str, ...]) -> str:

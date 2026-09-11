@@ -230,7 +230,8 @@ class RoundResetTest(unittest.TestCase):
 
         runtime = self._runtime()
         runtime._follow_round(0)
-        # 데모 설정은 한도가 없습니다(null = 돈을 판정하지 않음). 이 시험은 한도가 있을 때의 판 초기화입니다.
+        # 데모 설정은 한도가 없습니다(null = 돈을 판정하지 않음). 이 시험은 한도가 있을 때의 판
+        # 초기화입니다.
         runtime.authority.authority.fleet_usd = 100.0
         limit = runtime.authority.authority.fleet_usd
         while runtime.authority.fleet_spend < limit:

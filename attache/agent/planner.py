@@ -63,7 +63,8 @@ class OperatorPlanner:
     def straight(self, start: tuple[float, float], goal: tuple[float, float],
                  alt_m: float | None = None) -> list[dict]:
         """제일 싼 길: 직선 하나. 고도는 우리 사본 기준의 가장 낮은 안전 고도이고, 그런 고도가
-        없으면(옥상 + 이격이 천장을 넘음) 천장 아래 최대로 내서 런타임이 왜 안 되는지 말하게 둡니다."""
+        없으면(옥상 + 이격이 천장을 넘음) 천장 아래 최대로 내서 런타임이 왜 안 되는지 말하게
+        둡니다."""
         if alt_m is None:
             alt_m = self.router.leg_altitude(start, goal)
             if alt_m is None:

@@ -561,7 +561,8 @@ class HeldNoticeTest(unittest.TestCase):
         self.assertEqual(len(self.llm.asked), 2)
 
     def test_a_held_notice_lapses_with_its_window_and_leaves_no_card(self):
-        """사람이 안 봤는데 창이 닫혔습니다. 카드와 배너는 내려가고, 걸린 적이 없으니 뺄 것도 없음."""
+        """사람이 안 봤는데 창이 닫혔습니다. 카드와 배너는 내려가고, 걸린 적이 없으니 뺄 것도
+        없음."""
         self.runtime.absorb([medevac_item()])
         pending = self.runtime.snapshot()["awaiting_human"]
         self.assertEqual(len(pending), 1)

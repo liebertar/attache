@@ -475,7 +475,8 @@ class RecordedRepliesTest(unittest.TestCase):
         self.assertTrue(seen_pass, "통과하는 녹음이 하나는 있어야 fixture 시험이 뜻이 있습니다")
 
     def test_the_fixture_says_whether_the_straight_line_was_refused(self):
-        """직선이 통과하는 자리의 초안은 실제 흐름에서 쓰이지 않습니다. 기록이 그걸 말해야 합니다."""
+        """직선이 통과하는 자리의 초안은 실제 흐름에서 쓰이지 않습니다. 기록이 그걸 말해야
+        합니다."""
         for record in self.records:
             straight = self.planner.straight(tuple(record["start"]), tuple(record["goal"]))
             refused = first_breach(self.planner.airspace, straight) is not None

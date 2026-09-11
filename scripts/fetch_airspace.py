@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Pull real airspace ceilings from the FAA and write them as Attaché volumes.
 
-    python3 scripts/fetch_airspace.py --bbox -74.02,40.69,-73.95,40.76 --out configs/airspace/nyc.json
+    python3 scripts/fetch_airspace.py --bbox -74.02,40.69,-73.95,40.76 \\
+        --out configs/airspace/nyc.json
 
 The FAA publishes UAS Facility Maps through its UAS Data Delivery System: a grid of cells,
 each carrying the maximum altitude at which a Part 107 flight may be authorised there.

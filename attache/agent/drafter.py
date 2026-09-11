@@ -177,8 +177,8 @@ class ModelDrafter:
                           if timeout_s is None else float(timeout_s))
         self.backoff_s = (float(os.getenv("DRAFT_BACKOFF_S", str(DRAFT_BACKOFF_S)))
                           if backoff_s is None else float(backoff_s))
-        # 초안 호출이 잘린 뒤 이 시각까지는 묻지 않습니다. 신청서(6초) 호출이 잘린 것과는 별개입니다 —
-        # 같은 서버 상태를 공유했더니 바쁜 Ollama 에서 신청서가 한 번 잘릴 때마다 초안을 30초씩
+        # 초안 호출이 잘린 뒤 이 시각까지는 묻지 않습니다. 신청서(6초) 호출이 잘린 것과는 별개입니다
+        # — 같은 서버 상태를 공유했더니 바쁜 Ollama 에서 신청서가 한 번 잘릴 때마다 초안을 30초씩
         # 건너뛰어, 실주행에서 nano 초안이 한 건도 없었습니다.
         self.skip_until = 0.0
         self.last_attempts = 0
@@ -329,7 +329,8 @@ class ModelDrafter:
             floor = min(router.floor_alt_m, ALT_MAX_M)
             if altitude < floor:
                 # 판정 자료에 없는 낮은 건물(20 m 미만) 위로도 50 m 가 남아야 합니다. 모델의 값이
-                # 그보다 낮으면 규칙의 최저로 올립니다. 천장 칸이 그보다 낮으면 아래서 판정이 말합니다.
+                # 그보다 낮으면 규칙의 최저로 올립니다. 천장 칸이 그보다 낮으면 아래서 판정이
+                # 말합니다.
                 segment = [{**segment[0], "alt_m": floor}, {**segment[1], "alt_m": floor}]
                 altitude = floor
                 self.last_raised += 1
@@ -360,7 +361,8 @@ class ModelDrafter:
         found = []
         seen: set[str] = set()
         for index in range(len(legs) - 1):
-            for _fraction, volume, why, at in leg_breaches(self.planner.airspace, legs[index], legs[index + 1]):
+            for _fraction, volume, why, at in leg_breaches(self.planner.airspace, legs[index],
+                                                           legs[index + 1]):
                 if volume.id in seen:
                     continue
                 seen.add(volume.id)
