@@ -1,64 +1,42 @@
 # Hackathon notes
 
-Nebius × NVIDIA Global AI Hackathon 2026.
+Nebius × NVIDIA Global AI Hackathon 2026 · Devpost · track: **Physical AI**.
 
-## 9월 11일 서울에 제출하는 게 아니다
-
-그날은 빌드 세션이다. 제출·심사·피칭 없음. 실제 빌드 시간은 19:00–21:00 두 시간이고,
-21:00 데모는 점수와 무관한 공유 자리다.
-
-참석해서 얻는 것은 두 개뿐 — **도시상 $500 응모 자격**(Devpost 규칙상 IRL 이벤트 참석자 한정)과
-**Nebius Token Factory · Tavily 크레딧**. 본상은 참석과 무관하다.
-
-## 실제 일정
+## Dates
 
 | | |
 |---|---|
-| 제출 | Devpost, 8/26 ~ **10/30 10:00 PT** (한국 10/31 02:00) |
-| 심사 | 12/1 ~ 12/15, 단 한 번. 전 세계 한 통, 예선 없음 |
-| 발표 | 2027/1/11 |
+| Submission window | Aug 26 – **Oct 30, 10:00 PT** (Oct 31 02:00 KST) |
+| Judging | Dec 1 – 15, one global round |
+| Announcement | Jan 11, 2027 |
+| Seoul build session (Sep 11) | a build session, not a submission: no judging, no pitch. Attending only qualifies for the city prize and the Nebius/Tavily credits |
 
-## 필수 요건
+## Rules that matter for us (checked on the official rules page, Sep 9)
 
-- NVIDIA 오픈소스 모델 최소 1개 → **Nemotron 3 Nano / Super / Ultra**
-- Nebius **Token Factory** 또는 **AI Cloud**에서 실제 동작
+- Several submissions per entrant are allowed if they are "substantially different". Each project can win one
+  Overall or one Track award plus one Bonus. A person may be on several teams and also enter alone.
+- Cash is only in the Overall awards ($20,000 / $10,000 / $6,000); all four tracks compete together for it.
+  Track winners get a Jetson Orin Nano. Bonus: Best Use of Tavily $3,000; 20 city prizes of $500;
+  Most Valuable Feedback $100 × 10.
+- Requirements: at least one NVIDIA open model (Nemotron), runs on Nebius Token Factory or AI Cloud, public
+  repository with an open-source license, video under three minutes, working demo URL. Projects that existed
+  before Aug 26 must have been significantly updated since (this one started Aug 31).
+- Judging: four criteria, equally weighted — technological implementation, design, potential impact,
+  quality of the idea.
 
-## 제출물
+## Submission checklist
 
-- 공개 저장소 + 오픈소스 라이선스 + README 실행법
-- **3분 미만** 데모 영상 (실물 동작 장면 포함)
-- 동작하는 데모 URL — *Physical AI 트랙은 면제*
-- 트랙 지정 → **Physical AI**
-- Nebius·NVIDIA 도구 피드백 (필수 항목, 별도 상 $100 × 10)
+- [ ] Repository public, license present, README in English with run instructions (`docker compose up --build`)
+- [ ] Runs on Nebius Token Factory: `NEBIUS_API_KEY` wiring measured and the numbers in `docs/MODELS.md`
+- [ ] Video < 3 min following `docs/DEMO.md`, with the real autopilot scene (PX4 SITL) if it lands in time
+- [ ] Demo URL: the map served from a public host, or the compose stack on a small VM
+- [ ] Devpost text: what it does, how it is built, what the models do and do not do, the standards position
+- [ ] Tool feedback for Nebius and NVIDIA (required field; also a bonus prize)
+- [ ] Optional: a Tavily source live in the intake for the Tavily bonus
 
-## 심사 기준 — 네 항목 동일 가중
+## Open questions
 
-| 기준 | 우리 위치 |
-|---|---|
-| Technological Implementation | 강함 — Nemotron 3 세 사이즈를 티어로 나눠 씀 |
-| Design | **약함** — 런타임은 화면이 없다. 승인 화면에 시간을 몰아줄 것 |
-| Potential Impact | 강함 — 비결정적 정책을 배포 가능하게 만드는 문제 |
-| Quality of the Idea | 강함 — 에스컬레이션 사다리 |
-
-## 상금
-
-Devpost 공식 페이지 기준.
-
-| 상 | 내용 | 인원 |
-|---|---|---|
-| 대상 | $20,000 | 1 |
-| 2위 | $10,000 | 1 |
-| 3위 | $6,000 | 1 |
-| Best Use of Tavily | $3,000 | 1 |
-| 트랙 우승 ×4 | NVIDIA Jetson Orin Nano | 각 1 |
-| 도시 우승 | $500 | 20 |
-| Most Valuable Feedback | $100 + NVIDIA swag pack | 10 |
-
-현금 총액 $50,000+. Bloom(서울 공동주최)과 Luma 페이지에는 상금 정보가 없고 Devpost로 위임돼 있다.
-**중복 수상 가능 여부는 규칙에 명시가 없다.**
-
-## 확인 필요
-
-- 도시상 선정 방식 (Devpost 규칙과 주최 측 한국 공지가 불일치)
-- 크레딧 규모와 유효기간
-- Nebius Robotics & Physical AI Awards (크레딧 $1.5M) 지원 경로
+- City prize selection differs between the Devpost rules and the Korean organiser's notice.
+- Credit amounts and validity for Token Factory and Tavily.
+- Nebius Robotics & Physical AI Awards ($1.5M in credits) is a separate programme from the hackathon prizes;
+  application path unknown.
