@@ -9,7 +9,7 @@
     // 브라우저(Skybrush Live)가 붙는 곳
     "http_server": { "host": "" },
 
-    // Attaché 런타임과 직결 에이전트가 붙는 곳.
+    // Holdshort 런타임과 직결 에이전트가 붙는 곳.
     // 줄바꿈 구분 JSON 이라 클라이언트에 라이브러리가 필요 없습니다.
     "tcp": {},
 

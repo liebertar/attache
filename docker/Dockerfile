@@ -9,14 +9,14 @@ RUN pip install --no-cache-dir pyyaml==6.0.2
 # 에이전트 컨테이너 안에는 모터를 끄는 코드가 물리적으로 존재하지 않습니다.
 # ---------------------------------------------------------------------------
 FROM base AS agent
-COPY attache/__init__.py /app/attache/__init__.py
-COPY attache/core /app/attache/core
-COPY attache/llm /app/attache/llm
-COPY attache/agent /app/attache/agent
-RUN test ! -e /app/attache/adapters \
- && test ! -e /app/attache/runtime \
+COPY holdshort/__init__.py /app/holdshort/__init__.py
+COPY holdshort/core /app/holdshort/core
+COPY holdshort/llm /app/holdshort/llm
+COPY holdshort/agent /app/holdshort/agent
+RUN test ! -e /app/holdshort/adapters \
+ && test ! -e /app/holdshort/runtime \
  && test ! -e /app/direct_agent
-CMD ["python", "-m", "attache.agent.loop"]
+CMD ["python", "-m", "holdshort.agent.loop"]
 
 # ---------------------------------------------------------------------------
 # agent-direct: 오늘 대부분의 배선. 조종장치 클라이언트를 스스로 들고 있습니다.
@@ -24,10 +24,10 @@ CMD ["python", "-m", "attache.agent.loop"]
 # ---------------------------------------------------------------------------
 FROM base AS agent-direct
 RUN pip install --no-cache-dir pymavlink==2.4.49
-COPY attache/__init__.py /app/attache/__init__.py
-COPY attache/core /app/attache/core
-COPY attache/llm /app/attache/llm
-COPY attache/agent /app/attache/agent
+COPY holdshort/__init__.py /app/holdshort/__init__.py
+COPY holdshort/core /app/holdshort/core
+COPY holdshort/llm /app/holdshort/llm
+COPY holdshort/agent /app/holdshort/agent
 COPY direct_agent /app/direct_agent
 CMD ["python", "-m", "direct_agent.loop"]
 
@@ -36,16 +36,16 @@ CMD ["python", "-m", "direct_agent.loop"]
 # ---------------------------------------------------------------------------
 FROM base AS runtime
 RUN pip install --no-cache-dir pymavlink==2.4.49
-COPY attache /app/attache
+COPY holdshort /app/holdshort
 COPY configs /app/configs
-CMD ["python", "-m", "attache.runtime.service"]
+CMD ["python", "-m", "holdshort.runtime.service"]
 
 # ---------------------------------------------------------------------------
 # sim: 세계. 시키는 대로만 합니다
 # ---------------------------------------------------------------------------
 FROM base AS sim
-COPY attache/__init__.py /app/attache/__init__.py
-COPY attache/core /app/attache/core
+COPY holdshort/__init__.py /app/holdshort/__init__.py
+COPY holdshort/core /app/holdshort/core
 COPY sim /app/sim
 # 세계는 실제 공역·건물·주소 자료를 읽습니다(configs/airspace). 없으면 시작하자마자 죽습니다.
 COPY configs/airspace /app/configs/airspace

@@ -3,12 +3,12 @@ import time
 import unittest
 from unittest import mock
 
-from attache.core.models import Proposal, Verdict
-from attache.llm.client import LlmReply, TieredLlm
-from attache.runtime import service as service_module
-from attache.runtime.arbiter import SYSTEM, Arbiter, by_rule, parse_verdict
-from attache.runtime.locks import LockTable
-from attache.runtime.service import Runtime
+from holdshort.core.models import Proposal, Verdict
+from holdshort.llm.client import LlmReply, TieredLlm
+from holdshort.runtime import service as service_module
+from holdshort.runtime.arbiter import SYSTEM, Arbiter, by_rule, parse_verdict
+from holdshort.runtime.locks import LockTable
+from holdshort.runtime.service import Runtime
 
 
 class StubLlm(TieredLlm):

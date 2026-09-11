@@ -8,11 +8,11 @@ for reasons that have nothing to do with the code being wrong.
 import tempfile
 import unittest
 
-from attache.core.config import Authority, Policy
-from attache.core.models import Proposal, Verdict
-from attache.runtime.authority import AuthorityCheck
-from attache.runtime.policy import PolicyBook
-from attache.runtime.service import Runtime
+from holdshort.core.config import Authority, Policy
+from holdshort.core.models import Proposal, Verdict
+from holdshort.runtime.authority import AuthorityCheck
+from holdshort.runtime.policy import PolicyBook
+from holdshort.runtime.service import Runtime
 from sim.world import RECALL, RECALL_TICK, Simulation
 
 
@@ -131,7 +131,7 @@ class RevocationTest(unittest.TestCase):
         """
         import json
 
-        from attache.core.geo import Volume, box
+        from holdshort.core.geo import Volume, box
 
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             runtime = Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)
@@ -201,7 +201,7 @@ class PadContentionTest(unittest.TestCase):
         self.assertGreater(world.score.pad_conflicts, 0)
 
     def test_a_lock_table_hands_the_pad_to_one_of_them(self):
-        from attache.runtime.locks import LockTable
+        from holdshort.runtime.locks import LockTable
 
         locks = LockTable(["pad:launch", "pad:launch"])
         self.assertTrue(locks.acquire("pad:launch", "drone-01", "p1"))
@@ -220,13 +220,13 @@ class RoundResetTest(unittest.TestCase):
     def _runtime(self):
         import tempfile
 
-        from attache.runtime.service import Runtime
+        from holdshort.runtime.service import Runtime
 
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             return Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)
 
     def test_a_new_round_hands_the_budget_back(self):
-        from attache.core.models import Proposal
+        from holdshort.core.models import Proposal
 
         runtime = self._runtime()
         runtime._follow_round(0)
@@ -246,7 +246,7 @@ class RoundResetTest(unittest.TestCase):
         self.assertEqual(runtime.authority.asset_spend("drone-01"), 0.0)
 
     def test_a_new_round_lets_go_of_pads_and_stale_bans(self):
-        from attache.core.config import Policy
+        from holdshort.core.config import Policy
 
         runtime = self._runtime()
         runtime.telemetry = {"drone-01": {}}
@@ -260,7 +260,7 @@ class RoundResetTest(unittest.TestCase):
         self.assertEqual(runtime.policies.all(), [])
 
     def test_the_same_round_is_not_a_reset(self):
-        from attache.core.models import Proposal
+        from holdshort.core.models import Proposal
 
         runtime = self._runtime()
         runtime._follow_round(3)
@@ -288,7 +288,7 @@ class CountingAdapter:
 
 
 def _runtime_with(volumes):
-    from attache.core.geo import Volume
+    from holdshort.core.geo import Volume
 
     with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
         runtime = Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)
@@ -349,7 +349,7 @@ class RouteFormTest(unittest.TestCase):
 
     def test_the_judge_itself_treats_below_ground_as_ground(self):
         """양식 검사를 지나쳐도(다른 진입점) 판정은 -1m 를 건물 안으로 봅니다."""
-        from attache.core.geo import first_breach
+        from holdshort.core.geo import first_breach
 
         found = first_breach(self.runtime.airspace, self.through_building(-1.0))
         self.assertIsNotNone(found)
@@ -367,7 +367,7 @@ class RouteFormTest(unittest.TestCase):
         self.assertIn("양식", decision.reason)
 
     def test_a_leg_longer_than_the_runtime_maximum_is_refused(self):
-        from attache.runtime.service import MAX_LEG_M
+        from holdshort.runtime.service import MAX_LEG_M
 
         legs = [{"lat": 40.70, "lon": -73.97, "alt_m": 60},
                 {"lat": 40.70 + (MAX_LEG_M + 1000) / 110_570.0, "lon": -73.97, "alt_m": 60}]
@@ -377,7 +377,7 @@ class RouteFormTest(unittest.TestCase):
 
     def test_the_index_refuses_to_walk_a_planet_sized_leg(self):
         """마지막 방어선. 양식 검사 없이 판정 함수에 바로 넣어도 돌지 않고 거부합니다."""
-        from attache.core.geo import Airspace, Volume, box, first_breach
+        from holdshort.core.geo import Airspace, Volume, box, first_breach
 
         airspace = Airspace([Volume("nofly", "x", box(40.72, -73.99, 40.73, -73.98))])
         with self.assertRaises(ValueError):

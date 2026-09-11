@@ -77,7 +77,7 @@ class AutopilotStub:
 @unittest.skipUnless(HAS_PYMAVLINK, "pymavlink 미설치 (pip install pymavlink)")
 class MavlinkAdapterTest(unittest.TestCase):
     def _adapter(self, port, refuse=False):
-        from attache.adapters.mavlink_fleet import MavlinkFleetAdapter
+        from holdshort.adapters.mavlink_fleet import MavlinkFleetAdapter
 
         stub = AutopilotStub(port, refuse=refuse).start()
         self.addCleanup(stub.stop)

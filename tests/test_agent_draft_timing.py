@@ -12,13 +12,13 @@ import time
 import unittest
 from unittest import mock
 
-from attache.agent import loop as loop_module
-from attache.agent.drafter import ModelDrafter
-from attache.agent.loop import GuardedAgent
-from attache.agent.planner import OperatorPlanner
-from attache.agent.propose import Proposer
-from attache.core.models import Proposal
-from attache.llm.client import TieredLlm
+from holdshort.agent import loop as loop_module
+from holdshort.agent.drafter import ModelDrafter
+from holdshort.agent.loop import GuardedAgent
+from holdshort.agent.planner import OperatorPlanner
+from holdshort.agent.propose import Proposer
+from holdshort.core.models import Proposal
+from holdshort.llm.client import TieredLlm
 from tests.fixture_llm import FixtureLlm
 
 HERE = (40.70178, -73.96920)

@@ -175,7 +175,7 @@ class HomeTest(unittest.TestCase):
 
         길이 안 나는 착륙장 하나면 거기 간 기체가 영영 '승인 대기'로 서 있습니다.
         """
-        from attache.core.route import Router
+        from holdshort.core.route import Router
 
         router = Router(AIRSPACE)
         seat = to_latlon(*seat_of(0))

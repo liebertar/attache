@@ -9,9 +9,9 @@ import json
 import tempfile
 import unittest
 
-from attache.core.geo import box
-from attache.core.models import Proposal, Verdict
-from attache.core.notam import (
+from holdshort.core.geo import box
+from holdshort.core.models import Proposal, Verdict
+from holdshort.core.notam import (
     MAX_AREA_M2,
     Clock,
     Notice,
@@ -21,8 +21,8 @@ from attache.core.notam import (
     parse_notice,
     validate,
 )
-from attache.llm.client import LlmReply, TieredLlm
-from attache.runtime.service import Runtime
+from holdshort.llm.client import LlmReply, TieredLlm
+from holdshort.runtime.service import Runtime
 from sim import world as sim_world
 from tests.fixture_llm import FixtureLlm, load_fixtures
 

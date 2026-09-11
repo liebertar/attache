@@ -12,7 +12,7 @@ import threading
 import time
 import unittest
 
-from attache.adapters.flockwave import FlockwaveAdapter
+from holdshort.adapters.flockwave import FlockwaveAdapter
 
 STATUS = {
     "SIM-00": {

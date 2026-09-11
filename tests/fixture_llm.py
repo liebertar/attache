@@ -11,7 +11,7 @@ server is down.
 import json
 import pathlib
 
-from attache.llm.client import LlmReply, LlmTier, TieredLlm
+from holdshort.llm.client import LlmReply, LlmTier, TieredLlm
 
 FIXTURE_DIR = pathlib.Path(__file__).resolve().parent / "fixtures" / "llm"
 

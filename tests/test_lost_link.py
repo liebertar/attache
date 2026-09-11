@@ -13,10 +13,10 @@ import json
 import tempfile
 import unittest
 
-from attache.core import config as config_module
-from attache.core.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, Volume, box
-from attache.core.models import Proposal, Verdict
-from attache.runtime.intents import (
+from holdshort.core import config as config_module
+from holdshort.core.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, Volume, box
+from holdshort.core.models import Proposal, Verdict
+from holdshort.runtime.intents import (
     ACTIVATED,
     ENDED,
     LOST_LINK_MARGIN_TICKS,
@@ -26,7 +26,7 @@ from attache.runtime.intents import (
     first_conflict,
     schedule,
 )
-from attache.runtime.service import Runtime
+from holdshort.runtime.service import Runtime
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"

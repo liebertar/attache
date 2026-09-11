@@ -57,7 +57,7 @@ PORT=$SIM_PORT TICK_SECONDS="${TICK_SECONDS:-0.2}" FLEET_LIMIT_USD=720 DIRECT_MO
   python3 -m sim.service & sleep 1
 # 둘째 스택은 원장도 따로 둡니다(LEDGER_PATH, INTAKE_DB) — 같은 파일에 두 런타임이 쓰면 보고서가 섞입니다.
 PORT=$RT_PORT CONFIG=configs/fleet.yaml SIM_URL=http://$LOOPBACK:$SIM_PORT MODEL_SUPER="$RUNTIME_SUPER" \
-  LEDGER_PATH="${LEDGER_PATH:-.run/ledger.jsonl}" python3 -m attache.runtime.service & sleep 1
+  LEDGER_PATH="${LEDGER_PATH:-.run/ledger.jsonl}" python3 -m holdshort.runtime.service & sleep 1
 
 # 기체 i 는 i 번째 서버(PER_ASSET_URLS, Ollama 함대)를, 없으면 LLM_BASE_URL 을 씁니다. Ollama 는 이
 # 모델 계열에 동시 처리 1을 강제해 서버 하나를 넷이 나누면 초안이 줄을 서서 잘립니다. 대역(Super)은
@@ -69,7 +69,7 @@ for asset in drone-01 drone-02 drone-03 drone-04; do
   agent_url="${PER_ASSET_URLS[$index]:-$LLM_BASE_URL}"
   agent_nano="$(agent_nano_for "$agent_url")"
   ASSET_ID=$asset RUNTIME_URL=http://$LOOPBACK:$RT_PORT LLM_BASE_URL="$agent_url" MODEL_NANO="$agent_nano" \
-    MODEL_SUPER="$MODEL_SUPER" python3 -m attache.agent.loop &
+    MODEL_SUPER="$MODEL_SUPER" python3 -m holdshort.agent.loop &
   ASSET_ID=$asset TRANSPORT=http SIM_URL=http://$LOOPBACK:$SIM_PORT LLM_BASE_URL="$DIRECT_LLM_URL" \
     MODEL_NANO="$DIRECT_NANO" python3 -m direct_agent.loop &
   index=$((index + 1))

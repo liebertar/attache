@@ -19,11 +19,11 @@ import threading
 import unittest
 from unittest import mock
 
-from attache.core.intake import parse_weather
-from attache.core.metar import MetarClient, MetarFailed, MetarPoller, parse_observation
-from attache.core.notam import Clock
-from attache.runtime.service import Runtime
-from attache.runtime.store import IntakeStore
+from holdshort.core.intake import parse_weather
+from holdshort.core.metar import MetarClient, MetarFailed, MetarPoller, parse_observation
+from holdshort.core.notam import Clock
+from holdshort.runtime.service import Runtime
+from holdshort.runtime.store import IntakeStore
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"

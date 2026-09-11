@@ -2,7 +2,7 @@
 #
 #   docker compose -f compose.yaml -f compose.view.yaml up --build
 #   → http://localhost:3200   (Skybrush Live, 3D 뷰)
-#   → http://localhost:3100   (Attaché 승인 화면)
+#   → http://localhost:3100   (Holdshort 승인 화면)
 #
 # 왜 이 조합인가: Docker Desktop 은 Apple Silicon 에서 리눅스 컨테이너에 GPU 를
 # 안 넘깁니다. 컨테이너 안에서 3D 를 그리는 모든 방법(Gazebo, Webots, Unreal, Isaac)이
@@ -30,7 +30,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.skybrush
     volumes:
-      - ./configs/skybrush.jsonc:/etc/skybrush/attache.jsonc:ro
+      - ./configs/skybrush.jsonc:/etc/skybrush/holdshort.jsonc:ro
     ports:
       - "5000:5000"   # Skybrush Live 가 붙는 HTTP/WebSocket
       - "5001:5001"   # Flockwave over TCP. 우리가 붙는 곳

@@ -21,7 +21,7 @@ scoreboard:
 	PYTHONPATH=. python3 tests/test_two_worlds.py
 
 lint:
-	ruff check attache sim tests
+	ruff check holdshort sim tests
 
 reset:
 	rm -f ledger.jsonl

@@ -16,11 +16,11 @@ import sys
 import urllib.error
 import urllib.request
 
-from attache.agent.detect import Concern
-from attache.agent.propose import Proposer, system_for
-from attache.llm.client import LlmTier, TieredLlm, parse_json_object
-from attache.runtime.arbiter import SYSTEM as ARBITER_SYSTEM
-from attache.runtime.arbiter import parse_verdict
+from holdshort.agent.detect import Concern
+from holdshort.agent.propose import Proposer, system_for
+from holdshort.llm.client import LlmTier, TieredLlm, parse_json_object
+from holdshort.runtime.arbiter import SYSTEM as ARBITER_SYSTEM
+from holdshort.runtime.arbiter import parse_verdict
 
 
 def list_models(base_url: str, api_key: str) -> list[str]:

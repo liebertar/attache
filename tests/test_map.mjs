@@ -566,8 +566,8 @@ test('the feed shows the advisory as a runtime line naming the chosen option; it
 });
 
 test('the api ports come from ?rt= and ?sim=, and default to 8000/8100', () => {
-  // 모듈의 const 는 vm 문맥의 전역이 아니라, 디버그 핸들(window.__attache.api)로 읽습니다.
-  const api = ui => JSON.stringify(ui.get('window').__attache.api);
+  // 모듈의 const 는 vm 문맥의 전역이 아니라, 디버그 핸들(window.__holdshort.api)로 읽습니다.
+  const api = ui => JSON.stringify(ui.get('window').__holdshort.api);
   const plain = scene({window:{}});
   assert.equal(api(plain), JSON.stringify({sim:'http://localhost:8100', rt:'http://localhost:8000'}));
   const second = scene({window:{}, location:{hostname:'localhost', search:'?rt=8010&sim=8110'}, URLSearchParams});
@@ -744,7 +744,7 @@ test('intake and weather ledger lines read as words, and opening a hold raises n
 // 기체 이름 아랫줄. 어느 모델이 이 기체를 모는지 — 런타임 쪽은 /state.agents, 직접 쪽은 시뮬레이터 필드.
 test('the second label line names the model flying the aircraft, or "rules" when there is none', () => {
   // 직접 쪽 이름표도 봐야 하므로 BOTH 로 엽니다(지도는 기본으로 런타임 쪽만 그립니다).
-  const ui = scene({localStorage:{getItem:key => key === 'attache-show' ? 'both' : null, setItem(){}}});
+  const ui = scene({localStorage:{getItem:key => key === 'holdshort-show' ? 'both' : null, setItem(){}}});
   const snap = snapshot();
   snap.worlds.direct.assets['drone-01'].agent_model = 'nvidia/nemotron-3-super-120b-a12b';
   ui.run('renderSnapshot', snap, {ledger:[], llm:{enabled:true, models:{nano:'nemotron-3-nano:4b'}, host:'ollama'},

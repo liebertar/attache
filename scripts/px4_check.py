@@ -10,7 +10,7 @@ whether the aircraft can do it.
 
 import sys
 
-from attache.adapters.mavlink_fleet import MavlinkFleetAdapter
+from holdshort.adapters.mavlink_fleet import MavlinkFleetAdapter
 
 
 def main() -> int:

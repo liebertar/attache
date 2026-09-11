@@ -13,17 +13,17 @@ import random
 import re
 import unittest
 
-from attache.agent.detect import detect
-from attache.agent.drafter import ModelDrafter, service_bbox
-from attache.agent.loop import ALTITUDE_SHIFT_M, MAX_DELAY_TRIES, ROUTE_REFUSALS
-from attache.agent.planner import OperatorPlanner
-from attache.agent.propose import COSTS, by_rule
-from attache.core.config import load as config_load
-from attache.core.geo import first_breach
-from attache.core.models import Proposal, Verdict
-from attache.core.route import Router
-from attache.llm.client import LlmReply, TieredLlm
-from attache.runtime.service import Runtime
+from holdshort.agent.detect import detect
+from holdshort.agent.drafter import ModelDrafter, service_bbox
+from holdshort.agent.loop import ALTITUDE_SHIFT_M, MAX_DELAY_TRIES, ROUTE_REFUSALS
+from holdshort.agent.planner import OperatorPlanner
+from holdshort.agent.propose import COSTS, by_rule
+from holdshort.core.config import load as config_load
+from holdshort.core.geo import first_breach
+from holdshort.core.models import Proposal, Verdict
+from holdshort.core.route import Router
+from holdshort.llm.client import LlmReply, TieredLlm
+from holdshort.runtime.service import Runtime
 from sim import world as sim_world
 from sim.world import LANDING_AREAS, Simulation
 
@@ -310,7 +310,7 @@ def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_facto
     runtime.adapter = adapter
     runtime.committer.adapter = adapter
 
-    from attache.core.geo import Volume
+    from holdshort.core.geo import Volume
 
     opening = guarded_world.snapshot(0, volumes=True)
     for raw in opening["volumes"]:

@@ -11,4 +11,4 @@ RUN git clone --depth 1 --branch "$SKYBRUSH_REF" \
       https://github.com/skybrush-io/skybrush-server.git .
 RUN uv sync --no-dev
 EXPOSE 5000 5001
-ENTRYPOINT ["uv", "run", "skybrushd", "-c", "/etc/skybrush/attache.jsonc"]
+ENTRYPOINT ["uv", "run", "skybrushd", "-c", "/etc/skybrush/holdshort.jsonc"]

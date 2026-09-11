@@ -9,10 +9,10 @@ import json
 import tempfile
 import unittest
 
-from attache.core.geo import Volume, box
-from attache.core.models import Proposal, Verdict
-from attache.llm.client import LlmReply, TieredLlm
-from attache.runtime.advisory import (
+from holdshort.core.geo import Volume, box
+from holdshort.core.models import Proposal, Verdict
+from holdshort.llm.client import LlmReply, TieredLlm
+from holdshort.runtime.advisory import (
     ADVISORY_AFTER,
     CLIMB_M,
     AdvisoryDesk,
@@ -22,7 +22,7 @@ from attache.runtime.advisory import (
     parse_advice,
     rule_pick,
 )
-from attache.runtime.service import Runtime
+from holdshort.runtime.service import Runtime
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"

@@ -9,7 +9,7 @@ import json
 import pathlib
 import unittest
 
-from attache.agent.drafter import (
+from holdshort.agent.drafter import (
     ALT_MAX_M,
     DRAFT_TIMEOUT_S,
     MAX_LEGS,
@@ -17,13 +17,13 @@ from attache.agent.drafter import (
     describe,
     service_bbox,
 )
-from attache.agent.planner import OperatorPlanner
-from attache.core.geo import Volume, first_breach
-from attache.llm.client import LlmReply, TieredLlm
+from holdshort.agent.planner import OperatorPlanner
+from holdshort.core.geo import Volume, first_breach
+from holdshort.llm.client import LlmReply, TieredLlm
 from sim.world import LANDING_AREAS, Simulation, seat_of, to_latlon
 from tests.fixture_llm import FIXTURE_DIR, FixtureLlm, load_fixtures
 
-RUNTIME_DIR = pathlib.Path(__file__).resolve().parent.parent / "attache" / "runtime"
+RUNTIME_DIR = pathlib.Path(__file__).resolve().parent.parent / "holdshort" / "runtime"
 
 
 class ScriptedLlm(TieredLlm):
@@ -315,7 +315,7 @@ class GoAroundUnderACeilingCellTest(unittest.TestCase):
     START, GOAL = (40.72060, -73.95200), (40.71819, -73.97575)
 
     def setUp(self):
-        from attache.core.geo import box
+        from holdshort.core.geo import box
 
         self.planner = OperatorPlanner()
         along = (40.71922, -73.96392)         # 직선 위, 출발점에서 약 1.0 km
@@ -449,7 +449,7 @@ class RecordedRepliesTest(unittest.TestCase):
         self.bbox = _bbox()
 
     def test_every_recorded_draft_parses_as_a_form(self):
-        from attache.llm.client import parse_json_object
+        from holdshort.llm.client import parse_json_object
 
         for record in self.records:
             with self.subTest(file=record["_file"]):

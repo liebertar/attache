@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pull real airspace ceilings from the FAA and write them as Attaché volumes.
+"""Pull real airspace ceilings from the FAA and write them as Holdshort volumes.
 
     python3 scripts/fetch_airspace.py --bbox -74.02,40.69,-73.95,40.76 \\
         --out configs/airspace/nyc.json

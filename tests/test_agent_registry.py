@@ -13,11 +13,11 @@ import threading
 import time
 import unittest
 
-from attache.agent.loop import ModelHealth, Registration, identity
-from attache.core.config import model_display
-from attache.llm.client import TieredLlm
-from attache.runtime import service as service_module
-from attache.runtime.service import Runtime
+from holdshort.agent.loop import ModelHealth, Registration, identity
+from holdshort.core.config import model_display
+from holdshort.llm.client import TieredLlm
+from holdshort.runtime import service as service_module
+from holdshort.runtime.service import Runtime
 from sim.world import Simulation
 
 CONFIG = "configs/fleet.yaml"

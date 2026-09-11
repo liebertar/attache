@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Attaché — 기단 지도</title>
+<title>Holdshort — 기단 지도</title>
 <link rel="icon" href="data:,">
 <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.css" rel="stylesheet">
 <style>
@@ -507,8 +507,8 @@ let lang = "en";
 // 대조는 점수판이 합니다 — 비교가 필요하면 BOTH 로 켭니다.
 let showing = "guarded";
 try {
-  lang = localStorage.getItem("attache-lang") || "en";
-  showing = localStorage.getItem("attache-show") || "guarded";
+  lang = localStorage.getItem("holdshort-lang") || "en";
+  showing = localStorage.getItem("holdshort-show") || "guarded";
 } catch (error) { void error; }
 const visible = world => showing === "both" || showing === world;
 // 함수 선언으로 둡니다 — 화면 말 검사(tests/test_map.mjs)가 전역에서 이 이름을 찾습니다.
@@ -833,7 +833,7 @@ function applyLanguage(){
 for (const button of (document.querySelectorAll?.("#lang button") || [])){
   button.addEventListener("click", () => {
     lang = button.dataset.lang;
-    try { localStorage.setItem("attache-lang", lang); } catch (error) { void error; }
+    try { localStorage.setItem("holdshort-lang", lang); } catch (error) { void error; }
     applyLanguage();
   });
 }
@@ -912,7 +912,7 @@ for (const button of (document.querySelectorAll?.("#show button") || [])){
   if (!button.dataset.show) continue;
   button.addEventListener("click", () => {
     showing = button.dataset.show;
-    try { localStorage.setItem("attache-show", showing); } catch (error) { void error; }
+    try { localStorage.setItem("holdshort-show", showing); } catch (error) { void error; }
     applyLanguage();
   });
 }
@@ -1755,7 +1755,7 @@ const FEED_LINES = 10;
 
 // 디버그 핸들. 밖(playwright)에서 화면 상태를 읽기만 합니다. 여기로 쓰지 않습니다.
 if (typeof window !== "undefined")
-  window.__attache = {map, motion, flights, queued, api:{sim:SIM, rt:RT},
+  window.__holdshort = {map, motion, flights, queued, api:{sim:SIM, rt:RT},
     get latest(){ return latest; }, get stages(){ return stages; }};
 
 function renderFeed(runtime){

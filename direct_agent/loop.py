@@ -13,12 +13,12 @@ to put those rules when every agent is its own island.
 import os
 import time
 
-from attache.agent.detect import detect
-from attache.agent.loop import build_llm
-from attache.agent.planner import OperatorPlanner
-from attache.agent.propose import COSTS, Proposer
-from attache.core.http import get_json, post_json
-from attache.core.route import Router
+from holdshort.agent.detect import detect
+from holdshort.agent.loop import build_llm
+from holdshort.agent.planner import OperatorPlanner
+from holdshort.agent.propose import COSTS, Proposer
+from holdshort.core.http import get_json, post_json
+from holdshort.core.route import Router
 
 PADS = ["pad:launch"]
 PAD_COORDS = {   # 운영사가 자기 기지 좌표는 압니다

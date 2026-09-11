@@ -10,8 +10,8 @@ import math
 import tempfile
 import unittest
 
-from attache.core.config import load as config_load
-from attache.core.geo import (
+from holdshort.core.config import load as config_load
+from holdshort.core.geo import (
     METRES_PER_DEG_LAT,
     METRES_PER_DEG_LON,
     TRAFFIC_LATERAL_M,
@@ -22,8 +22,8 @@ from attache.core.geo import (
     first_breach,
     vertical_column,
 )
-from attache.core.models import Proposal, Verdict
-from attache.runtime.intents import (
+from holdshort.core.models import Proposal, Verdict
+from holdshort.runtime.intents import (
     ACCEPTED,
     ACTIVATED,
     CONTINGENCY,
@@ -36,7 +36,7 @@ from attache.runtime.intents import (
     first_conflict,
     schedule,
 )
-from attache.runtime.service import Runtime
+from holdshort.runtime.service import Runtime
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"
@@ -564,8 +564,8 @@ class ResolutionLadderTest(unittest.TestCase):
 
     def test_the_ladder_is_finite(self):
         """고도도 지연도 안 되면 A* 로 다시 그리고, 그것도 안 되면 이번 차례는 접습니다."""
-        from attache.agent.loop import MAX_DELAY_TRIES
-        from attache.runtime.intents import Volume4D
+        from holdshort.agent.loop import MAX_DELAY_TRIES
+        from holdshort.runtime.intents import Volume4D
 
         filings = []
         original = self.runtime.file
@@ -711,7 +711,7 @@ class LedgerContextTest(unittest.TestCase):
         self.assertEqual(entry["context"]["checks_run"], ["dedupe"])
 
     def test_policies_in_force_are_named(self):
-        from attache.core.config import Policy
+        from holdshort.core.config import Policy
 
         self.runtime.policies.add(Policy("ad-1", "지시", forbid_action="fast_charge"))
         self.runtime.policies.add(Policy("later", "나중", forbid_action="charge",
@@ -720,7 +720,7 @@ class LedgerContextTest(unittest.TestCase):
         self.assertEqual(ledger_lines(self.runtime)[-1]["context"]["policies"], ["ad-1"])
 
     def test_replay_still_reads_the_ledger(self):
-        from attache.runtime.replay import read_commits
+        from holdshort.runtime.replay import read_commits
 
         self.runtime.file(route("drone-01", self.legs))
         commits = read_commits(self.runtime.ledger.path)

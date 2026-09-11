@@ -4,8 +4,8 @@ import ast
 import pathlib
 import unittest
 
-AGENT_DIR = pathlib.Path(__file__).resolve().parent.parent / "attache" / "agent"
-FORBIDDEN = ("attache.runtime", "attache.adapters", "direct_agent", "pymavlink")
+AGENT_DIR = pathlib.Path(__file__).resolve().parent.parent / "holdshort" / "agent"
+FORBIDDEN = ("holdshort.runtime", "holdshort.adapters", "direct_agent", "pymavlink")
 
 
 class IsolationTest(unittest.TestCase):
@@ -30,18 +30,18 @@ class IsolationTest(unittest.TestCase):
         copied = [line for line in stage.splitlines() if line.startswith("COPY ")]
         self.assertTrue(copied)
         for line in copied:
-            for forbidden in ("attache/adapters", "attache/runtime", "direct_agent"):
+            for forbidden in ("holdshort/adapters", "holdshort/runtime", "direct_agent"):
                 self.assertNotIn(forbidden, line)
         self.assertNotIn("pymavlink", stage)
         # 빌드가 스스로도 확인하게 해둡니다
-        self.assertIn("test ! -e /app/attache/adapters", stage)
+        self.assertIn("test ! -e /app/holdshort/adapters", stage)
         self.assertIn("test ! -e /app/direct_agent", stage)
 
     def test_both_wirings_share_the_same_brain(self):
         """직결 쪽을 못나게 만들지 않았다는 걸 코드로 못박아 둡니다."""
         direct = (AGENT_DIR.parent.parent / "direct_agent" / "loop.py").read_text()
-        for shared in ("from attache.agent.detect import detect",
-                       "from attache.agent.propose import COSTS, Proposer"):
+        for shared in ("from holdshort.agent.detect import detect",
+                       "from holdshort.agent.propose import COSTS, Proposer"):
             self.assertIn(shared, direct)
 
 

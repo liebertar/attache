@@ -9,9 +9,9 @@
 
 import argparse
 
-from attache.core import config as config_module
-from attache.core.config import Policy
-from attache.runtime.replay import replay
+from holdshort.core import config as config_module
+from holdshort.core.config import Policy
+from holdshort.runtime.replay import replay
 
 
 def main() -> int:
@@ -63,7 +63,7 @@ def main() -> int:
 
 
 def _assets(ledger_path: str) -> set:
-    from attache.runtime.replay import read_commits
+    from holdshort.runtime.replay import read_commits
 
     return {e["proposal"]["asset_id"] for e in read_commits(ledger_path)}
 

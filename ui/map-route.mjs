@@ -74,7 +74,7 @@ export function motionPoint(motion, now, duration) {
 // 그대로 두면 화면에는 결과만 남습니다. 실제로 오간 경로를 느리게 되짚어 보여줍니다.
 // 그리는 좌표는 전부 원장/시뮬레이터가 준 것이고, 여기서 새 경로를 만들지 않습니다.
 // 절반으로 줄였습니다(3.6/1.0/2.6/1.6/2.2). 상자를 다 싣고도 15초를 서 있는 것은 길었습니다.
-// 바꾸면 sim/world.py CLEARANCE_TICKS 와 attache/agent/loop.py REDRAW_DELAY_S 도 같이 바꿀 것.
+// 바꾸면 sim/world.py CLEARANCE_TICKS 와 holdshort/agent/loop.py REDRAW_DELAY_S 도 같이 바꿀 것.
 export const GROW_MS = 2400;    // 산출 중인 경로가 앞으로 뻗어 나가는 시간
 export const CHECK_MS = 600;    // 다 그린 뒤 판정을 기다리는 순간
 export const HOLD_MS = 1600;    // 무엇이 막았는지 읽을 시간

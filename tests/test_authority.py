@@ -1,9 +1,9 @@
 import unittest
 
-from attache.core.config import Authority, Policy
-from attache.core.models import Proposal, Verdict
-from attache.runtime.authority import AuthorityCheck
-from attache.runtime.policy import PolicyBook
+from holdshort.core.config import Authority, Policy
+from holdshort.core.models import Proposal, Verdict
+from holdshort.runtime.authority import AuthorityCheck
+from holdshort.runtime.policy import PolicyBook
 
 
 def make(**kwargs) -> Proposal:
