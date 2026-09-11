@@ -21,7 +21,10 @@ from attache.core.geo import (
 )
 from attache.core.http import JsonServer, get_json
 from attache.core.intake import Gazetteer
-from attache.core.models import Decision, Proposal, Verdict
+from attache.core.metar import DEFAULT_PERIOD_S as METAR_DEFAULT_PERIOD_S
+from attache.core.metar import SOURCE as METAR_SOURCE
+from attache.core.metar import MetarClient, MetarPoller
+from attache.core.models import AgentIdentity, Decision, Proposal, Verdict
 from attache.core.notam import Clock
 from attache.core.route import Router
 from attache.core.tavily import FetchStatus, IntakePoller, TavilyClient
@@ -34,6 +37,7 @@ from attache.runtime.intake import (
     HOLD_POLICY_PREFIX,
     INTAKE_PERIOD_S,
     IntakeBook,
+    IntakeRecord,
     WeatherHold,
     incident_snapshot,
     item_id,
@@ -43,6 +47,8 @@ from attache.runtime.intents import (
     PRESENCE,
     Intent,
     IntentRegistry,
+    LinkEvent,
+    LinkWatch,
     first_conflict,
     ground_conflict,
     hold,
@@ -54,6 +60,8 @@ from attache.runtime.locks import LockTable
 from attache.runtime.notices import NoticeBook
 from attache.runtime.policy import PolicyBook
 from attache.runtime.reports.ledger import build_report, to_markdown
+from attache.runtime.store import DEFAULT_PATH as STORE_DEFAULT_PATH
+from attache.runtime.store import IntakeStore
 
 # 한 구간의 최대 길이. 서비스 반경이 11km 라 그 안의 어떤 경로도 이보다 긴 구간은 없습니다.
 # 유한하기만 한 좌표로 지구 반 바퀴짜리 구간을 내면 판정이 색인 격자 1e10 칸을 돌며 영영 안
@@ -61,6 +69,12 @@ from attache.runtime.reports.ledger import build_report, to_markdown
 MAX_LEG_M = 50_000.0
 # 경로를 실어 오는 행동. 이것만 공역·의도 판정을 받습니다.
 ROUTED = ("reserve_pad", "fly_route")
+# 권고의 연속 거절로 세지 않는 거절. 길이 막힌 게 아니라 같은 신청을 두 번 냈거나(duplicate),
+# 런타임이 아직 판정할 준비가 안 됐습니다(airspace_not_loaded).
+NOT_REFUSALS = ("duplicate", "airspace_not_loaded")
+# 시작할 때 시뮬레이터에서 공역(3만여 개)을 받는 한 번의 요청. 세계 스레드는 공역 없이 할 일이 없어
+# 넉넉히 기다립니다 — 짧게 끊으면 큰 답을 매번 처음부터 다시 받습니다.
+AIRSPACE_FETCH_TIMEOUT_S = 30.0
 # 서비스 영역 상자의 여유(약 2km). 모델이 구조화한 공지가 이 밖이면 지어낸 것입니다.
 SERVICE_MARGIN_DEG = 0.02
 # 정보 수집이 자리를 찾는 지명 사전. 배달 주소와 같은 파일입니다 — 사고가 "있는 곳" 은 배달이 갈
@@ -72,10 +86,45 @@ ADDRESS_FILE = os.getenv(
 INTAKE_ASSET = "intake"
 FLEET_ASSET = "fleet"
 INTAKE_CHECKS = ["intake:grammar", "intake:model"]
+# METAR 를 몇 초마다 받나. 관측은 시간마다(특별 관측은 사이사이) 나옵니다.
+METAR_PERIOD_S = float(os.getenv("METAR_PERIOD_S") or METAR_DEFAULT_PERIOD_S)
+# 기체 등록이 이만큼(틱) 새로 오지 않으면 /state.agents 에서 뺍니다. 기체는 30초마다 다시 알립니다
+# (attache/agent/loop.py REGISTER_PERIOD_S) — 0.2 s/틱에서 600틱은 2분, 두 번 넘게 빠진 것입니다.
+AGENT_STALE_TICKS = int(os.getenv("AGENT_STALE_TICKS") or "600")
+# 공식 관측. 관제탑 자기 피드(시뮬레이터 공지)처럼 문법이 읽으면 그 틱에 걸립니다 —
+# aviationweather.gov 의 숫자를 코드가 문장으로 옮겼고 문법이 다시 읽은 것이지 웹 페이지가
+# 아닙니다. 모델이 읽은 것은 출처와 상관없이 여전히 사람 뒤입니다.
+OFFICIAL_SOURCES = frozenset({METAR_SOURCE})
+# 출처 실패·회복 줄에 쓰는 이름.
+SOURCE_NAMES = {"tavily": "검색", METAR_SOURCE: "METAR"}
+# /state.agents 한 줄의 필드.
+AGENT_FIELDS = ("model", "host", "world", "last_seen_tick", "display", "base_url_port", "model_ok")
+# 항목과 함께 기록에 남기는 구조화 값(POST /intake 의 힌트, 시뮬레이터 사고 공지의 주소·반경).
+# 재시작 뒤에 다시 읽을 때 문장만 있으면 주소로 온 사고를 못 읽습니다.
+INTAKE_HINT_KEYS = ("name", "address", "building_id", "radius_m", "until_tick")
+
+
+class TowerIntake(IntakeBook):
+    """관제탑의 접수 책. 공식 관측(METAR)을 관제탑 피드와 같이 믿는다는 것 하나를 더합니다."""
+
+    @staticmethod
+    def must_hold(record: IntakeRecord, read_by: str) -> bool:
+        if record.source in OFFICIAL_SOURCES:
+            return read_by.startswith("model:")
+        return IntakeBook.must_hold(record, read_by)
+
+    def snapshot(self, tavily_on: bool) -> dict:
+        out = super().snapshot(tavily_on)
+        for item in out["items"]:
+            if item["source"] in OFFICIAL_SOURCES:
+                item["trusted"] = True
+        return out
 
 
 class Runtime:
-    def __init__(self, config_path: str, sim_url: str, ledger_path: str, window_s: float = 1.5):
+    def __init__(self, config_path: str, sim_url: str, ledger_path: str, window_s: float = 1.5,
+                 intake_db: str | None = None, metar: bool = False,
+                 await_airspace: bool = False):
         self.config = config_module.load(config_path)
         self.policies = PolicyBook(self.config.policies)
         self.authority = AuthorityCheck(self.config.authority, self.policies)
@@ -97,25 +146,62 @@ class Runtime:
         self.telemetry: dict = {}
         self.airspace = Airspace()
         self.router = Router(self.airspace)
+        # 공역을 시뮬레이터에서 받아 오는 런타임(서비스)은 다 받기 전에는 판정하지 않습니다. compose
+        # 에서 기체가 런타임보다 먼저 신청해 빈 공역(판본 0)으로 네 경로가 승인됐고, 반쯤 받은
+        # 공역(판본 14480)으로도 판정해 런타임 세계가 3분 안에 금지 공역 19건을 냈습니다. 빈 공역은
+        # '규칙 없음' 이 아니라 '아직 모름' 입니다. 코드로 만든 런타임(시험·하네스)은 공역을 손으로
+        # 넣으므로 기다리지 않습니다 — 서비스(main)만 켭니다.
+        self.await_airspace = await_airspace
+        self.airspace_loaded = False
         self.zone_volumes: set[str] = set()   # 공지로 들어온 구역. 끝나면 빼야 합니다
         # 신고 성능과 판의 시계. 승인한 경로가 언제 어디에 있을지(의도)와 NOTAM 의 시간 창을
         # 여기서 셉니다.
         self.performance = self.config.performance
         self.clock = Clock(self.performance.clock_epoch_z, self.performance.seconds_per_tick)
         self.intents = IntentRegistry()
+        # 텔레메트리 심장박동. 떠 있는 기체의 기록이 신고한 timeout_ticks 동안 안 새로워지면
+        # 링크 두절 — 그 기체의 의도(승인 경로 + 착륙 기둥)를 예약된 채로 두고 사람 카드를 올립니다.
+        self.links = LinkWatch(self.performance.lost_link.timeout_ticks)
+        self._dark: dict[str, Intent] = {}       # 두절 중 예약을 늘린 의도(복구 뒤 순응 검사에 씀)
+        self._link_cards: dict[str, str] = {}    # 기체 → 서 있는 두절 카드(신청서 id)
+        # 사람이 예약을 푼 두절 기체. 끊긴 순간에 멈춘 자리에 기둥(presence)도 세우지 않습니다.
+        self._released: set[str] = set()
+        # 심장박동은 세계 스레드가 옮기고 화면(HTTP 스레드)이 읽습니다.
+        self._link_lock = threading.Lock()
+        # 기체 프로세스가 알린 자기소개(무엇으로 신청서를 쓰나). 화면 라벨일 뿐 판정과 무관합니다.
+        self.agents: dict[str, dict] = {}
         self.notices = NoticeBook(self.clock, self.llm)
         # 정보 수집(날씨·사고·제한). 시뮬레이터 공지·Tavily 검색·수동 입력이 같은 책으로 들어와
         # 문법 → 모델 → 코드 검사를 지나고, 날씨는 정책(이륙 정지)으로, 사고는 공지(구역)로 갑니다.
         self.gazetteer = Gazetteer(_load_addresses(ADDRESS_FILE),
                                    lookup=lambda bid: getattr(self.airspace.get(bid), "polygon",
                                                               None))
-        self.intake = IntakeBook(self.clock, self.llm, self.config.weather, self.gazetteer)
+        self.intake = TowerIntake(self.clock, self.llm, self.config.weather, self.gazetteer)
+        # 들어온 것의 기록(sqlite). 경로가 없으면 메모리 — 시험끼리 '본 것' 이 섞이지 않게. 서비스는
+        # main() 이 INTAKE_DB(기본 .run/intake.sqlite)를 줍니다.
+        self.store = IntakeStore(intake_db)
+        self._rule_ids: dict[str, int] = {}     # 항목(규칙의 근거) id → rules 표의 줄 번호
         self.tavily = TavilyClient.from_env()
+        # METAR. 키 없이 돕니다. 서비스(main)만 켭니다 — 클래스를 그냥 만들면(시험) 꺼져 있어서
+        # 실제 네트워크를 부르지 않습니다. METAR=off 이거나 관측소가 없으면 None(출처 꺼짐).
+        self.metar = MetarClient.from_env(self.config.intake.metar_stations) if metar else None
+        self.metar_poller: MetarPoller | None = None
+        self._metar_fetch: FetchStatus | None = None
+        # starting(아직 한 번도 안 받음) | on | off. 닿지 못하면 off 로 한 줄, 다시 답하면 on 으로
+        # 한 줄 — 바뀔 때만 적습니다. 주기마다 적으면 원장이 실패로 가득 찹니다.
+        self.metar_status = "starting" if self.metar is not None else "off"
+        self.metar_fetch: dict | None = None
+        self.metar_last_fetch_tick: int | None = None
+        # 마지막으로 받은 관측. 판이 바뀌면 새 판에 다시 넣습니다(_follow_round).
+        self._metar_current: list[dict] = []
         self.intake_poller: IntakePoller | None = None
         self.intake_async = True
         self._reading_intake: set[str] = set()
         self._read_intake: list[tuple] = []
         self._intake_inbox: list[dict] = []     # 검색·수동 입력이 놓고 간 항목. 세계 스레드가 읽음
+        # 재시작 전에 사람을 기다리던 항목. 카드는 프로세스와 함께 사라졌으니 다시 읽어 카드를
+        # 다시 올립니다 — 안 그러면 아무도 답한 적 없는 보고서가 '본 것' 으로 남아 영영 안 읽힙니다.
+        self._intake_inbox.extend(self.store.reopen_waiting())
         self._intake_fetch: FetchStatus | None = None   # 검색 스레드의 마지막 주기 상태
         # 관제 권고. 연속 거절을 세고, 코드가 만든 선택지를 판정으로 확인해 원장에 남깁니다.
         # 모델이 문구를 쓸 때는 따로 스레드에서 — 거절 답장이 모델을 기다리면 운영사가 멈춥니다.
@@ -141,6 +227,11 @@ class Runtime:
 
     # ---------- 신청 접수 ----------
 
+    @property
+    def ready(self) -> bool:
+        """판정할 준비가 됐나. 공역을 기다리는 서비스는 다 받은 뒤부터, 나머지는 처음부터."""
+        return self.airspace_loaded or not self.await_airspace
+
     def file(self, raw: dict) -> Decision:
         proposal = Proposal.from_dict({**raw, "world": "guarded"})
         asset = self.telemetry.get(proposal.asset_id, {})
@@ -148,6 +239,17 @@ class Runtime:
         # 한 줄은 한 번의 접수를 말해야 합니다. 나중의 재판정(rejudge)은 이 목록 뒤에 덧붙습니다.
         checks = self._checks[proposal.id] = []
         self._observe()
+
+        if not self.ready:
+            # 판정 이전의 문. 공역을 다 받기 전에는 아무것도 승인하지 않습니다. policy_hit 은
+            # 비워 둡니다 — 운영사가 이것을 '행동이 금지됐다' 로 배우면 공역이 온 뒤에도 그
+            # 행동을 안 냅니다.
+            checks.append("airspace_loaded")
+            return self._deny(proposal, Decision(
+                proposal.id, Verdict.DENIED,
+                "런타임이 아직 공역을 다 받지 못했습니다 — 판정할 수 없어 거절, 잠시 뒤 다시",
+                code="airspace_not_loaded",
+                detail={"airspace_revision": self.airspace.revision}))
 
         checks.append("dedupe")
         seen_at = self._recent_commits.get((proposal.asset_id, proposal.action))
@@ -158,9 +260,17 @@ class Runtime:
                                 code="duplicate")
             return self._deny(proposal, decision)
 
+        if self.links.lost(proposal.asset_id):
+            # 링크가 끊긴 기체는 명령을 못 듣습니다. 판정 이전의 문 — 통과한 신청에는 적지 않고
+            # 거절할 때만 검사 목록에 남깁니다.
+            checks.append("link")
+            return self._deny(proposal, self._dark_denial(proposal))
         blocked = self.check_route(proposal, checks)
         if blocked:
             return self._deny(proposal, self._airspace_denial(proposal, blocked))
+        unknown = self._contingency_problem(proposal, checks)
+        if unknown:
+            return self._deny(proposal, unknown)
         blocked = self._check_traffic(proposal, checks)
         if blocked:
             return self._deny(proposal, self._traffic_denial(proposal, blocked))
@@ -224,7 +334,7 @@ class Runtime:
 
         중복 거절은 세지 않습니다 — 길이 막힌 게 아니라 같은 신청을 두 번 낸 것입니다.
         """
-        if proposal.action not in ROUTED or decision.code == "duplicate":
+        if proposal.action not in ROUTED or decision.code in NOT_REFUSALS:
             return
         params = proposal.params or {}
         refusal = Refusal(
@@ -310,6 +420,41 @@ class Runtime:
                 "blocked_kind", "blocked_asset", "blocked_leg", "blocked_at",
                 "blocked_until_tick", "blocked_intent")},
         )
+
+    def _dark_denial(self, proposal: Proposal) -> Decision:
+        """링크가 끊긴 기체의 신청. 명령이 닿지 않으니 승인해도 실행할 수 없습니다.
+
+        policy_hit 은 비워 둡니다 — 운영사가 이것을 '행동이 금지됐다' 로 배우면 링크가 돌아온 뒤에도
+        그 행동을 영영 안 냅니다. 링크가 돌아오면 같은 신청이 그대로 판정받습니다.
+        """
+        link = self.links.links[proposal.asset_id]
+        return Decision(proposal.id, Verdict.DENIED,
+                        f"{proposal.asset_id} 의 링크가 틱 {link.since_tick} 부터 끊겨 있습니다 — "
+                        "기체가 명령을 들을 수 없습니다", code="lost_link_refused",
+                        detail={"resource": proposal.asset_id, "since_tick": link.since_tick,
+                                "last_seen_tick": link.last_seen_tick})
+
+    def _contingency_problem(self, proposal: Proposal, checks: list[str]) -> Decision | None:
+        """통신 두절 대비 부피를 판정합니다. 모르는 대비 행동이면 거절.
+
+        continue_and_land 의 대비 부피는 승인 경로 그 자체 + 목적지의 착륙 기둥이라, 방금 지난
+        route·columns·landing 검사가 곧 그 판정입니다 — 여기서는 신고한 행동이 그것인지를 봅니다.
+        return_to_launch 같은 다른 행동은 되돌아가는 직선이라는 딴 부피를 만들고, 그 부피를 판정하지
+        않은 채 승인하면 링크가 끊긴 순간 판정 안 된 길을 날게 됩니다.
+        """
+        if proposal.action not in ROUTED or not proposal.params.get("legs"):
+            return None
+        checks.append("contingency")
+        lost_link = self.performance.lost_link
+        if lost_link.known:
+            return None
+        known = ", ".join(config_module.KNOWN_LOST_LINK_BEHAVIOURS)
+        return Decision(proposal.id, Verdict.DENIED,
+                        f"통신 두절 대비 행동 {lost_link.behaviour!r} 의 부피를 판정할 수 없습니다 "
+                        f"(아는 것: {known})", policy_hit="lost_link",
+                        code="contingency_unknown",
+                        detail={"behaviour": lost_link.behaviour,
+                                "known": list(config_module.KNOWN_LOST_LINK_BEHAVIOURS)})
 
     def _context(self, proposal: Proposal | None, checks: list[str] | None = None,
                  intent_id: str | None = None) -> dict:
@@ -490,6 +635,7 @@ class Runtime:
             start=(float(legs[0]["lat"]), float(legs[0]["lon"])),
             landing=(float(legs[-1]["lat"]), float(legs[-1]["lon"])),
             depart_tick=depart, arrive_tick=arrive, filed_tick=self.tick,
+            contingency=self.performance.lost_link.behaviour,
         )
 
     def _check_traffic(self, proposal: Proposal, checks: list[str] | None = None) -> str | None:
@@ -527,8 +673,11 @@ class Runtime:
                     proposal.params = {**proposal.params, "withdraw": withdraw}
                 return None
             other = self.intents.get(conflict.asset)
+            # 링크가 끊긴 기체의 의도는 물릴 수 없습니다 — 물림은 조종장치에 가는 명령이고, 그
+            # 기체는 듣지 못합니다. 그때는 이 신청을 거절합니다.
             if (not airborne or conflict.asset in withdraw or other is None
-                    or other.state != ACCEPTED or other.id != conflict.intent_id):
+                    or other.state != ACCEPTED or other.id != conflict.intent_id
+                    or self.links.lost(conflict.asset)):
                 break
             withdraw.append(other.asset)
 
@@ -557,7 +706,9 @@ class Runtime:
         live = [i for i in self.intents.others(asset) if i.asset not in exclude]
         covered = {i.asset for i in live}
         for other, state in self.telemetry.items():
-            if other == asset or other in covered or other in exclude:
+            if other == asset or other in covered or other in exclude or other in self._released:
+                # 사람이 예약을 푼 두절 기체의 텔레메트리는 끊긴 순간에 멈춘 자리입니다. 기체는
+                # 거기 없고, 사람이 그것을 알고 풀었습니다.
                 continue
             if float(state.get("alt_m") or 0.0) <= 1.0 or state.get("lat") is None:
                 continue
@@ -700,20 +851,9 @@ class Runtime:
         """
         checks = self._checks.setdefault(proposal.id, [])
         checks.append("rejudge")
-        blocked = self.check_route(proposal, checks)
-        traffic = None if blocked else self._check_traffic(proposal, checks)
-        # 기다리는 사이 금지가 왔을 수 있습니다(기상 대기·감항성 지시). 사람 승인·중재 배정은 옛
-        # 판정을 살리지 못합니다 — 접수 때와 같은 정책 검사를 실행 직전에 한 번 더.
-        banned = None
-        if blocked is None and traffic is None:
-            checks.append("policy")
-            banned = self.policies.hit(proposal.action, proposal.resource,
-                                       self.telemetry.get(proposal.asset_id, {}), self.tick)
-        if blocked is None and traffic is None and banned is None:
+        fresh = self._fresh_refusal(proposal, checks)
+        if fresh is None:
             return None
-        fresh = (self._airspace_denial(proposal, blocked) if blocked
-                 else self._traffic_denial(proposal, traffic) if traffic
-                 else AuthorityCheck.policy_denial(proposal, banned))
         decision.verdict = Verdict.DENIED
         decision.reason = fresh.reason
         decision.policy_hit = fresh.policy_hit
@@ -724,6 +864,28 @@ class Runtime:
             self.ledger.open_entry(proposal, decision, self._context(proposal)), "denied")
         self._record_refusal(proposal, decision)
         return decision.reason
+
+    def _fresh_refusal(self, proposal: Proposal, checks: list[str]) -> Decision | None:
+        """실행 직전에 거절할 이유. 없으면 None. 링크 → 공역 → 교차 → 정책 순서입니다.
+
+        사람 승인·중재 배정을 기다리는 사이 링크가 끊겼으면, 그 승인이 들을 수 없는 기체에 명령을
+        보내게 하지 못합니다. 보냈더니 명령을 받았다고 답하는 어댑터(MAVLink 는 보내면 ok)에서는 새
+        경로가 두절 예약을 끝냈고, 그 기체의 실제 남은 길로 남의 교차가 승인됐습니다. 금지(기상 대기
+        ·감항성 지시)도 기다리는 사이 왔을 수 있어 접수 때와 같은 정책 검사를 한 번 더 합니다.
+        """
+        if self.links.lost(proposal.asset_id):
+            checks.append("link")
+            return self._dark_denial(proposal)
+        blocked = self.check_route(proposal, checks)
+        if blocked:
+            return self._airspace_denial(proposal, blocked)
+        traffic = self._check_traffic(proposal, checks)
+        if traffic:
+            return self._traffic_denial(proposal, traffic)
+        checks.append("policy")
+        banned = self.policies.hit(proposal.action, proposal.resource,
+                                   self.telemetry.get(proposal.asset_id, {}), self.tick)
+        return AuthorityCheck.policy_denial(proposal, banned) if banned else None
 
     def _queue_or_commit(self, proposal: Proposal, decision: Decision) -> Decision:
         if not proposal.resource:
@@ -761,6 +923,8 @@ class Runtime:
             return self._confirm_weather(proposal, decision, actor, allow, card)
         if proposal.action == "lift_weather_hold":
             return self._confirm_lift(proposal, decision, actor, allow, card)
+        if proposal.action == "lost_link_notice":
+            return self._confirm_lost_link(proposal, decision, actor, allow, card)
         if not allow:
             decision.verdict = Verdict.DENIED
             decision.reason = f"{actor} 가 거부했습니다"
@@ -843,19 +1007,30 @@ class Runtime:
             self.telemetry = state.get("assets", {})
             self._follow_round(state.get("round"))
             self._observe()
+            self.watch_links()
 
-        if not self.airspace.all():
-            world = get_json(f"{self.sim_url}/state?world=guarded&volumes=1") or {}
-            for raw in world.get("volumes", []):
-                self.airspace.add(Volume.from_dict(raw))
-            self.pad_coords = {
-                name: (at["lat"], at["lon"])
-                for name, at in (world.get("pad_coords") or {}).items()
-            }
-            self.landing_areas = list(world.get("landing_areas") or [])
+        if not self.airspace_loaded:
+            self._load_airspace()
 
         bulletins = get_json(f"{self.sim_url}/bulletins?world=guarded") or {}
         self.absorb(bulletins.get("bulletins", []))
+
+    def _load_airspace(self) -> None:
+        """시뮬레이터의 공역을 한 번에 받습니다. 다 받은 뒤 한꺼번에 넣고, 그때부터 판정합니다.
+
+        받지 못했거나 비어 있으면 다음 폴링에 다시 봅니다. 하나씩 넣던 때는 HTTP 스레드가 반쯤 찬
+        공역으로 판정했습니다(Airspace.add_all 이 바꿔 끼우기 한 번으로 넣습니다).
+        """
+        world = get_json(f"{self.sim_url}/state?world=guarded&volumes=1",
+                         timeout=AIRSPACE_FETCH_TIMEOUT_S) or {}
+        volumes = [Volume.from_dict(raw) for raw in world.get("volumes") or []]
+        if not volumes:
+            return
+        self.pad_coords = {name: (at["lat"], at["lon"])
+                           for name, at in (world.get("pad_coords") or {}).items()}
+        self.landing_areas = list(world.get("landing_areas") or [])
+        self.airspace.add_all(volumes)
+        self.airspace_loaded = True
 
     def _follow_round(self, round_number) -> None:
         """판이 바뀌면 한 판짜리 상태를 비웁니다 — 예산, 잠금, 중복 방지, 의도, 공지.
@@ -875,6 +1050,17 @@ class Runtime:
         self.zone_volumes.clear()
         self.policies.clear()
         self.intents.clear()
+        # 링크도 한 판짜리입니다 — 새 판의 기체는 새로 세워졌고 도장도 처음부터 셉니다. 서 있던 두절
+        # 카드는 아래 _expire_cards 가 다른 카드와 같이 내립니다.
+        with self._link_lock:
+            self.links.clear()
+        self._dark.clear()
+        self._link_cards.clear()
+        self._released.clear()
+        # 기체 등록은 판을 넘어 남습니다(프로세스는 그대로). 틱만 새 판의 시계로 옮깁니다.
+        with self._guard:
+            for row in self.agents.values():
+                row["last_seen_tick"] = min(int(row["last_seen_tick"]), self.tick)
         self._expire_cards("판이 바뀜")
         self.notices.clear()
         # 열려 있던 기상 대기는 닫는 줄을 남깁니다. 없으면 보고서가 그 대기를 영원히 '열림' 으로
@@ -882,7 +1068,13 @@ class Runtime:
         if self.intake.hold is not None:
             self._ledger_hold_end(self.intake.hold, "weather_hold_closed",
                                   f"판이 바뀌어 닫힘 (창은 틱 {self.intake.hold.until_tick} 까지)")
+        self._close_rules("round")
         self.intake.clear()
+        # METAR 는 지금 유효한 관측입니다. 판이 바뀌었다고 돌풍이 멎지 않으니 마지막 관측을 새 판의
+        # 첫 폴링에 다시 넣습니다 — 다음 주기(최대 METAR_PERIOD_S 뒤)를 기다리면 그 사이에 새 판의
+        # 기체가 돌풍 속으로 뜹니다.
+        with self._guard:
+            self._intake_inbox.extend(dict(item) for item in self._metar_current)
         with self._guard:
             self.advisor.clear()
 
@@ -942,6 +1134,7 @@ class Runtime:
         # 아래 _apply_notices 가 같은 폴링에 겁니다.
         self._collect_read_intake()
         self._note_fetch()
+        self._note_metar_fetch()
         self._take_intake([i for i in bulletins if _is_intake(i)] + self._drain_intake_inbox(),
                           bbox)
         self._apply_notices({i["id"] for i in items} | self.intake.notice_ids)
@@ -1009,6 +1202,7 @@ class Runtime:
     def _apply_notices_locked(self, feed_ids: set[str] | None) -> None:
         for record in self.notices.due(self.tick):
             record.applied = True
+            self._rule_apply(record.id)
             self.airspace.add(record.volume)
             self.zone_volumes.add(record.id)
             self.recall_flights(record.volume)
@@ -1021,6 +1215,7 @@ class Runtime:
         feed = feed_ids if feed_ids is not None else {r.id for r in self.notices.records.values()}
         for record in self.notices.lapsed(self.tick, feed):
             record.applied = False
+            self._rule_close(record.id, "window", self.tick)
             self.airspace.remove(record.id)
             self.zone_volumes.discard(record.id)
             if record.id not in feed:
@@ -1040,6 +1235,7 @@ class Runtime:
     def _lapse_held(self, record, why: str) -> None:
         """확인 없이 지나간 보류 공지. 걸린 적이 없으니 뺄 것도 없고, 기록만 닫습니다."""
         self.notices.forget(record.id, f"확인 전에 {why}")
+        self._rule_close(record.id, "lapsed")
         with self._guard:
             waiting = next((pid for pid, p in self._awaiting_human.items()
                             if p.action == "publish_notice"
@@ -1088,6 +1284,7 @@ class Runtime:
         if allow and record is not None and record.until_tick is not None \
                 and self.tick > record.until_tick:
             self.notices.forget(notice_id, "창이 닫힌 뒤에 확인")
+            self._rule_close(notice_id, "lapsed")
             decision.verdict = Verdict.DENIED
             decision.reason = (f"{actor} 가 확인했지만 창이 틱 {record.until_tick} 에 이미 "
                                "닫혔습니다 — 걸린 적 없음")
@@ -1104,6 +1301,7 @@ class Runtime:
             decision.reason = f"{actor} 가 공지를 거부했습니다" if record is not None \
                 else "그런 공지가 없습니다"
             decision.code = "notice_refused"
+            self._rule_close(notice_id, "refused")
         self._close_card(card, proposal, decision,
                          "done" if allow and record is not None else "denied", "notice:human")
         self._apply_notices()
@@ -1146,19 +1344,49 @@ class Runtime:
         if failed_now == self.intake.source_failed:
             return
         self.intake.source_failed = failed_now
+        self._ledger_source_change("tavily", status, failed_now)
+
+    def _ledger_source_change(self, source: str, status: FetchStatus, failed_now: bool) -> None:
+        """출처 하나의 실패 ↔ 회복 한 줄. 검색(tavily)과 METAR 가 같은 줄을 씁니다."""
+        name = SOURCE_NAMES.get(source, source)
         noted = Proposal(asset_id=INTAKE_ASSET, action="intake_source", cost_usd=0.0,
                          blast_radius="none", author="runtime",
-                         rationale=f"tavily · {status.error or 'ok'}"[:180],
-                         params={"source": "tavily", **status.to_dict()})
+                         rationale=f"{source} · {status.error or 'ok'}"[:180],
+                         params={"source": source, **status.to_dict()})
         decision = Decision(
             noted.id, Verdict.DENIED if failed_now else Verdict.AUTO,
-            (f"검색 출처에 닿지 못합니다 — {status.error}" if failed_now
-             else f"검색 출처가 다시 답합니다 (실패 {status.failures} 회 뒤)"),
+            (f"{name} 출처에 닿지 못합니다 — {status.error}" if failed_now
+             else f"{name} 출처가 다시 답합니다 (실패 {status.failures} 회 뒤)"),
             code="intake_source_failed" if failed_now else "intake_source_recovered",
-            detail={"source": "tavily", **status.to_dict()})
+            detail={"source": source, **status.to_dict()})
         self.ledger.close_entry(
             self.ledger.open_entry(noted, decision, self._context(None, ["intake:source"])),
             "failed" if failed_now else "noted")
+
+    def take_metar(self, items: list[dict], status: FetchStatus | None = None) -> None:
+        """METAR 스레드가 관측과 주기 상태를 놓고 갑니다. 적고 읽는 것은 다음 폴링(세계 스레드)."""
+        with self._guard:
+            self._intake_inbox.extend(dict(item) for item in items)
+            if status is not None:
+                self._metar_fetch = status
+            if status is None or status.ok:
+                self.metar_last_fetch_tick = self.tick
+                # 실패한 주기는 지난 관측을 지우지 않습니다 — 돌풍 대기를 푸는 것은 창이나
+                # 사람이지, 망이 끊긴 탓이 아닙니다.
+                self._metar_current = [dict(item) for item in items]
+
+    def _note_metar_fetch(self) -> None:
+        """METAR 출처의 on ↔ off. 닿지 못하면 off 로 한 줄, 다시 답하면 on 으로 한 줄."""
+        with self._guard:
+            status, self._metar_fetch = self._metar_fetch, None
+        if status is None:
+            return
+        self.metar_fetch = status.to_dict()
+        now = "on" if status.ok else "off"
+        was, self.metar_status = self.metar_status, now
+        if now == was or (was == "starting" and status.ok):
+            return      # 첫 성공은 적을 일이 아닙니다 — 켜진 채 시작한 것입니다
+        self._ledger_source_change(METAR_SOURCE, status, failed_now=not status.ok)
 
     def submit_intake(self, body: dict):
         """POST /intake. 사람이 넣은 문장 하나. 접수함에 넣고 id 를 돌려줍니다.
@@ -1187,11 +1415,18 @@ class Runtime:
     def _take_intake(self, items: list[dict], bbox) -> None:
         """항목마다 한 번: 적고(intake_received) 읽습니다. 문법이면 지금, 모델이면 딴 스레드."""
         for item in items:
+            key = item_id(item)
+            if not self.intake.known(key) and self.store.seen(key, str(item.get("source") or "")):
+                # 재시작 전에 읽은 검색 결과·수동 입력. 사람 카드를 다시 올리지 않습니다.
+                continue
             record = self.intake.receive(item, self.tick)
             if record is None:
                 continue        # 본 것입니다. 다시 읽지도 다시 적지도 않습니다
-            self._ledger_intake(record, item, "intake_received", "noted",
-                                f"{record.source} 에서 받음", {"kind_hint": item.get("kind")})
+            received = ("재시작 전에 사람을 기다리던 것 — 카드를 다시 올림" if item.get("reopened")
+                        else f"{record.source} 에서 받음")
+            self._ledger_intake(record, item, "intake_received", "noted", received,
+                                {"kind_hint": item.get("kind"),
+                                 **({"reopened": True} if item.get("reopened") else {})})
             if self.intake_async and self.intake.needs_model(item):
                 self._read_intake_later(item, record, bbox)
                 continue
@@ -1280,6 +1515,7 @@ class Runtime:
             hold = self.intake.hold
             if until_tick > hold.until_tick and not must_hold:
                 hold.until_tick = until_tick
+                self._rule_extend(hold.id, until_tick)
                 for policy in hold.policies():
                     self.policies.add(policy)
                 self._refresh_lift_card(hold)
@@ -1301,6 +1537,7 @@ class Runtime:
         """이륙 정지. 정책은 지금 걸리고, 땅에서 아직 안 뜬 승인 경로는 물립니다. 푸는 것은
         사람과 창뿐."""
         hold = self.intake.open_hold(record_id, report, breaches, until_tick, self.tick, source)
+        self._rule_apply(record_id, "weather_hold", self.tick, until_tick)
         for policy in hold.policies():
             self.policies.add(policy)
         noted = Proposal(asset_id=FLEET_ASSET, action="weather_hold", cost_usd=0.0,
@@ -1325,7 +1562,15 @@ class Runtime:
         물리지 않으면 대기 중에 뜹니다.
         """
         for asset_id, state in list(self.telemetry.items()):
-            if float(state.get("alt_m") or 0.0) > 1.0 or not state.get("route"):
+            if float(state.get("alt_m") or 0.0) > 1.0:
+                continue
+            # 텔레메트리의 route 는 지난 폴링 때의 것입니다. 보류가 열린 바로 그 틱에 막 승인된
+            # 경로는 아직 거기 없어서, 물리지 않은 채 25틱 뒤 보류 중에 떴습니다(런타임 쪽
+            # '보류 중 이륙' 1건).
+            # 기준은 런타임이 적은 의도입니다 — 승인됐고 아직 안 뜬 의도가 있으면 물립니다.
+            waiting = self.intents.get(asset_id)
+            undeparted = waiting is not None and waiting.state == ACCEPTED
+            if not state.get("route") and not undeparted:
                 continue
             retreat = Proposal(asset_id=asset_id, action="divert_ground", cost_usd=0.0,
                                blast_radius="cargo", author="runtime",
@@ -1413,13 +1658,20 @@ class Runtime:
             "id": record.id, "report": report.to_dict(), "breaches": list(breaches),
             "until_tick": until_tick, "source": read_by, "card": held.id,
             "text": record.text[:180]}
+        self._rule_open(record.id, "weather_hold", self.tick, until_tick, applied=False)
 
     def _confirm_weather(self, proposal: Proposal, decision: Decision, actor: str,
                          allow: bool, card=None) -> Decision:
         """사람의 답. 승인이면 그때부터 사람의 말로 세우고, 거부면 기록만 남습니다."""
-        held = self.intake.held_weather.pop(str(proposal.params.get("item") or ""), None)
+        key = str(proposal.params.get("item") or "")
+        held = self.intake.held_weather.pop(key, None)
         report = _report_from(held or proposal.params)
         until_tick = int((held or proposal.params).get("until_tick") or self.tick)
+        if not (allow and held is not None and self.intake.hold is None
+                and self.tick <= until_tick):
+            # 이 보고서로는 아무것도 안 섭니다: 창이 지났거나, 거부했거나, 이미 대기 중입니다.
+            self._rule_close(key, "lapsed" if allow and self.tick > until_tick
+                             else "already_held" if allow else "refused")
         if allow and self.tick > until_tick:
             decision.verdict = Verdict.DENIED
             decision.reason = f"{actor} 가 확인했지만 창이 틱 {until_tick} 에 이미 닫혔습니다"
@@ -1452,7 +1704,7 @@ class Runtime:
         if hold is not None:
             hold.lift_card = None
         if allow and hold is not None and hold.id == proposal.params.get("hold"):
-            self._lift_hold(hold)
+            self._lift_hold(hold, "human")
             decision.verdict = Verdict.AUTO
             decision.reason = f"{actor} 가 기상 대기를 풀었습니다"
             decision.code = "weather_hold_lifted"
@@ -1465,16 +1717,17 @@ class Runtime:
         self._close_card(card, proposal, decision, "denied", "weather:human")
         return decision
 
-    def _lift_hold(self, hold: WeatherHold) -> None:
+    def _lift_hold(self, hold: WeatherHold, lifted_by: str) -> None:
         for policy_id in hold.policy_ids:
             self.policies.remove(policy_id)
         self.intake.close_hold()
+        self._rule_close(hold.id, lifted_by, self.tick)
 
     def _tick_intake(self) -> None:
         """창이 끝난 것을 거둡니다: 대기는 풀고 카드를 내리고, 사람 없이 지나간 보류 날씨는 잊음."""
         hold = self.intake.hold
         if hold is not None and self.tick > hold.until_tick:
-            self._lift_hold(hold)
+            self._lift_hold(hold, "window")
             self._ledger_hold_end(hold, "weather_hold_expired",
                                   f"틱 {hold.until_tick} 에 창이 닫혀 풀림")
             if hold.lift_card:
@@ -1482,6 +1735,7 @@ class Runtime:
         for key, held in list(self.intake.held_weather.items()):
             if self.tick > int(held.get("until_tick") or self.tick):
                 self.intake.held_weather.pop(key, None)
+                self._rule_close(key, "lapsed")
                 self._drop_card(held.get("card"), "weather_lapsed",
                                 "사람이 확인하기 전에 창이 닫힘")
 
@@ -1524,6 +1778,8 @@ class Runtime:
         notice = self.intake.incident_record(record.id, report, record.text, read_by, until_tick,
                                              held)
         self.notices.records[record.id] = notice
+        self._rule_open(record.id, "incident", report.from_tick or self.tick, until_tick,
+                        applied=not held)
         self._ledger_intake(record, item, "intake_read", "noted",
                             f"사고 · {report.name} · {report.radius_m:.0f} m",
                             {**detail, "held": held})
@@ -1538,6 +1794,8 @@ class Runtime:
                                      {"kind": "notam", "until_tick": item.get("until_tick")},
                                      notice, read_by, held=held)
         self.intake.notice_ids.add(record.id)
+        self._rule_open(record.id, "notice", adopted.from_tick or self.tick, adopted.until_tick,
+                        applied=not held)
         self._ledger_intake(record, item, "intake_read", "noted", f"제한 공지 · {adopted.name}",
                             {"kind": "notice", "read_by": read_by, "held": held,
                              "notice": adopted.to_dict()})
@@ -1576,6 +1834,47 @@ class Runtime:
                                     "url": record.url or None, **(detail or {})})
         self.ledger.close_entry(
             self.ledger.open_entry(noted, decision, self._context(None, INTAKE_CHECKS)), outcome)
+        self._store_intake(record, item, code, detail or {})
+
+    def _store_intake(self, record, item: dict, code: str, detail: dict) -> None:
+        """접수 줄을 sqlite 에도. 받으면 한 줄을 넣고, 읽으면 그 줄을 무엇이 되었는지로 고칩니다."""
+        if code == "intake_received":
+            self.store.put_item(record.id, record.source, record.text, self.tick, record.url,
+                                item.get("kind"), _hints_of(item))
+            return
+        outcome = ("unreadable" if code == "intake_unreadable"
+                   else "window_closed" if detail.get("window_closed")
+                   else "held" if detail.get("held") else "read")
+        self.store.settle_item(record.id, record.kind, record.read_by, outcome)
+
+    # ---------- 규칙 기록(sqlite) ----------
+
+    def _rule_open(self, item_id: str, kind: str, from_tick, until_tick, applied: bool) -> None:
+        self._rule_ids[item_id] = self.store.open_rule(item_id, kind, from_tick, until_tick,
+                                                       applied)
+
+    def _rule_apply(self, item_id: str, kind: str | None = None, from_tick=None,
+                    until_tick=None) -> None:
+        """규칙이 걸렸습니다. 보류 줄이 있으면 적용으로 고치고, 없으면(kind 를 주면) 새로 엽니다."""
+        self.store.decide_item(item_id, "approved")
+        rule = self._rule_ids.get(item_id)
+        if rule is not None:
+            self.store.apply_rule(rule, from_tick)
+        elif kind is not None:
+            self._rule_open(item_id, kind, from_tick, until_tick, True)
+
+    def _rule_extend(self, item_id: str, until_tick: int) -> None:
+        self.store.extend_rule(self._rule_ids.get(item_id), until_tick)
+
+    def _rule_close(self, item_id: str, lifted_by: str, until_tick: int | None = None) -> None:
+        """규칙 줄을 닫고, 그 항목이 사람을 기다리던 것이면 끝(거부·지나감·판 바뀜)을 적습니다 —
+        안 적으면 재시작할 때 이미 답한 카드가 다시 오릅니다."""
+        self.store.close_rule(self._rule_ids.pop(item_id, None), lifted_by, until_tick)
+        self.store.decide_item(item_id, lifted_by)
+
+    def _close_rules(self, lifted_by: str) -> None:
+        for key in list(self._rule_ids):
+            self._rule_close(key, lifted_by)
 
     def background(self) -> None:
         """세계를 받아오는 쪽. 중재와 같은 스레드에 두면 안 됩니다(아래 settle_forever)."""
@@ -1613,6 +1912,10 @@ class Runtime:
             self.intake_poller = IntakePoller(self.tavily, self.config.intake.queries,
                                               INTAKE_PERIOD_S, self.take_in)
             threads.append(self.intake_poller.start())
+        # METAR 도 자기 스레드에서. 키가 없어도 돌고, 닿지 못하면 출처가 off 로 한 줄.
+        if self.metar is not None and self.metar_poller is None:
+            self.metar_poller = MetarPoller(self.metar, METAR_PERIOD_S, self.take_metar)
+            threads.append(self.metar_poller.start())
         return threads
 
     def recall_flights(self, volume) -> list[Decision]:
@@ -1625,6 +1928,10 @@ class Runtime:
         """
         pulled = []
         for asset_id, telemetry in self.telemetry.items():
+            if self.links.lost(asset_id):
+                # 링크가 끊긴 기체에는 회수 명령이 닿지 않습니다. 보내지 않습니다 — 그 기체의 공간은
+                # 예약된 채이고 판정은 그 부피를 계속 피합니다.
+                continue
             legs = [{"lat": telemetry.get("lat"), "lon": telemetry.get("lon"),
                      "alt_m": telemetry.get("alt_m", 0.0)}]
             legs += [{"lat": leg["lat"], "lon": leg["lon"], "alt_m": leg.get("alt_m", 0.0)}
@@ -1679,8 +1986,8 @@ class Runtime:
         if not policy.forbid_resource:
             return None
         hold = self.locks.holder(policy.forbid_resource)
-        if hold is None:
-            return None
+        if hold is None or self.links.lost(hold.asset_id):
+            return None     # 잡은 기체가 없거나, 있어도 링크가 끊겨 회항 명령을 못 듣습니다
 
         self.locks.release(policy.forbid_resource, hold.asset_id)
         retreat = Proposal(
@@ -1698,6 +2005,191 @@ class Runtime:
         )
         self._decisions[retreat.id] = decision
         return self.committer.commit(retreat, decision, self._context(None, ["revoke"]))
+
+    # ---------- 기체 등록 ----------
+
+    def register_agent(self, body: dict) -> tuple[int, dict]:
+        """POST /agents/register. 기체 프로세스가 무엇으로 신청서를 쓰는지 알립니다. 라벨일
+        뿐입니다."""
+        try:
+            identity = AgentIdentity.from_dict(body or {})
+        except ValueError as error:
+            return 400, {"error": str(error)}
+        if identity.world != "guarded":
+            return 400, {"error": "직결 세계는 런타임에 신청하지 않습니다 — 그 모델은 시뮬레이터가 "
+                                  "기체마다 싣습니다(DIRECT_MODEL)"}
+        # 편대 명단은 세계(텔레메트리)가 압니다. 명단 밖의 이름을 받으면 화면의 '드론 · … ×4' 가
+        # ×5 가 됩니다. 세계를 받기 전이면 503 — 기체는 몇 초 뒤에 다시 알립니다.
+        fleet = set(self.telemetry)
+        if not fleet:
+            return 503, {"error": "아직 세계를 받지 못했습니다 — 곧 다시 알려 주세요",
+                         "retry": True}
+        if identity.asset_id not in fleet:
+            return 404, {"error": f"{identity.asset_id} 는 이 편대에 없습니다"}
+        with self._guard:
+            self.agents[identity.asset_id] = {**identity.to_dict(), "last_seen_tick": self.tick}
+        return 200, {"ok": True, "display": identity.display, "tick": self.tick}
+
+    def agents_snapshot(self) -> dict:
+        """/state.agents. AGENT_STALE_TICKS 동안 소식 없는 기체는 뺍니다 — 죽은 프로세스의 모델
+        이름을 화면이 계속 달면 거짓말입니다."""
+        with self._guard:
+            for asset in [a for a, row in self.agents.items()
+                          if self.tick - int(row["last_seen_tick"]) > AGENT_STALE_TICKS]:
+                del self.agents[asset]
+            return {asset: {key: row.get(key) for key in AGENT_FIELDS}
+                    for asset, row in self.agents.items()}
+
+    # ---------- 링크 두절 ----------
+
+    def watch_links(self) -> list[LinkEvent]:
+        """텔레메트리 심장박동을 봅니다. 세계 스레드(_pull_world)와 하네스가 폴링마다 부릅니다."""
+        with self._link_lock:
+            events = self.links.observe(self.telemetry, self.tick)
+        for event in events:
+            if event.kind == "lost":
+                self._link_lost(event)
+            else:
+                self._link_restored(event)
+        return events
+
+    def _link_lost(self, event: LinkEvent) -> None:
+        """두절. 기체에는 아무것도 보내지 않습니다(들을 수 없음). 그 기체의 의도를 예약된 채로
+        두고 — 어디쯤인지 모르니 남은 경로 전부를 명목 착지 + 여유까지 — 원장에 적고 사람 카드를
+        올립니다. 예약은 조이는 것이라 그 틱에 걸리고, 일찍 푸는 것은 사람의 몫입니다."""
+        at = _position(self.telemetry.get(event.asset) or {})
+        standing = self.intents.get(event.asset)
+        standing = standing if standing is not None and standing.live else None
+        reserved_until = None
+        if standing is not None:
+            reserved_until = standing.reserve_dark(event.last_seen_tick, at)
+            self._dark[event.asset] = standing
+        behaviour = self.performance.lost_link.behaviour
+        detail = {"resource": event.asset, "since_tick": event.since_tick,
+                  "last_seen_tick": event.last_seen_tick, "declared_tick": event.tick,
+                  "intent": standing.id if standing is not None else None,
+                  "behaviour": behaviour, "reserved_until_tick": reserved_until,
+                  "last_position": _position_dict(at)}
+        reason = (f"{event.asset} 텔레메트리가 틱 {event.since_tick} 부터 없음 — {behaviour}, "
+                  + (f"승인 경로 + 착륙 기둥을 틱 {reserved_until} 까지 예약"
+                     if reserved_until is not None else "예약할 의도 없음"))
+        self._ledger_link("link_lost", event.asset, reason, detail, standing)
+        self._raise_link_card(event.asset, detail, standing)
+
+    def _raise_link_card(self, asset: str, detail: dict, intent: Intent | None) -> None:
+        """승인 화면의 두절 통보. 승인하면 잡아 둔 공간을 지금 풀고, 거부하면 텔레메트리가 돌아올
+        때까지 그대로입니다. 텔레메트리가 돌아오면 카드는 저절로 내려갑니다."""
+        until = detail.get("reserved_until_tick")
+        card = Proposal(asset_id=asset, action="lost_link_notice", cost_usd=0.0,
+                        blast_radius="schedule", author="runtime",
+                        rationale=(f"no telemetry since tick {detail['since_tick']} · "
+                                   f"{detail['behaviour']} · "
+                                   + (f"space reserved until tick {until}" if until is not None
+                                      else "nothing filed to reserve"))[:180],
+                        params=dict(detail))
+        decision = Decision(card.id, Verdict.HUMAN,
+                            "링크가 끊긴 기체의 공간을 일찍 푸는 것은 사람 몫입니다 — 승인하면 "
+                            "지금 풀고, 거부하면 텔레메트리가 돌아올 때까지 잡아 둡니다",
+                            authority_hit="lost_link", code="human_lost_link", detail=dict(detail))
+        self._decisions[card.id] = decision
+        with self._guard:
+            self._awaiting_human[card.id] = card
+        self._open_cards[card.id] = self.ledger.open_entry(
+            card, decision, self._context(None, ["link"], intent.id if intent else None))
+        self._link_cards[asset] = card.id
+
+    def _link_restored(self, event: LinkEvent) -> None:
+        """텔레메트리가 돌아왔습니다. 끊긴 사이 승인한 부피 안에 있었나(순응)를 보고, 늘렸던 창을
+        되돌리고, 카드를 내립니다. 다시 보이니 판정은 이제 텔레메트리로 합니다."""
+        at = _position(self.telemetry.get(event.asset) or {})
+        intent = self._dark.pop(event.asset, None)
+        self._released.discard(event.asset)
+        conforming = intent.covers(*at) if intent is not None and at is not None else None
+        if intent is not None:
+            intent.release_dark()
+        detail = {"resource": event.asset, "since_tick": event.since_tick,
+                  "last_seen_tick": event.last_seen_tick, "restored_tick": event.tick,
+                  "dark_ticks": event.tick - event.since_tick,
+                  "intent": intent.id if intent is not None else None,
+                  "conforming": conforming, "position": _position_dict(at)}
+        where = ("승인한 부피 안" if conforming
+                 else "승인한 부피 밖" if conforming is False else "잡아 둔 의도 없음")
+        reason = (f"{event.asset} 텔레메트리가 틱 {event.tick} 에 돌아옴 "
+                  f"({detail['dark_ticks']}틱 끊김) — {where}")
+        self._ledger_link("link_restored", event.asset, reason, detail, intent)
+        if conforming is False:
+            self._ledger_link_nonconformance(event, intent, at)
+        self._drop_link_card(event.asset, detail)
+        self._observe()     # 다시 보이는 텔레메트리로 의도를 옮깁니다(내려앉았으면 arrived)
+
+    def _ledger_link(self, code: str, asset: str, reason: str, detail: dict,
+                     intent: Intent | None) -> None:
+        """링크 두절·복구 한 줄(outcome noted). 실행은 없습니다 — 끊긴 기체는 들을 수 없습니다."""
+        noted = Proposal(asset_id=asset, action=code, cost_usd=0.0, blast_radius="none",
+                         author="runtime", rationale=reason[:180], params=dict(detail))
+        decision = Decision(noted.id, Verdict.AUTO, reason, code=code, detail=dict(detail))
+        entry = self.ledger.open_entry(
+            noted, decision, self._context(None, ["link"], intent.id if intent else None))
+        self.ledger.close_entry(entry, "noted")
+
+    def _ledger_link_nonconformance(self, event: LinkEvent, intent: Intent, at) -> None:
+        """끊긴 사이 승인한 부피 밖으로 나갔습니다. 되돌리지는 않습니다 — 기록에 남깁니다."""
+        noted = Proposal(asset_id=event.asset, action="conformance", cost_usd=0.0,
+                         blast_radius="none", author="runtime",
+                         rationale=f"링크가 끊긴 사이 승인한 부피 밖 (틱 {event.tick} 에 "
+                                   "다시 보임)",
+                         params={"intent": intent.id, "kind": "lost_link",
+                                 "since_tick": event.since_tick, "restored_tick": event.tick,
+                                 "position": _position_dict(at)})
+        decision = Decision(noted.id, Verdict.AUTO,
+                            f"{event.asset} 가 링크가 끊긴 사이 승인한 부피 밖에 있었습니다",
+                            code="nonconforming",
+                            detail={"resource": event.asset, "intent": intent.id,
+                                    "kind": "lost_link", "restored_tick": event.tick,
+                                    "position": _position_dict(at)})
+        entry = self.ledger.open_entry(noted, decision,
+                                       self._context(None, ["conformance"], intent.id))
+        self.ledger.close_entry(entry, "noted")
+
+    def _drop_link_card(self, asset: str, detail: dict) -> None:
+        """텔레메트리가 돌아와 두절 카드를 내립니다(lapsed). 사람이 이미 답했으면 아무것도
+        없습니다."""
+        card_id = self._link_cards.pop(asset, None)
+        with self._guard:
+            proposal = self._awaiting_human.pop(card_id or "", None)
+        if proposal is None:
+            return
+        decision = self._decisions.get(proposal.id) or Decision(proposal.id, Verdict.HUMAN, "")
+        decision.verdict = Verdict.AUTO
+        decision.reason = "텔레메트리가 돌아와 카드를 내림"
+        decision.code = "link_restored"
+        decision.detail = {**decision.detail, **detail}
+        self._close_card(self._open_cards.pop(proposal.id, None), proposal, decision, "lapsed",
+                         "link")
+
+    def _confirm_lost_link(self, proposal: Proposal, decision: Decision, actor: str,
+                           allow: bool, card=None) -> Decision:
+        """사람의 답. 승인이면 잡아 둔 공간을 지금 풉니다 — 그 기체가 어디 있는지 사람이 안다는
+        뜻이고, 그 책임이 원장에 그 사람 이름으로 남습니다. 거부면 텔레메트리가 돌아올 때까지
+        그대로입니다. 어느 쪽이든 기체에는 아무것도 보내지 않습니다."""
+        asset = proposal.asset_id
+        self._link_cards.pop(asset, None)
+        if allow and self.links.lost(asset):
+            standing = self._dark.get(asset)
+            if standing is not None and standing.live:
+                self.intents.end(asset, "released")
+            self._released.add(asset)
+            decision.verdict = Verdict.AUTO
+            decision.reason = f"{actor} 가 {asset} 의 잡아 둔 공간을 풀었습니다"
+            decision.code = "lost_link_released"
+            self._close_card(card, proposal, decision, "done", "link:human")
+            return decision
+        decision.verdict = Verdict.DENIED
+        decision.reason = (f"{actor} 가 텔레메트리가 돌아올 때까지 공간을 잡아 둡니다"
+                           if self.links.lost(asset) else "링크가 이미 돌아왔습니다")
+        decision.code = "lost_link_kept"
+        self._close_card(card, proposal, decision, "denied", "link:human")
+        return decision
 
     # ---------- 화면에 보여줄 것 ----------
 
@@ -1727,9 +2219,13 @@ class Runtime:
             # 관제 권고. 기체마다 마지막 것. 정보일 뿐이고 아무것도 바꾸지 않습니다.
             "advisories": self.advisor.snapshot(),
             # 정보 수집. 어느 출처가 켜져 있고 무엇을 읽었나, 지금 걸린 기상 대기, 사고 구역.
-            "intake": self.intake.snapshot(self.tavily is not None),
+            "intake": self._intake_snapshot(),
             "weather": self.intake.weather_snapshot(),
             "incidents": incident_snapshot(list(self.notices.records.values()), self.tick),
+            # 기체마다 무엇이 신청서를 쓰나(등록한 모델). 판정과 무관한 라벨입니다.
+            "agents": self.agents_snapshot(),
+            # 텔레메트리 심장박동. lost 인 기체의 공간은 예약된 채입니다.
+            "links": self._links_snapshot(),
             "spend": {
                 "fleet": self.authority.fleet_spend,
                 "fleet_limit": self.config.authority.fleet_usd,
@@ -1744,7 +2240,22 @@ class Runtime:
     def report(self, asset: str | None = None, fmt: str = "json"):
         """원장을 비행 단위로 접은 보고서. 원장 파일에서만 만듭니다 — 기억은 200줄뿐입니다."""
         built = build_report(self.ledger.read_all(), self.tick, self.airspace.revision, asset)
+        # 들어온 것(sqlite)도 같이. 원장의 접수 줄과 같은 사실을 무엇이 무엇이 되었는지로 접은 것.
+        built["intake"] = self.store.report()
         return to_markdown(built) if fmt == "md" else built
+
+    def _intake_snapshot(self) -> dict:
+        out = self.intake.snapshot(self.tavily is not None)
+        out["sources"]["metar"] = self.metar_status
+        out["metar"] = {"stations": list(self.metar.stations) if self.metar is not None else [],
+                        "period_s": METAR_PERIOD_S, "last_fetch_tick": self.metar_last_fetch_tick,
+                        "fetch": self.metar_fetch}
+        out["store"] = self.store.counts()
+        return out
+
+    def _links_snapshot(self) -> dict:
+        with self._link_lock:
+            return self.links.snapshot()
 
 
 def _is_intake(item: dict) -> bool:
@@ -1771,6 +2282,10 @@ def _intake_hints(body: dict) -> tuple[dict, str]:
     return hints, ""
 
 
+def _hints_of(item: dict) -> dict:
+    return {key: item[key] for key in INTAKE_HINT_KEYS if item.get(key) is not None}
+
+
 def _load_addresses(path: str) -> list[dict]:
     """지명 사전의 주소. 파일이 없으면 빈 목록 — 그러면 주소가 있는 사고는 못 읽은 것으로."""
     try:
@@ -1792,6 +2307,19 @@ def _report_from(source: dict):
 
 def _distance_m(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot((b[0] - a[0]) * METRES_PER_DEG_LAT, (b[1] - a[1]) * METRES_PER_DEG_LON)
+
+
+def _position(state: dict) -> tuple[float, float, float] | None:
+    """텔레메트리의 자리 (lat, lon, alt_m). 모르면 None."""
+    if state.get("lat") is None or state.get("lon") is None:
+        return None
+    return float(state["lat"]), float(state["lon"]), float(state.get("alt_m") or 0.0)
+
+
+def _position_dict(at: tuple[float, float, float] | None) -> dict | None:
+    if at is None:
+        return None
+    return {"lat": round(at[0], 6), "lon": round(at[1], 6), "alt_m": round(at[2], 1)}
 
 
 def _form_problem(legs) -> str | None:
@@ -1833,11 +2361,17 @@ def main() -> None:
         sim_url=os.getenv("SIM_URL", "http://sim:8100"),
         ledger_path=os.getenv("LEDGER_PATH", "ledger.jsonl"),
         window_s=float(os.getenv("ARBITRATION_WINDOW_S", "1.5")),
+        # 들어온 것의 기록. compose 는 /data/intake.sqlite(원장과 같은 볼륨).
+        intake_db=os.getenv("INTAKE_DB") or STORE_DEFAULT_PATH,
+        metar=True,
+        await_airspace=True,
     )
     runtime.start_background()
 
     server = JsonServer(int(os.getenv("PORT", "8000")))
     server.add("POST", "/proposals", lambda body, query: (200, runtime.file(body).to_dict()))
+    # 기체 프로세스의 자기소개(모델·서버). 30초마다 다시 옵니다.
+    server.add("POST", "/agents/register", lambda body, query: runtime.register_agent(body))
     server.add(
         "POST",
         "/approve",
@@ -1863,7 +2397,11 @@ def main() -> None:
         "pads": {n: {"lat": a[0], "lon": a[1]} for n, a in runtime.pad_coords.items()},
         "landing_areas": runtime.landing_areas,
     }))
-    server.add("GET", "/health", lambda body, query: (200, {"ok": True, "tick": runtime.tick}))
+    # ready 는 판정할 준비(공역을 다 받음)입니다. compose 의 healthcheck 가 이것을 보고 기체를
+    # 띄웁니다. 살아 있는지(ok)와 판정할 수 있는지(ready)는 다른 질문이라 둘 다 둡니다.
+    server.add("GET", "/health", lambda body, query: (200, {
+        "ok": True, "tick": runtime.tick, "ready": runtime.ready,
+        "airspace_revision": runtime.airspace.revision}))
     # 정보 입력. 시연·수동 주입 — 문장 하나를 접수함에 넣고 돌아옵니다. 읽기는 세계 스레드가 합니다.
     server.add("POST", "/intake", lambda body, query: runtime.submit_intake(body))
     # 원장 보고서. ?asset=<id> 로 한 기체만, ?format=md 로 사람이 읽는 표.

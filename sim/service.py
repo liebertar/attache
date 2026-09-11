@@ -18,6 +18,9 @@ def main() -> None:
         # 서비스 반경 11km 라 편도가 570틱까지 갑니다. 배달지 두 곳을 돌고 창고까지 오려면
         # 한 바퀴가 2천 틱 안팎이고, 한 판에 두 바퀴는 돌아야 순환이 보입니다.
         max_ticks=int(os.getenv("ROUND_TICKS", "5000")),   # 할렘 왕복 4,040틱 + 여유
+        # 직결 세계 에이전트의 모델 id. 그 에이전트들은 런타임에 닿을 길이 없어(compose 의 world 망)
+        # 띄운 쪽(scripts/dev.sh·compose)이 알려 줍니다. 비어 있으면 규칙, 없으면 모르는 것.
+        direct_model=os.getenv("DIRECT_MODEL"),
     )
 
     def clock() -> None:
@@ -79,8 +82,10 @@ def main() -> None:
                                                   "forbid_action", "applies_to",
                                                   "address", "radius_m", "building_id")}
                           for b in simulation.bulletins()],
+            # 화면용이라 사실(truth)도 같이: 링크가 끊긴 기체가 실제로 어디 있는지(dark). 런타임과
+            # 기체 에이전트가 읽는 /state 에는 끊긴 순간의 기록만 나갑니다.
             "worlds": {
-                name: world.snapshot(simulation.tick_count)
+                name: world.snapshot(simulation.tick_count, truth=True)
                 for name, world in simulation.worlds.items()
             },
         }

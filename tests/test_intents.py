@@ -694,7 +694,8 @@ class LedgerContextTest(unittest.TestCase):
         self.assertEqual(context["airspace_revision"], self.runtime.airspace.revision)
         self.assertEqual(context["policies"], [])
         self.assertEqual(context["checks_run"], ["dedupe", "form", "endpoints", "route", "columns",
-                                                 "landing", "traffic", "landing_site", "authority"])
+                                                 "landing", "contingency", "traffic",
+                                                 "landing_site", "authority"])
         self.assertEqual(context["intent_id"], self.runtime.intents.get("drone-01").id)
         self.assertEqual(entry["decision"]["ledger_id"], entry["id"])
 

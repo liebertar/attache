@@ -38,6 +38,11 @@ CLEAR_M = 0.01
 # 끝을 모르는 부피의 이탈 틱. 회수돼 떠 있는 기체는 언제 내릴지 모릅니다 — 내리거나 새 승인이
 # 대신할 때까지 그 자리를 덮습니다.
 OPEN_ENDED_TICK = 10 ** 9
+# 링크가 끊긴 기체의 예약을 명목 착지 뒤로 얼마나 더 붙잡나. 여기에 부피의 여유 TIME_PAD_TICKS 가
+# 한 번 더 붙습니다(명목 착지 + 60틱). 텔레메트리가 없으니 늦게 뜬 기체가 명목보다 몇 틱 늦게
+# 내리는 것까지 덮어야 합니다. 그 뒤로는 기체가 신고한 대로 내렸다고 보고 길을 풀지만, 착륙장은
+# 링크가 돌아올 때까지 그 기체의 것입니다(의도가 살아 있으므로 landing_conflict 가 막음).
+LOST_LINK_MARGIN_TICKS = TIME_PAD_TICKS
 
 ACCEPTED = "accepted"     # 승인됐고 아직 안 떴습니다
 ACTIVATED = "activated"   # 텔레메트리가 떠 있다고 합니다
@@ -89,6 +94,11 @@ class Volume4D:
         """이 점이 이 부피 안인가. 시간 → 고도 → 거리 순으로, 싼 것부터 봅니다."""
         if not (self.from_tick <= tick < self.to_tick):
             return False
+        return self.covers(lat, lon, alt_m)
+
+    def covers(self, lat: float, lon: float, alt_m: float) -> bool:
+        """시간을 빼고 공간만. 링크가 끊긴 기체는 언제 어디 있을지가 아니라 어디에 있을 수
+        있는지가 문제라, 두절의 예약과 복구 뒤 순응 검사가 이것을 씁니다."""
         if not (self.floor_m - CLEAR_M <= alt_m <= self.ceiling_m + CLEAR_M):
             return False
         return _point_segment_m(lat, lon, self.a, self.b)[0] <= self.lateral_m + CLEAR_M
@@ -131,7 +141,14 @@ class Intent:
     state: str = ACCEPTED
     ended_reason: str = ""
     kind: str = ROUTE
+    # 승인할 때 판정한 통신 두절 대비 행동(configs/fleet.yaml performance.lost_link).
+    # continue_and_land 의 대비 부피는 승인 경로 + 착륙 기둥 — 곧 이 volumes 그대로입니다.
+    contingency: str = ""
+    # 링크가 끊겨 예약을 늘린 뒤면 새 텔레메트리가 끊긴 첫 틱. 끊기지 않았으면 None.
+    dark_since: int | None = None
     id: str = field(default_factory=lambda: f"i_{uuid.uuid4().hex[:10]}")
+    # 늘리기 전의 창 [(t_enter, t_exit)]. 링크가 돌아오면 이것으로 되돌립니다.
+    _windows: list | None = field(default=None, repr=False, compare=False)
 
     @property
     def from_tick(self) -> int:
@@ -144,6 +161,51 @@ class Intent:
     @property
     def live(self) -> bool:
         return self.state in (ACCEPTED, ACTIVATED)
+
+    def covers(self, lat: float, lon: float, alt_m: float) -> bool:
+        """이 자리가 승인한 부피 어디엔가 드나(시간은 보지 않음). 링크 복구 뒤 순응 검사입니다."""
+        return any(volume.covers(lat, lon, alt_m) for volume in self.volumes)
+
+    def reserve_dark(self, last_seen_tick: int, at: tuple[float, float, float] | None,
+                     margin_ticks: int = LOST_LINK_MARGIN_TICKS) -> int:
+        """링크가 끊겼습니다. 남은 경로 전부를 마지막으로 본 틱부터 명목 착지 + 여유까지 막습니다.
+
+        텔레메트리가 없으니 기체가 남은 경로의 어디쯤인지 모릅니다. 신고한 대비 행동
+        (continue_and_land)은 승인 경로를 그대로 날아 목적지에 내리는 것이라, 남은 부피 전부가
+        그 사이 어느 틱에든 쓰일 수 있습니다. 이미 지난 부피(마지막으로 본 자리보다 앞이고
+        일정상으로도 나온 것)는 그대로 둡니다 — 떠난 이륙 기둥까지 다시 막으면 옆 자리 기체가 한
+        대도 못 뜹니다. 예약이 풀리는 틱을 돌려줍니다.
+        """
+        if self._windows is None:
+            self._windows = [(volume.t_enter, volume.t_exit) for volume in self.volumes]
+        start = self._remaining_from(last_seen_tick, at)
+        landing = last_seen_tick if self.arrive_tick >= OPEN_ENDED_TICK else self.arrive_tick
+        until = max(landing, last_seen_tick) + margin_ticks
+        for volume in self.volumes[start:]:
+            volume.t_enter = min(volume.t_enter, last_seen_tick)
+            if volume.t_exit < OPEN_ENDED_TICK:
+                volume.t_exit = max(volume.t_exit, until)
+        self.dark_since = last_seen_tick + 1
+        return max(volume.to_tick for volume in self.volumes[start:])
+
+    def release_dark(self) -> None:
+        """링크가 돌아왔습니다. 늘렸던 창을 승인 때의 창으로 되돌립니다 — 이제 다시 보이니까요."""
+        if self._windows is not None:
+            for volume, (enter, leave) in zip(self.volumes, self._windows, strict=True):
+                volume.t_enter, volume.t_exit = enter, leave
+        self._windows = None
+        self.dark_since = None
+
+    def _remaining_from(self, tick: int, at: tuple[float, float, float] | None) -> int:
+        """남은 경로가 시작되는 부피 번호. 일정상 아직 안 나온 첫 부피와 마지막으로 본 자리를 덮는
+        첫 부피 중 앞선 것 — 일정보다 늦은 기체는 자리가, 빠른 기체는 일정이 더 앞을 가리킵니다."""
+        by_time = next((index for index, volume in enumerate(self.volumes)
+                        if volume.to_tick > tick), len(self.volumes) - 1)
+        if at is None:
+            return by_time
+        by_place = next((index for index, volume in enumerate(self.volumes)
+                         if volume.covers(*at)), None)
+        return by_time if by_place is None else min(by_time, by_place)
 
     def reanchor(self, depart_tick: int) -> int:
         """실제 출발 틱으로 시간 창을 옮깁니다. 옮긴 틱 수(음수면 일찍 뜬 것)를 돌려줍니다.
@@ -165,7 +227,8 @@ class Intent:
         return {"asset": self.asset, "state": self.state, "id": self.id, "kind": self.kind,
                 "from_tick": self.from_tick, "to_tick": self.to_tick,
                 "depart_tick": self.depart_tick, "arrive_tick": self.arrive_tick,
-                "proposal_id": self.proposal_id, "ended": self.ended_reason or None}
+                "proposal_id": self.proposal_id, "ended": self.ended_reason or None,
+                "contingency": self.contingency or None, "dark_since": self.dark_since}
 
     def detailed(self) -> dict:
         return {**self.to_dict(), "volumes": [v.to_dict() for v in self.volumes]}
@@ -430,3 +493,86 @@ class IntentRegistry:
 
     def snapshot(self) -> list[dict]:
         return [intent.to_dict() for intent in self._latest.values()]
+
+
+# ---------- 텔레메트리 심장박동 ----------
+
+LINK_OK = "ok"
+LINK_LOST = "lost"
+
+
+@dataclass
+class Link:
+    status: str = LINK_OK
+    since_tick: int = 0               # 지금 상태가 시작된 틱. lost 면 새 기록이 끊긴 첫 틱
+    last_seen_tick: int = 0           # 마지막으로 새 기록이 온 틱(텔레메트리의 틱 도장)
+    declared_tick: int | None = None  # 런타임이 두절로 판정한 틱(lost 일 때만)
+
+    def to_dict(self) -> dict:
+        return {"status": self.status, "since_tick": self.since_tick,
+                "last_seen_tick": self.last_seen_tick, "declared_tick": self.declared_tick}
+
+
+@dataclass
+class LinkEvent:
+    asset: str
+    kind: str                         # lost | restored
+    since_tick: int                   # 새 기록이 끊긴 첫 틱
+    last_seen_tick: int               # 끊기기 전 마지막 새 기록의 틱
+    tick: int                         # 두절로 판정한 틱, 또는 새 기록이 다시 온 틱
+
+
+class LinkWatch:
+    """기체마다 텔레메트리가 언제 마지막으로 새로워졌나. 판정은 이것 하나입니다.
+
+    떠 있는 기체의 기록이 timeout_ticks 동안 새로워지지 않으면 두절, 다시 새로워지면 복구. 새로움은
+    기록의 틱 도장(telemetry_tick)으로 셉니다 — 위치가 그대로인지로 세면 제자리에 떠 있는 기체가
+    두절로 보입니다. 도장이 없는 기록(도장을 안 주는 어댑터)은 심장박동을 모르는 것이고, 모르는 것은
+    끊긴 것이 아닙니다(끝점 검사가 자리를 모르면 비교하지 않는 것과 같은 원칙). 땅에 있는 기체는
+    두절로 판정하지 않습니다 — 잡아 둘 하늘이 없습니다.
+    """
+
+    def __init__(self, timeout_ticks: int):
+        self.timeout_ticks = max(1, int(timeout_ticks))
+        self.links: dict[str, Link] = {}
+
+    def lost(self, asset: str) -> bool:
+        link = self.links.get(asset)
+        return link is not None and link.status == LINK_LOST
+
+    def observe(self, telemetry: dict, tick: int) -> list[LinkEvent]:
+        """이번 폴링의 텔레메트리로 상태를 옮깁니다. 바뀐 것만 돌려줍니다."""
+        events = []
+        for asset, state in telemetry.items():
+            seen = _stamp(state, tick)
+            link = self.links.get(asset)
+            if link is None:
+                link = self.links[asset] = Link(since_tick=seen, last_seen_tick=seen)
+            if link.status == LINK_LOST:
+                if seen > link.last_seen_tick:
+                    events.append(LinkEvent(asset, "restored", link.since_tick,
+                                            link.last_seen_tick, seen))
+                    link.status, link.since_tick, link.last_seen_tick = LINK_OK, seen, seen
+                    link.declared_tick = None
+                continue
+            link.last_seen_tick = max(link.last_seen_tick, seen)
+            airborne = float(state.get("alt_m") or 0.0) > 1.0
+            if airborne and tick - link.last_seen_tick >= self.timeout_ticks:
+                link.status, link.since_tick = LINK_LOST, link.last_seen_tick + 1
+                link.declared_tick = tick
+                events.append(LinkEvent(asset, "lost", link.since_tick, link.last_seen_tick, tick))
+        return events
+
+    def clear(self) -> None:
+        self.links.clear()
+
+    def snapshot(self) -> dict:
+        return {asset: link.to_dict() for asset, link in self.links.items()}
+
+
+def _stamp(state: dict, tick: int) -> int:
+    """기록의 틱 도장. 없거나 수가 아니면 지금 틱 — 모르는 것은 새로운 것으로 봅니다."""
+    try:
+        return tick if state.get("telemetry_tick") is None else int(state["telemetry_tick"])
+    except (TypeError, ValueError):
+        return tick

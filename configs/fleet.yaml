@@ -43,6 +43,13 @@ performance:
   clock_epoch_z: "0900"
   # 항법 오차. 회랑 반폭 = 분리 최소치 30m + 이 값. 시뮬레이터의 경유점 반경 6m 보다 커야 합니다.
   nav_tolerance_m: 10.0
+  # 통신 두절 대비. 조종장치가 링크를 잃으면 승인된 경로를 그대로 날아 목적지에 내립니다
+  # (continue_and_land). 런타임은 떠 있는 기체의 텔레메트리가 timeout_ticks 동안 안 새로워지면
+  # 두절로 보고, 그 기체의 의도(승인 경로 + 착륙 기둥)를 예약된 채로 둔 채 사람 카드를 올립니다.
+  # 다른 행동(return_to_launch 등)은 아직 판정하지 않으므로 여기 적으면 경로 신청이 전부 거절됩니다.
+  lost_link:
+    behaviour: continue_and_land
+    timeout_ticks: 15
 
 # 날씨 한도. 보고서(시뮬레이터 공지·Tavily 검색·수동 입력)의 숫자가 이 밖이면 런타임이 이륙을
 # 세웁니다(WEATHER HOLD: 땅에서 낸 fly_route·reserve_pad·depart 거절, 떠 있는 기체는 그대로 내림).
@@ -56,8 +63,12 @@ weather:
 
 # 정보 수집. TAVILY_API_KEY 가 있을 때만 INTAKE_PERIOD_S 마다 아래 질문을 검색합니다. 결과는
 # 문법(METAR 어투·주소 있는 사고)이 먼저 읽고, 못 읽는 것만 Super 가 구조화해 사람 확인을 기다립니다.
+# metar_stations 는 키 없이 aviationweather.gov 에서 METAR_PERIOD_S(기본 300 초)마다 받는 관측소입니다.
+# 관제탑 자기 피드와 같은 신뢰(문법이 읽으면 그 틱에 걸림) — 공식 관측이지 웹 페이지가 아닙니다.
+# 환경 변수 METAR_STATIONS 가 있으면 이 목록을 덮습니다. 네트워크가 없으면 이 출처는 꺼집니다.
 intake:
   queries:
     - "New York City wind gust forecast today"
     - "NYC temporary flight restriction drones today"
     - "Manhattan building fire today"
+  metar_stations: [KNYC, KLGA]

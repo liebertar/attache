@@ -275,6 +275,21 @@ class WeatherHoldTest(unittest.TestCase):
         self.runtime.absorb([weather_item()])
         self.assertEqual(len(codes(self.runtime)), 4)
 
+    def test_a_route_cleared_in_the_same_tick_the_hold_opens_is_pulled_back_too(self):
+        """텔레메트리는 지난 폴링 것이라 방금 승인한 경로가 아직 없습니다.
+
+        기준은 런타임의 의도입니다. 라이브에서 drone-02 가 보류가 열린 틱 2175 에 승인받고, 25틱 뒤
+        보류 중에 떴습니다.
+        """
+        decision = self.runtime.file(route("drone-01", [HERE, (40.7200, -73.9855)]))
+        self.assertEqual(decision.verdict, Verdict.AUTO, decision.reason)
+        self.assertFalse(self.runtime.telemetry["drone-01"].get("route"), "텔레메트리는 아직 옛것")
+        self.open_hold()
+        grounded = [sent[0] for sent in self.adapter.sent if sent[1] == "divert_ground"]
+        self.assertEqual(sorted(grounded), ["drone-01", "drone-02"])
+        self.assertIsNone(self.runtime.intents.get("drone-01") and
+                          (self.runtime.intents.get("drone-01").live or None))
+
     def test_a_ground_route_and_a_departure_are_refused_with_code_policy(self):
         self.open_hold()
         decision = self.runtime.file(route("drone-01", [HERE, (40.7200, -73.9855)]))
@@ -627,7 +642,8 @@ class ModelPathTest(unittest.TestCase):
         runtime.absorb([{"id": "news-7", "text": GUSTY}])
         self.assertEqual(codes(runtime), ["intake_received", "intake_unreadable"])
         self.assertIn("모델이 없음", ledger_lines(runtime)[-1]["decision"]["reason"])
-        self.assertEqual(runtime.snapshot()["intake"]["sources"], {"tavily": "off", "sim": True})
+        self.assertEqual(runtime.snapshot()["intake"]["sources"],
+                         {"tavily": "off", "sim": True, "metar": "off"})
 
     def test_the_model_reads_off_the_world_thread_and_the_next_poll_collects_it(self):
         self.runtime.intake_async = True

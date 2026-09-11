@@ -12,6 +12,7 @@ import math
 import os
 import threading
 import time
+import urllib.parse
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as DraftTimeout
 from dataclasses import dataclass
@@ -23,9 +24,16 @@ from attache.agent.propose import Proposer
 from attache.core.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, TRAFFIC_LATERAL_M
 from attache.core.http import get_json, post_json
 from attache.core.route import Router
-from attache.llm.client import TieredLlm
+from attache.llm.client import LlmTier, TieredLlm
 
 FALLBACK_PADS = ["pad:launch"]
+# 몇 초마다 런타임에 자기를 다시 알리나. 런타임은 AGENT_STALE_TICKS(기본 600틱, 0.2 s/틱에서 2분)
+# 동안 소식이 없으면 목록에서 뺍니다 — 프로세스가 죽었는데 화면이 그 모델 이름을 계속 달면
+# 거짓말입니다.
+REGISTER_PERIOD_S = 30.0
+# 등록이 받아들여지지 않았을 때(런타임이 없거나, 세계를 받기 전이라 503) 다시 알리기까지(초).
+# 30초를 기다리면 시작하고 반 분 동안 화면의 기체에 모델 이름이 없습니다.
+REGISTER_RETRY_S = 3.0
 # 거절당한 뒤 다시 그리기까지. 화면이 거절을 보여주는 시간(ui/map-route.mjs stageLife('rejected'):
 # 그리기 2.4 + 판정 0.6 + 붉게 1.6 + 흐려짐 1.0 = 5.6초)과 같습니다. 운영사가 거절 사유를
 # 읽고 나서 다시 그리는 시간이고, 이게 있어야 거절 표시와 승인 표시가 실제 시간에서 겹치지
@@ -366,16 +374,114 @@ def build_llm() -> TieredLlm:
     }, timeout_s=float(os.getenv("LLM_TIMEOUT_S") or "6"))
 
 
+def identity(asset_id: str, llm: TieredLlm, model_ok: bool | None = None) -> dict:
+    """런타임에 알리는 자기소개. 이 프로세스가 신청서를 무엇으로 쓰는지(모델·서버)뿐입니다.
+
+    부를 수 없는 모델은 적지 않습니다 — 서버 주소가 없거나, 키 없는 Nebius 면 모든 호출이 실패하고
+    신청서는 규칙이 씁니다. 그때 화면이 모델 이름을 달면 거짓말이라 model 을 비우고 host 는 off
+    입니다. 설정은 멀쩡한데 답이 안 오는 것은 model_ok(ModelHealth)가 말합니다 — False 면
+    런타임은 이름 대신 rules 라고 답니다.
+    """
+    model = llm.model_for(LlmTier.NANO) if llm.enabled else ""
+    host = llm.host if llm.host in ("ollama", "nebius", "other") else "off"
+    if host == "nebius" and not llm.api_key:
+        model = ""
+    port = None
+    if model:
+        parsed = urllib.parse.urlparse(llm.base_url)
+        port = parsed.port or {"https": 443, "http": 80}.get(parsed.scheme)
+    return {"asset_id": asset_id, "world": "guarded", "model": model,
+            "host": host if model else "off", "base_url_port": port,
+            "model_ok": model_ok if model else None}
+
+
+class ModelHealth:
+    """신청서 모델이 요즘 답하나. 등록할 때마다 한 번, 지난 등록 뒤의 Nano 호출로 봅니다.
+
+    답을 하나라도 받아 썼으면 True, 부른 것이 전부 규칙으로 넘어갔으면(시간 초과·연결 실패·양식
+    아닌 답) False, 그 사이에 부른 적이 없으면 지난 판단 그대로입니다. 처음에는 None(아직 모름) —
+    런타임은 설정된 모델 이름을 믿고 답니다.
+    """
+
+    def __init__(self, llm: TieredLlm):
+        self.llm = llm
+        self.state: bool | None = None
+        self._counted = (0, 0)
+
+    def check(self) -> bool | None:
+        stats = self.llm.stats[LlmTier.NANO.value]
+        answered, missed = stats.ok, stats.fallback
+        if answered > self._counted[0]:
+            self.state = True
+        elif missed > self._counted[1]:
+            self.state = False
+        self._counted = (answered, missed)
+        return self.state
+
+
+class Registration:
+    """POST /agents/register. 받아들여지면 REGISTER_PERIOD_S 마다, 아니면 REGISTER_RETRY_S 뒤에.
+
+    자기 스레드에서 돕니다(start). 신청(step)과 한 줄에 두면 런타임이 느릴 때 등록이 신청을
+    3초씩 붙잡습니다 — 등록은 화면 라벨이고 신청이 먼저입니다. 알릴 내용은 보낼 때마다
+    describe() 로 새로 만듭니다: 모델이 요즘 답하는지는 바뀝니다.
+    """
+
+    def __init__(self, runtime_url: str, describe, period_s: float = REGISTER_PERIOD_S,
+                 retry_s: float = REGISTER_RETRY_S):
+        self.url = f"{runtime_url.rstrip('/')}/agents/register"
+        self.describe = describe
+        self.period_s = period_s
+        self.retry_s = retry_s
+        self.payload: dict | None = None
+        self.sent_at: float | None = None
+        self.accepted = False
+        self._stop = threading.Event()
+
+    def maybe_send(self, now: float | None = None) -> bool:
+        now = time.monotonic() if now is None else now
+        wait = self.period_s if self.accepted else self.retry_s
+        if self.sent_at is not None and now - self.sent_at < wait:
+            return False
+        self.send(now)
+        return True
+
+    def send(self, now: float | None = None) -> bool:
+        self.sent_at = time.monotonic() if now is None else now
+        self.payload = self.describe()
+        # 짧게 기다립니다. 등록은 화면 라벨이지 판정이 아닙니다.
+        answer = post_json(self.url, self.payload, timeout=3.0)
+        self.accepted = bool(answer and answer.get("ok"))
+        return self.accepted
+
+    def start(self) -> threading.Thread:
+        thread = threading.Thread(target=self.run, daemon=True, name="register")
+        thread.start()
+        return thread
+
+    def run(self) -> None:
+        while not self._stop.is_set():
+            self.send()
+            self._stop.wait(self.period_s if self.accepted else self.retry_s)
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
 def main() -> None:
     asset_id = os.environ["ASSET_ID"]
     period = float(os.getenv("AGENT_PERIOD_S", "0.6"))
     llm = build_llm()
-    agent = GuardedAgent(
-        asset_id, os.getenv("RUNTIME_URL", "http://runtime:8000"), Proposer(llm)
-    )
+    runtime_url = os.getenv("RUNTIME_URL", "http://runtime:8000")
+    agent = GuardedAgent(asset_id, runtime_url, Proposer(llm))
+    health = ModelHealth(llm)
+    registration = Registration(runtime_url, lambda: identity(asset_id, llm, health.check()),
+                                float(os.getenv("REGISTER_PERIOD_S") or REGISTER_PERIOD_S))
     print(f"agent {asset_id} up, files to runtime "
           f"(llm={'on' if llm.enabled else 'off'}, host={llm.host}, "
+          f"model={identity(asset_id, llm)['model'] or 'rules'}, "
           f"drafter={'nano' if agent.drafter else 'astar'})", flush=True)
+    registration.start()
     while True:
         agent.step()
         time.sleep(period)

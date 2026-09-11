@@ -137,7 +137,8 @@ class Volume:
                 return f"{self.name} 진입 금지 ({band})"
             return None
         if self.rule == "ceiling" and self.ceiling_m is not None and alt_m > self.ceiling_m:
-            return f"{self.name} 허용 고도 초과 ({alt_m:.0f}m > {self.ceiling_m:.0f}m {self.reference})"
+            return (f"{self.name} 허용 고도 초과 "
+                    f"({alt_m:.0f}m > {self.ceiling_m:.0f}m {self.reference})")
         return None
 
     def band(self) -> str:
@@ -220,6 +221,19 @@ class Airspace:
         self._volumes[volume.id] = volume
         self.revision += 1
 
+    def add_all(self, volumes: list[Volume]) -> None:
+        """여럿을 한 번에. 판정은 다른 스레드(HTTP)에서 돌고 있어서, 3만 개를 하나씩 넣으면 그
+        사이의 신청이 반쯤 찬 공역으로 판정됩니다(compose: 판본 14480 으로 승인). 새 사전을 옆에서
+        다 만든 뒤 대입 한 번으로 바꿔 끼우고, 판본은 그 뒤에 올립니다 — 먼저 올리면 옛 사전으로
+        만든 색인이 새 판본 이름을 달 수 있습니다. 판본은 하나씩 넣었을 때와 같은 수만큼
+        오릅니다."""
+        if not volumes:
+            return
+        merged = dict(self._volumes)
+        merged.update((volume.id, volume) for volume in volumes)
+        self._volumes = merged
+        self.revision += len(volumes)
+
     def remove(self, volume_id: str) -> None:
         if self._volumes.pop(volume_id, None) is not None:
             self.revision += 1
@@ -246,7 +260,8 @@ class Airspace:
         return [box[0] for box in boxes] + self._everywhere
 
     def landing_breach(self, lat: float, lon: float) -> tuple["Volume", float] | None:
-        """여기에 내려앉을 수 있는가. 땅에서 금지 구역·건물이 착륙 둘레(50m) 안에 있으면 안 됩니다."""
+        """여기에 내려앉을 수 있는가. 땅에서 금지 구역·건물이 착륙 둘레(50m) 안에 있으면 안
+        됩니다."""
         point = {"lat": lat, "lon": lon}
         worst = None
         for volume in self.near(lat, lon):

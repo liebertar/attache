@@ -12,6 +12,8 @@ ROUTED = ("reserve_pad", "fly_route")
 REFUSAL_KEYS = ("blocked_kind", "blocked_volume", "blocked_asset", "blocked_until_tick")
 # 기단 전체에 걸린 규칙. 기체가 아니라 관제탑의 줄이라 비행 밑이 아니라 fleet 절에 접습니다.
 HOLD_CODES = ("weather_hold", "weather_hold_lifted", "weather_hold_expired", "weather_hold_closed")
+# 링크 두절 한 건 = 끊긴 줄 + (사람 카드의 답) + 돌아온 줄. 비행이 아니라 링크의 일이라 fleet 절에.
+LINK_ACTIONS = ("link_lost", "link_restored", "lost_link_notice")
 
 
 def build_report(entries: list[dict], tick: int, airspace_revision: int,
@@ -25,6 +27,7 @@ def build_report(entries: list[dict], tick: int, airspace_revision: int,
     advisories: dict[str, list[dict]] = {}
     holds: list[dict] = []
     incidents: list[dict] = []
+    links: list[dict] = []
 
     for entry in closed:
         proposal = entry.get("proposal") or {}
@@ -43,6 +46,9 @@ def build_report(entries: list[dict], tick: int, airspace_revision: int,
                               "radius_m": detail.get("radius_m"), "source": detail.get("source"),
                               "ledger_id": entry.get("id")})
             continue
+        if action in LINK_ACTIONS:
+            _fold_link(links, entry, proposal, decision, context)
+            continue
         if action in ROUTED:
             key = proposal.get("id") or entry.get("id")
             if key not in flights:
@@ -50,11 +56,14 @@ def build_report(entries: list[dict], tick: int, airspace_revision: int,
                 flights[key] = _new_flight(who, proposal, context)
             _fold(flights[key], entry, proposal, decision, context)
         elif action == "conformance":
-            intent = (proposal.get("params") or {}).get("intent") or context.get("intent_id")
+            params = proposal.get("params") or {}
+            intent = params.get("intent") or context.get("intent_id")
+            # 순응 검사는 두 가지입니다: 미룬 출발보다 일찍 뜬 것(departure), 링크가 끊긴 사이 승인
+            # 부피 밖으로 나간 것(lost_link).
             followups.setdefault(intent, {}).setdefault("conformance", []).append({
-                "tick": context.get("tick"),
-                "planned_depart_tick": (proposal.get("params") or {}).get("planned_depart_tick"),
-                "actual_depart_tick": (proposal.get("params") or {}).get("actual_depart_tick"),
+                "tick": context.get("tick"), "kind": params.get("kind") or "departure",
+                "planned_depart_tick": params.get("planned_depart_tick"),
+                "actual_depart_tick": params.get("actual_depart_tick"),
                 "ledger_id": entry.get("id")})
         elif decision.get("code") in ("recalled", "withdrawn") and context.get("intent_id"):
             followups.setdefault(context["intent_id"], {})[decision["code"]] = {
@@ -93,8 +102,36 @@ def build_report(entries: list[dict], tick: int, airspace_revision: int,
                                       key=lambda f: (f["filed_tick"] or 0, f["filed_at"] or 0)),
                     "advisories": advisories.get(name, [])}
                    for name in names],
-        "fleet": {"weather_holds": holds, "incidents": incidents},
+        "fleet": {"weather_holds": holds, "incidents": incidents, "links": links},
     }
+
+
+def _fold_link(links: list[dict], entry: dict, proposal: dict, decision: dict,
+               context: dict) -> None:
+    """링크 두절 한 건 = 끊긴 줄 + (사람의 답) + 돌아온 줄. 같은 기체의 마지막 열린 건에
+    접습니다."""
+    asset = proposal.get("asset_id")
+    detail = decision.get("detail") or {}
+    action = proposal.get("action")
+    if action == "link_lost":
+        links.append({"asset": asset, "since_tick": detail.get("since_tick"),
+                      "declared_tick": context.get("tick"), "intent": detail.get("intent"),
+                      "behaviour": detail.get("behaviour"),
+                      "reserved_until_tick": detail.get("reserved_until_tick"),
+                      "released": None, "kept_by": None, "restored_tick": None,
+                      "conforming": None, "ledger_id": entry.get("id")})
+        return
+    standing = next((link for link in reversed(links) if link["asset"] == asset), None)
+    if standing is None:
+        return
+    code = decision.get("code")
+    if code == "lost_link_released":
+        standing["released"] = {"tick": context.get("tick"), "by": decision.get("approved_by")}
+    elif code == "lost_link_kept":
+        standing["kept_by"] = decision.get("approved_by")
+    elif action == "link_restored":
+        standing["restored_tick"] = detail.get("restored_tick")
+        standing["conforming"] = detail.get("conforming")
 
 
 def _fold_hold(holds: list[dict], entry: dict, proposal: dict, decision: dict,
@@ -196,7 +233,7 @@ def to_markdown(report: dict) -> str:
                 f"| {resolution} | {len(f['conformance']) or '—'} "
                 f"| {_after_word(f['recalled'])} | {_after_word(f['withdrawn'])} |")
     fleet = report.get("fleet") or {}
-    if fleet.get("weather_holds") or fleet.get("incidents"):
+    if fleet.get("weather_holds") or fleet.get("incidents") or fleet.get("links"):
         lines += ["", "## Fleet", ""]
         for h in fleet.get("weather_holds") or []:
             ended = (f"lifted tick {h['lifted']['tick']} by {h['lifted']['by']}" if h.get("lifted")
@@ -208,6 +245,8 @@ def to_markdown(report: dict) -> str:
         for i in fleet.get("incidents") or []:
             lines.append(f"- incident · tick {i['tick']} · {_cell(i['name'])} · {i['radius_m']} m "
                          f"· until tick {i['until_tick']} · {i['source']}")
+        lines += [_link_word(link) for link in fleet.get("links") or []]
+    lines += _intake_lines(report.get("intake"))
     advisories = [(block["asset"], a) for block in report["assets"] for a in block["advisories"]]
     if advisories:
         lines += ["", "## Advisories", "", "| asset | tick | trigger | chosen | source | summary |",
@@ -216,6 +255,41 @@ def to_markdown(report: dict) -> str:
             lines.append(f"| {asset} | {a['tick']} | {a['trigger']} | {a['chosen']} "
                          f"| {a['source']} | {_cell(a['summary'])} |")
     return "\n".join(lines) + "\n"
+
+
+def _link_word(link: dict) -> str:
+    """두절 한 건을 한 줄로. 돌아왔으면 순응했는지까지."""
+    if link.get("restored_tick") is None:
+        ended = "still dark"
+    else:
+        ended = (f"restored tick {link['restored_tick']} · "
+                 + ("conforming" if link.get("conforming") else "NONCONFORMING"))
+    released = (f" · released tick {link['released']['tick']} by {link['released']['by']}"
+                if link.get("released") else "")
+    return (f"- lost link · {link['asset']} · since tick {link['since_tick']} "
+            f"· {link['behaviour']} · reserved until tick {link['reserved_until_tick']}"
+            f"{released} · {ended}")
+
+
+def _intake_lines(intake: dict | None) -> list[str]:
+    """들어온 것(sqlite). 원장이 결정의 기록이면 이 절은 무엇을 받아 무엇이 되었는지의
+    기록입니다."""
+    if not intake or not (intake.get("items") or intake.get("rules")):
+        return []
+    lines = ["", "## Intake", "", "| item | source | kind | tick | read by | outcome |",
+             "|---|---|---|---|---|---|"]
+    for item in intake.get("items") or []:
+        lines.append(f"| {_cell(item['id'])} | {item['source']} | {item['kind'] or '—'} "
+                     f"| {item['fetched_tick']} | {item['read_by'] or '—'} "
+                     f"| {item['outcome'] or '—'} |")
+    if intake.get("rules"):
+        lines += ["", "| rule | item | kind | from | until | applied | lifted by |",
+                  "|---|---|---|---|---|---|---|"]
+        for rule in intake["rules"]:
+            lines.append(f"| {rule['id']} | {_cell(rule['item_id'])} | {rule['kind']} "
+                         f"| {rule['from_tick']} | {rule['until_tick']} "
+                         f"| {'yes' if rule['applied'] else 'no'} | {rule['lifted_by'] or '—'} |")
+    return lines
 
 
 def _cell(text) -> str:

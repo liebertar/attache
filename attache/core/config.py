@@ -59,6 +59,45 @@ class Escalation:
     ultra: str
 
 
+# 모델 id → 사람이 읽는 이름. 화면 헤더와 기체 라벨이 씁니다. 여기 없는 id 는 그대로 보여 주고,
+# 빈 id 는 "rules"(모델 없이 규칙만) 입니다. Ollama 태그(:4b, :latest)와 Nebius id 를 같이 둡니다 —
+# 두 서버의 같은 계열이 화면에서 같은 이름으로 읽혀야 합니다.
+MODEL_DISPLAY = {
+    "nemotron-3-nano:4b": "Nemotron Nano 4B",
+    "nemotron-3-nano": "Nemotron Nano 30B",
+    "nemotron-3-nano:latest": "Nemotron Nano 30B",
+    "nvidia/nemotron-3_5-lightning": "Nemotron 3.5 Lightning",
+    "nvidia/nemotron-3-super-120b-a12b": "Nemotron Super 120B",
+    "nvidia/nemotron-3-ultra-550b-a55b": "Nemotron Ultra 550B",
+}
+RULES_DISPLAY = "rules"
+
+
+def model_display(model_id: str | None) -> str:
+    """모델 id 의 표시 이름. 모르는 id 는 지어내지 않고 그대로 돌려줍니다."""
+    key = (model_id or "").strip()
+    if not key:
+        return RULES_DISPLAY
+    return MODEL_DISPLAY.get(key.lower(), key)
+
+
+# 통신 두절 대비 행동. 조종장치가 링크를 잃으면 무엇을 하는지 운영사가 신고합니다.
+# 런타임은 승인할 때 그 행동이 만드는 부피(continue_and_land: 승인 경로 + 착륙 기둥)까지 판정하고,
+# 두절 중에는 그 부피를 예약된 채로 둡니다. 모르는 행동은 판정할 수 없으니 그 신청은 거절합니다.
+CONTINUE_AND_LAND = "continue_and_land"
+KNOWN_LOST_LINK_BEHAVIOURS = (CONTINUE_AND_LAND,)
+
+
+@dataclass
+class LostLink:
+    behaviour: str = CONTINUE_AND_LAND
+    timeout_ticks: int = 15          # 떠 있는 기체의 텔레메트리가 이만큼 안 새로워지면 두절
+
+    @property
+    def known(self) -> bool:
+        return self.behaviour in KNOWN_LOST_LINK_BEHAVIOURS
+
+
 @dataclass
 class Performance:
     """운영사가 신고한 기체 성능과 이 판의 시계. 런타임이 의도(4D)의 시간 창을 여기서 셈합니다.
@@ -79,6 +118,8 @@ class Performance:
     # 있기를 기대합니다). 시뮬레이터의 경유점 반경(ARRIVAL_RADIUS_M, 모서리를 자르는 만큼)보다
     # 커야 합니다.
     nav_tolerance_m: float = 10.0
+    # 통신 두절 대비. 운영사 신고값이고, 런타임은 이것으로 두절을 판정하고 대비 부피를 봅니다.
+    lost_link: LostLink = field(default_factory=LostLink)
 
 
 @dataclass
@@ -98,9 +139,10 @@ class WeatherLimits:
 
 @dataclass
 class IntakeConfig:
-    """정보 수집. Tavily 로 물을 질문 목록(키가 있을 때만 돕니다)."""
+    """정보 수집. Tavily 로 물을 질문 목록(키가 있을 때만 돕니다)과 METAR 관측소(키 없이 돕니다)."""
 
     queries: list[str] = field(default_factory=lambda: list(DEFAULT_INTAKE_QUERIES))
+    metar_stations: list[str] = field(default_factory=lambda: list(DEFAULT_METAR_STATIONS))
 
 
 DEFAULT_INTAKE_QUERIES = (
@@ -108,6 +150,26 @@ DEFAULT_INTAKE_QUERIES = (
     "NYC temporary flight restriction drones today",
     "Manhattan building fire today",
 )
+# 센트럴파크(KNYC)와 라과디아(KLGA). 서비스 영역의 두 관측소입니다. 환경 변수 METAR_STATIONS 가
+# 있으면 그것이 이깁니다(쉼표·공백으로 나눔).
+DEFAULT_METAR_STATIONS = ("KNYC", "KLGA")
+
+
+def _performance(raw: dict | None) -> Performance:
+    """performance 절. lost_link 는 한 단계 안의 표라 따로 접습니다."""
+    fields = dict(raw or {})
+    lost_link = fields.pop("lost_link", None) or {}
+    return Performance(**fields, lost_link=LostLink(**lost_link))
+
+
+def _intake(raw: dict | None) -> IntakeConfig:
+    """intake 절. 비어 있는 METAR_STATIONS 는 없는 값입니다 — compose 는 값이 없어도 빈 문자열을
+    넘기고, 그걸 '관측소 없음' 으로 읽으면 METAR 가 조용히 꺼집니다. 끄는 것은 METAR=off 입니다."""
+    fields = dict(raw or {})
+    stations = (os.getenv("METAR_STATIONS") or "").replace(",", " ").split()
+    if stations:
+        fields["metar_stations"] = stations
+    return IntakeConfig(**fields)
 
 
 @dataclass
@@ -135,7 +197,7 @@ def load(path: str | Path) -> FleetConfig:
             ultra=os.getenv("MODEL_ULTRA", models.get("ultra", "")),
         ),
         policies=[Policy(**p) for p in raw.get("policies", [])],
-        performance=Performance(**(raw.get("performance") or {})),
+        performance=_performance(raw.get("performance")),
         weather=WeatherLimits(**(raw.get("weather") or {})),
-        intake=IntakeConfig(**(raw.get("intake") or {})),
+        intake=_intake(raw.get("intake")),
     )

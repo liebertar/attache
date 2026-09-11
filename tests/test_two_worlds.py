@@ -76,7 +76,9 @@ class JudgingAdapter(LocalAdapter):
 BUDGET_ESCALATIONS = {"per_asset_usd", "fleet_usd"}
 # 원격 관제사가 대신 누르지 않는 카드. 규칙을 푸는 쪽(기상 대기 해제)과 모델이 읽은 것(공지·날씨)은
 # 사람이 봐야 합니다 — 하네스가 자동 승인하면 대기가 열리자마자 풀려 장면이 없어집니다.
-PERSON_ONLY_CARDS = {"human_notice", "human_weather", "human_lift"}
+# 링크 두절 통보(human_lost_link)도 사람 몫입니다 — 승인하면 끊긴 기체의 공간을 푸는 것이라,
+# 하네스가 대신 누르면 예약이 걸리자마자 풀려 장면이 없어집니다.
+PERSON_ONLY_CARDS = {"human_notice", "human_weather", "human_lift", "human_lost_link"}
 
 
 class GuardedSide:
@@ -350,6 +352,7 @@ def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_facto
         runtime.tick = tick
         guarded_snapshot = guarded_world.snapshot(tick)
         runtime.telemetry = guarded_snapshot["assets"]
+        runtime.watch_links()       # _pull_world 와 같은 순서: 텔레메트리 → 심장박동 → 공지
         runtime.absorb(simulation.bulletins())
         guarded.run_tick(guarded_snapshot)
 
@@ -373,7 +376,10 @@ def ledger_stats(path: str) -> dict:
              "notices_applied": 0, "duplicates": 0,
              # 정보 수집이 만든 규칙에 걸린 것. 기상 대기의 거절·물림, 사고 원의 회수·거절.
              "weather_refusals": 0, "weather_grounded": 0, "incident_recalls": 0,
-             "incident_refusals": 0, "weather_holds": 0, "incidents": 0}
+             "incident_refusals": 0, "weather_holds": 0, "incidents": 0,
+             # 링크 두절: 끊긴 줄, 돌아온 줄(순응했나), 끊긴 기체의 예약에 걸린 교차 거절.
+             "links_lost": 0, "links_restored": 0, "links_nonconforming": 0,
+             "dark_refusals": 0}
     incident_id = sim_world.INCIDENT["id"]
     seen = set()
     with open(path, encoding="utf-8") as handle:
@@ -388,7 +394,18 @@ def ledger_stats(path: str) -> dict:
                 stats["weather_holds"] += 1
             if decision.get("code") == "incident_keepout":
                 stats["incidents"] += 1
+            if proposal.get("action") == "link_lost":
+                stats["links_lost"] += 1
+                dark_assets = stats.setdefault("dark_assets", [])
+                dark_assets.append(proposal["asset_id"])
+            if proposal.get("action") == "link_restored":
+                stats["links_restored"] += 1
+                if decision.get("detail", {}).get("conforming") is False:
+                    stats["links_nonconforming"] += 1
             if decision["verdict"] == "denied":
+                if (decision.get("policy_hit") == "traffic"
+                        and params.get("blocked_asset") in stats.get("dark_assets", [])):
+                    stats["dark_refusals"] += 1
                 if str(decision.get("policy_hit") or "").startswith("weather-hold"):
                     stats["weather_refusals"] += 1
                 if decision.get("forbids") == incident_id:
@@ -582,12 +599,14 @@ class RecordedNanoDraftsFlyTest(unittest.TestCase):
 
         from tests.fixture_llm import FixtureLlm, load_fixtures
 
-        # 직선이 통과하는 자리에서는 초안기가 불리지 않습니다. 직선이 거절된 자리의 통과 녹음만 씁니다.
+        # 직선이 통과하는 자리에서는 초안기가 불리지 않습니다. 직선이 거절된 자리의 통과 녹음만
+        # 씁니다.
         records = [r for r in load_fixtures()
                    if r.get("kind") == "draft" and r.get("expect") == "pass"
                    and r.get("straight_refused")]
         if not records:
-            raise unittest.SkipTest("직선이 거절된 자리의 통과 녹음이 없습니다 (tests/fixtures/llm)")
+            raise unittest.SkipTest(
+                "직선이 거절된 자리의 통과 녹음이 없습니다 (tests/fixtures/llm)")
         seeds = {r.get("seed") for r in records if r.get("seed") is not None}
         cls.seed = sorted(seeds)[0] if seeds else 7
         cls.llms = []
@@ -724,6 +743,20 @@ class TwoWorldsTest(unittest.TestCase):
                            self.stats)
         self.assertTrue(self.direct["weather_hold_takeoffs"] > 0
                         or self.direct["incident_incursions"] > 0)
+
+    def test_a_dark_aircraft_keeps_its_space_and_nobody_is_cleared_into_it(self):
+        """틱 3800 에 떠 있던 기체 하나의 텔레메트리가 끊깁니다(씨앗 7: 두 세계 모두 drone-02).
+        런타임은 도장이 15틱 멈춘 것으로 두절을 알고, 그 기체의 남은 경로 + 착륙 기둥을 예약한 채
+        그리로 가는 신청을 거절합니다. 끊긴 기체에는 아무것도 보내지 않고, 틱 3950 에 돌아오면
+        승인한 부피 안이었는지 봅니다. 직결 세계는 모릅니다 — 거기서 회랑에 들어가도(점수판
+        link_lost_incursions) 막을 것이 없습니다(이 씨앗에서 반드시 들어가는지는 보지 않습니다).
+        """
+        self.assertEqual(self.guarded["link_lost_incursions"], 0)
+        self.assertEqual(self.stats["links_lost"], 1, self.stats)
+        self.assertEqual(self.stats["links_restored"], 1, self.stats)
+        self.assertEqual(self.stats["links_nonconforming"], 0,
+                         "continue_and_land 기체는 승인한 부피 안에서 다시 보여야 합니다")
+        self.assertIn("link_lost_incursions", self.direct)
 
     # ---------- 적재 순환이 실제로 도는가 ----------
 

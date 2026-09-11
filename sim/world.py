@@ -119,6 +119,17 @@ ARRIVAL_RADIUS_M = 6.0
 def to_latlon(x: float, y: float) -> tuple[float, float]:
     return ORIGIN_LAT + (1.0 - y / 60.0) * SPAN_LAT, ORIGIN_LON + (x / 100.0) * SPAN_LON
 
+
+def _segment_distance_m(point: tuple[float, float], a: tuple[float, float],
+                        b: tuple[float, float]) -> float:
+    """미터 평면에서 점과 선분 사이의 거리."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length2 = dx * dx + dy * dy
+    if length2 < 1e-9:
+        return math.dist(point, a)
+    t = max(0.0, min(1.0, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / length2))
+    return math.dist(point, (a[0] + t * dx, a[1] + t * dy))
+
 COSTS = {
     "decline_job": 0.0,
     "fly_route": 12.0,
@@ -179,7 +190,8 @@ def default_band(volumes: list[dict]) -> dict | None:
             lat0 = GRID_ORIGIN[0] + row * GRID_CELL_DEG
             lon0 = GRID_ORIGIN[1] + col * GRID_CELL_DEG
             rings.append([[lat0, lon0], [lat0, lon0 + GRID_CELL_DEG],
-                          [lat0 + GRID_CELL_DEG, lon0 + GRID_CELL_DEG], [lat0 + GRID_CELL_DEG, lon0]])
+                          [lat0 + GRID_CELL_DEG, lon0 + GRID_CELL_DEG],
+                          [lat0 + GRID_CELL_DEG, lon0]])
     if not rings:
         return None
     return {"id": "band-default-121", "name": "Part 107 기본 상한 (격자 밖)", "polygon": rings[0],
@@ -273,7 +285,7 @@ LANDING_AREAS = [
     {"id": "la-pier84", "name": "Pier 84 Hudson", "lat": 40.76284, "lon": -74.00069},
     # 센트럴파크 북쪽·할렘 (7). 공원 남쪽 절반은 KLGA 0ft 격자라 못 둡니다.
     {"id": "la-eastmeadow", "name": "Central Park East Meadow", "lat": 40.7887, "lon": -73.96},
-    {"id": "la-northmeadow", "name": "Central Park North Meadow", "lat": 40.79350, "lon": -73.95900},
+    {"id": "la-northmeadow", "name": "Central Park North Meadow", "lat": 40.7935, "lon": -73.959},
     {"id": "la-harlemmeer", "name": "Harlem Meer", "lat": 40.79670, "lon": -73.95200},
     {"id": "la-cpnorth", "name": "Central Park North 110th", "lat": 40.79850, "lon": -73.95500},
     {"id": "la-morningside", "name": "Morningside Park", "lat": 40.804, "lon": -73.95824},
@@ -431,6 +443,30 @@ INCIDENT = {
 }
 
 
+# 링크 두절. 이 창에 떠서 승인 경로를 날던 기체 하나(이름 순으로 첫 기체)의 텔레메트리가 끊깁니다.
+# 기체는 운영사가 신고한 대비 행동(configs/fleet.yaml performance.lost_link: continue_and_land)대로
+# 마지막 경로를 그대로 날아 목적지에 내리고, 그동안 어떤 명령도 못 듣습니다. 시뮬레이터는 끊긴
+# 순간의 기록을 그대로 다시 내보냅니다 — 틱 도장(telemetry_tick)이 멈추고, 런타임은 그 도장으로
+# 두절을 압니다(끊겼다는 표시는 텔레메트리에 없습니다). 두 세계에 같은 규칙으로 일어나고, 직결
+# 세계에서는 그 기체의 남은 길을 아무도 잡아 두지 않습니다 — 누가 그리로 들어가면 점수판
+# link_lost_incursions 가 셉니다. 씨앗 7 에서는 두 세계 모두 drone-02 가 배달지로 가던
+# 중에 끊기고, 직결 세계에서는 그 창에 아무도 그 길을 지나지 않아 0 입니다. 그래서 이
+# 장면의 대조는 런타임 쪽의 행동입니다 — 예약한 공간으로 가는 신청 거절(dark_refusals),
+# 끊긴 기체에 보낸 명령 0, 돌아왔을 때 승인한 부피 안(links_nonconforming 0). 직결 쪽을
+# 억지로 들어가게 만들지는 않습니다.
+# 3800 = 0950:40Z, 3950 = 0952:40Z.
+LINK_LOSS_TICK = 3800
+LINK_LOSS_UNTIL = 3950
+# 창의 앞쪽에서만 고릅니다. 늦게 끊기면 판정 시간(LINK_TIMEOUT_TICKS)보다 짧게 끊겨 장면이
+# 안 됩니다.
+LINK_LOSS_PICK_TICKS = 50
+# 두절을 알 수 있는 시간. configs/fleet.yaml performance.lost_link.timeout_ticks 와 같아야 합니다
+# (tests/test_lost_link.py 가 대조). 끊긴 뒤 이만큼 안에 나간 승인은 두절을 모르고 낸 것이라,
+# 점수판은 그 뒤에 받은 경로만 셉니다 — 아무도 알 수 없던 것을 탓하지 않습니다.
+LINK_TIMEOUT_TICKS = 15
+LINK_FLYING = ("delivering", "returning", "approaching")
+
+
 def _address_coords(label: str) -> tuple[float, float]:
     found = next((a for a in ADDRESSES if a["label"] == label), None)
     assert found is not None, f"지명 사전에 없는 주소 {label!r}"
@@ -480,6 +516,12 @@ class Vehicle:
     # 이 틱 전에는 지상에서 준비된 채 서 있고, 화면에는 누구를 기다리는지 씁니다.
     depart_after: int = 0
     holding_for: str | None = None
+    # 링크가 끊겼나(시뮬레이터의 사실). 끊긴 기체는 명령을 못 듣고, 밖으로는 끊긴 순간의 기록이
+    # 나갑니다. 그 기록의 이 값은 끊기기 전 것이라 늘 False 입니다 — 런타임은 도장으로 압니다.
+    link_lost: bool = False
+    # 지금 경로를 받은 틱. 두절 기체의 남은 길에 들어간 기체가 두절을 알 수 있던 뒤에 받은 경로로
+    # 날고 있는지를 점수판이 봅니다.
+    route_tick: int = -1
 
     def public(self) -> dict:
         data = asdict(self)
@@ -534,6 +576,11 @@ class Scoreboard:
     weather_hold_takeoffs: int = 0
     # 사고 원(INCIDENT 창) 안으로 떠서 들어간 일. 기체마다 들어갈 때 한 번.
     incident_incursions: int = 0
+    # 링크가 끊긴 기체의 남은 회랑(지금 자리 → 남은 경유점 → 착륙 기둥, 옆 30m·위아래 25m) 안에,
+    # 두절을 알 수 있던 뒤(끊긴 틱 + LINK_TIMEOUT_TICKS)에 받은 경로로 떠서 들어간 일. 쌍마다 한 번.
+    # 런타임 세계는 0 이어야 합니다 — 끊긴 기체의 공간을 예약된 채로 두고 그리로 가는 신청을
+    # 거절하니까요.
+    link_lost_incursions: int = 0
 
     def public(self) -> dict:
         data = asdict(self)
@@ -587,9 +634,17 @@ def fresh_fleet(seed: int) -> list[Vehicle]:
 
 class World:
     def __init__(self, name: str, seed: int, fleet_limit: float,
-                 require_receipt: bool = False):
+                 require_receipt: bool = False, agent_model: str | None = None):
         self.name = name
         self.fleet_limit = fleet_limit
+        # 이 세계의 기체를 모는 에이전트의 모델 id(빈 문자열 = 규칙). 직결 세계는 런타임에 등록할
+        # 길이 없어서(compose 에서 망이 다름) 띄운 쪽이 알려 준 값을 기체마다 싣습니다. None 이면
+        # 모르는 것이라 싣지 않습니다 — 런타임 세계는 런타임의 /state.agents 가 압니다.
+        self.agent_model = agent_model
+        # 링크가 끊긴 기체: {기체: {"since": 끊긴 틱, "record": 끊기기 전 마지막 기록}}
+        self.dark: dict[str, dict] = {}
+        self._link_scene_done = False
+        self._dark_close: set[frozenset] = set()
         # 조종장치가 원장 번호를 요구하는가.
         # 요구하면 런타임을 안 거친 명령은 물리적으로 실행되지 않습니다.
         # 이 한 줄이 "권고"와 "강제"를 가릅니다.
@@ -622,6 +677,10 @@ class World:
             return {"ok": False, "error": f"unknown asset {asset}"}
         if action not in COSTS:
             return {"ok": False, "error": f"unknown action {action}"}
+        if vehicle.link_lost:
+            # 링크가 끊긴 기체에는 아무 명령도 닿지 않습니다. 돈도 안 나가고 실행으로 세지도
+            # 않습니다.
+            return {"ok": False, "error": "link lost — the aircraft cannot hear commands"}
 
         if self.require_receipt and not ledger_id:
             self.score.refused_without_receipt += 1
@@ -674,6 +733,7 @@ class World:
             # 승인된 경로. 경유점이 있으면 그대로 따라갑니다.
             # 없으면 목적지까지 직선입니다 — 그게 오른쪽 세계가 하는 일입니다.
             vehicle.waypoints = self._to_waypoints(params.get("legs"), vehicle)
+            vehicle.route_tick = tick
             vehicle.assigned_pad = None
             vehicle.hold_ticks = CLEARANCE_TICKS
             self._delay_departure(vehicle, params)
@@ -691,6 +751,7 @@ class World:
             vehicle.assigned_pad = params["pad"]
             vehicle.hold_ticks = CLEARANCE_TICKS
             vehicle.waypoints = self._to_waypoints(params.get("legs"), vehicle)
+            vehicle.route_tick = tick
             self._delay_departure(vehicle, params)
             # 승인된 순항 고도. 안 주면 기본값으로 납니다 — 그게 규정 위반일 수 있습니다.
             vehicle.cruise_alt = float(params.get("alt_m") or CRUISE_ALT_M)
@@ -725,6 +786,7 @@ class World:
             if door.get("lat") is not None and vehicle.alt > 1.0:
                 gx, gy = to_grid(door["lat"], door["lon"])
                 vehicle.waypoints = [(gx, gy, vehicle.alt)]
+                vehicle.route_tick = tick
             if vehicle.state not in GROUND_WORK:
                 vehicle.state = self._idle_state(vehicle)
         elif action == "disengage_autonomy":
@@ -782,6 +844,8 @@ class World:
     # ---------- 시간 ----------
 
     def tick(self, tick: int) -> None:
+        # 끊기는 것은 움직이기 전에 — 밖으로 나가는 마지막 기록이 지난 틱의 것이어야 합니다.
+        self._script_link_loss(tick)
         for vehicle in self.vehicles.values():
             self._advance(vehicle, tick)
         self._detect_pad_conflicts(tick)
@@ -790,6 +854,95 @@ class World:
         self._detect_separation_losses(tick)
         self._detect_weather_takeoffs(tick)
         self._detect_incident_incursions(tick)
+        self._detect_link_lost_incursions(tick)
+
+    # ---------- 링크 두절 ----------
+
+    def _script_link_loss(self, tick: int) -> None:
+        """창이 열리면 떠서 승인 경로를 날던 첫 기체의 링크를 끊고, 창이 닫히면 되돌립니다.
+
+        끊긴 기체는 그대로 납니다 — _advance 가 남은 경유점을 따라 목적지에 내립니다
+        (continue_and_land). 바뀌는 것은 두 가지뿐: 명령이 안 닿고(act), 밖으로 나가는 기록이
+        끊긴 순간에 멈춥니다(snapshot).
+        """
+        if tick >= LINK_LOSS_UNTIL and self.dark:
+            for vid in list(self.dark):
+                self.vehicles[vid].link_lost = False
+                self._log(tick, "링크 복구", f"{vid} 텔레메트리가 다시 들어옴")
+            self.dark.clear()
+        if self._link_scene_done or not (
+                LINK_LOSS_TICK <= tick < LINK_LOSS_TICK + LINK_LOSS_PICK_TICKS):
+            return
+        flying = next((v for _, v in sorted(self.vehicles.items())
+                       if v.alt > 1.0 and v.waypoints and v.state in LINK_FLYING), None)
+        if flying is None:
+            return
+        # 지난 틱의 기록을 끊기 전에 떠 둡니다. 도장은 지난 틱 — 이 틱부터 새 기록이 없습니다.
+        self.dark[flying.id] = {"since": tick,
+                                "record": {**flying.public(), "telemetry_tick": tick - 1}}
+        flying.link_lost = True
+        self._link_scene_done = True
+        self._log(tick, "링크 두절", f"{flying.id} 텔레메트리 끊김 — 승인 경로대로 날아 내림")
+
+    @staticmethod
+    def _remaining_corridor(vehicle: Vehicle) -> tuple[list, tuple]:
+        """끊긴 기체가 아직 지날 곳. 미터 평면의 ([(a, b, 고도)], (착륙 자리, 기둥 꼭대기)).
+
+        지금 자리 → 남은 경유점(그 구간의 승인 고도) → 끝점의 착륙 기둥. 지나온 길은 빈 하늘입니다.
+        """
+        here = (vehicle.x * METRES_PER_CELL_X, vehicle.y * METRES_PER_CELL_Y)
+        top = vehicle.alt
+        segments = []
+        for wx, wy, walt in vehicle.waypoints:
+            there = (wx * METRES_PER_CELL_X, wy * METRES_PER_CELL_Y)
+            segments.append((here, there, walt))
+            here, top = there, max(top, walt)
+        if not vehicle.waypoints and vehicle.job_x is not None and vehicle.state in LINK_FLYING:
+            there = (vehicle.job_x * METRES_PER_CELL_X, vehicle.job_y * METRES_PER_CELL_Y)
+            segments.append((here, there, vehicle.cruise_alt))
+            here, top = there, max(top, vehicle.cruise_alt)
+        return segments, (here, top)
+
+    @staticmethod
+    def _in_corridor(other: Vehicle, segments: list, column: tuple) -> bool:
+        point = (other.x * METRES_PER_CELL_X, other.y * METRES_PER_CELL_Y)
+        for a, b, alt in segments:
+            if (abs(other.alt - alt) < TRAFFIC_VERTICAL_M
+                    and _segment_distance_m(point, a, b) < TRAFFIC_LATERAL_M):
+                return True
+        at, top = column
+        return math.dist(point, at) < TRAFFIC_LATERAL_M and other.alt < top + TRAFFIC_VERTICAL_M
+
+    def _detect_link_lost_incursions(self, tick: int) -> None:
+        """끊긴 기체의 남은 회랑 안에 떠 있는 다른 기체. 두절을 알 수 있던 뒤에 받은 경로로 날고
+        있을 때만, 쌍마다 들어갈 때 한 번. 끊긴 기체가 내려앉으면 그 기체의 하늘은 끝납니다(서 있는
+        자리는
+        site_conflicts 가 셉니다)."""
+        inside: set[frozenset] = set()
+        for vid, info in self.dark.items():
+            dark = self.vehicles[vid]
+            if dark.alt <= 1.0:
+                continue
+            segments, column = self._remaining_corridor(dark)
+            knowable = info["since"] + LINK_TIMEOUT_TICKS
+            for other in self.vehicles.values():
+                if other.id == vid or other.alt <= 1.0 or other.route_tick < knowable:
+                    continue
+                if self._in_corridor(other, segments, column):
+                    inside.add(frozenset((vid, other.id)))
+        for pair in inside - self._dark_close:
+            self.score.link_lost_incursions += 1
+            self._log(tick, "두절 기체 회랑 침범", f"{' · '.join(sorted(pair))}")
+        self._dark_close = inside
+
+    def _published(self, vehicle: Vehicle, tick: int) -> dict:
+        """밖으로 내보내는 텔레메트리 한 줄. 새 기록에는 이 틱의 도장이 찍히고, 링크가 끊긴 기체는
+        끊기기 전 마지막 기록이 도장째 그대로 나갑니다."""
+        dark = self.dark.get(vehicle.id)
+        record = dict(dark["record"]) if dark else {**vehicle.public(), "telemetry_tick": tick}
+        if self.agent_model is not None:
+            record["agent_model"] = self.agent_model
+        return record
 
     def _advance(self, vehicle: Vehicle, tick: int) -> None:
         if vehicle.state in ("dropping", "loading", "picking"):
@@ -1151,13 +1304,21 @@ class World:
         self.events.append({"tick": tick, "kind": kind, "text": text, "at": time.time()})
         del self.events[: max(0, len(self.events) - 40)]
 
-    def snapshot(self, tick: int, volumes: bool = False) -> dict:
+    def snapshot(self, tick: int, volumes: bool = False, truth: bool = False) -> dict:
         """volumes 는 달라고 해야 옵니다.
 
         건물까지 넣으면 3천 개가 넘어서, 0.25초마다 도는 폴링에 매번 실으면
         2MB 짜리 응답이 초당 몇 번씩 오갑니다. 공역은 한 번만 받으면 됩니다.
+        truth 는 화면(/compare)용입니다: 링크가 끊긴 기체가 실제로 어디 있는지(dark). 런타임과
+        기체 에이전트가 읽는 텔레메트리(assets)에는 끊긴 순간의 기록만 나갑니다.
         """
         return {
+            **({"dark": {vid: {"since_tick": info["since"], "until_tick": LINK_LOSS_UNTIL,
+                               "lat": round(to_latlon(v.x, v.y)[0], 6),
+                               "lon": round(to_latlon(v.x, v.y)[1], 6),
+                               "alt_m": round(v.alt, 1), "state": v.state}
+                         for vid, info in self.dark.items()
+                         for v in (self.vehicles[vid],)}} if truth else {}),
             "world": self.name,
             "tick": tick,
             "bands": AIRSPACE_BANDS + (
@@ -1193,7 +1354,7 @@ class World:
                 for i, vid in enumerate(sorted(self.vehicles))
             ],
             "landing_areas": LANDING_AREAS,
-            "assets": {vid: v.public() for vid, v in self.vehicles.items()},
+            "assets": {vid: self._published(v, tick) for vid, v in self.vehicles.items()},
             "scoreboard": self.score.public(),
             "fleet_limit": self.fleet_limit,
             "events": list(reversed(self.events[-12:])),
@@ -1204,11 +1365,15 @@ class Simulation:
     """두 세계를 같은 씨앗, 같은 시계로 돌립니다."""
 
     def __init__(self, seed: int = 7, fleet_limit: float = 500.0, tick_seconds: float = 0.2,
-                 lock_actuator: bool = False, max_ticks: int = 0):
+                 lock_actuator: bool = False, max_ticks: int = 0,
+                 direct_model: str | None = None):
         self.seed = seed
         self.tick_seconds = tick_seconds
         self.lock_actuator = lock_actuator
         self.max_ticks = max_ticks
+        # 직결 세계 에이전트의 모델 id(빈 문자열 = 규칙, None = 모름). 기체마다 agent_model 로
+        # 실립니다.
+        self.direct_model = direct_model
         self.rounds = 0
         self.tick_count = 0
         self.worlds = self._fresh_worlds(fleet_limit)
@@ -1219,7 +1384,7 @@ class Simulation:
             # 조종장치를 잠그면 직결 배선은 아무것도 못 합니다.
             # 잠그지 않은 것이 오늘의 기본값이고, 그래서 이 데모가 필요합니다.
             "direct": World("direct", self.seed, fleet_limit,
-                            require_receipt=self.lock_actuator),
+                            require_receipt=self.lock_actuator, agent_model=self.direct_model),
         }
 
     def step(self) -> None:
