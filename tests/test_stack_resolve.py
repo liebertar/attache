@@ -53,7 +53,7 @@ def free_block(size: int = 6) -> int:
 
 class ResolveTest(unittest.TestCase):
     def setUp(self):
-        self.base = free_block()
+        self.base = free_block(7)
         self.servers = []
 
     def tearDown(self):
@@ -69,6 +69,7 @@ class ResolveTest(unittest.TestCase):
     def resolve(self, *args: str, **env: str) -> dict | str:
         base = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"),
                 "OLLAMA_BASE_PORT": str(self.base),
+                "OLLAMA_TOWER_PORT": str(self.base + 6),
                 "METAR_PROBE_URL": f"http://127.0.0.1:{self.base + 5}/metar"}
         done = subprocess.run(["bash", SCRIPT, *(args or ("--env",))], env={**base, **env},
                               capture_output=True, text=True, timeout=60, check=True)
@@ -118,6 +119,33 @@ class ResolveTest(unittest.TestCase):
         with_runtime = self.resolve()
         self.assertEqual((with_runtime["LLM_BASE_URL"], with_runtime["RUNTIME_SUPER"]),
                          (f"http://127.0.0.1:{self.base}/v1", "nemotron-3-nano:4b"))
+
+    def test_the_tower_server_takes_the_runtime_before_11434(self):
+        self.serve(self.base)          # Ollama 앱(문맥 256k)
+        self.serve(self.base + 1)
+        self.serve(self.base + 6)      # 관제 서버(문맥 8k)
+        found = self.resolve()
+        self.assertEqual(found["STACK_MODEL"], "ollama-fleet")
+        self.assertEqual((found["LLM_BASE_URL"], found["RUNTIME_SUPER"]),
+                         (f"http://127.0.0.1:{self.base + 6}/v1", "nemotron-3-nano:4b"),
+                         "11434 는 문맥 256k 라 같은 4B 에 KV 캐시를 5 GB 넘게 더 얹습니다")
+        self.assertEqual(found["PER_ASSET_URLS"].split(), [f"http://127.0.0.1:{self.base + 1}/v1"])
+
+    def test_the_fleet_script_lists_the_tower_and_refuses_an_overlap(self):
+        self.serve(self.base + 6)
+        env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"),
+               "OLLAMA_FLEET_BASE_PORT": str(self.base), "OLLAMA_TOWER_PORT": str(self.base + 6)}
+        subprocess.run(["bash", "-n", "scripts/ollama_fleet.sh"], check=True)
+        status = subprocess.run(["bash", "scripts/ollama_fleet.sh", "status", "4"], env=env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn(f":{self.base + 6} (관제) 떠 있음", status.stdout)
+        self.assertIn(f":{self.base + 1} 꺼짐", status.stdout)
+        overlap = subprocess.run(["bash", "scripts/ollama_fleet.sh", "status", "4"],
+                                 env={**env, "OLLAMA_TOWER_PORT": str(self.base + 2)},
+                                 capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(overlap.returncode, 0)
+        self.assertIn("겹칩니다", overlap.stderr)
 
     def test_intake_follows_the_key_and_the_network(self):
         self.serve(self.base + 5)

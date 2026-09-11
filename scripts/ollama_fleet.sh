@@ -5,8 +5,14 @@
 # (OLLAMA_NUM_PARALLEL 은 무시됨). 서버 하나에 기체 4대가 초안을 물으면 줄을 서서 뒤의 셋이
 # 타임아웃을 맞습니다(실주행: 초안 9건 중 7건 잘림, nano 승인 0). 서버를 기체 수만큼 띄우면
 # 슬롯도 기체 수만큼입니다. 모델 폴더(~/.ollama/models, OLLAMA_MODELS)는 그대로 공유하고,
-# 서버마다 작은 4B(nemotron-3-nano:4b, 2.8 GB)를 따로 올립니다. 기본 서버(11434)는 그대로
-# 두고 런타임(중재·공지)이 씁니다.
+# 서버마다 작은 4B(nemotron-3-nano:4b, 2.8 GB)를 따로 올립니다.
+#
+# 관제 서버(11439) 하나를 더 띄웁니다 — 런타임의 Super 대역(공지 읽기·권고)이 씁니다. 전에는 기본
+# 서버(11434, Ollama 앱)를 썼는데, 앱은 문맥 창을 256k 로 잡아 같은 4B 에 KV 캐시를 5 GB 넘게 더
+# 얹었습니다(Ollama 표시 8.4 GB, 8k 에서는 3.0 GB). 공지 한 편은 2천 자 안팎이라 8k 면 넉넉합니다.
+# 실제 메모리는 Ollama 표시보다 큽니다: 서버마다 가중치를 제 힙에 따로 올려(footprint 의 MALLOC_LARGE)
+# 8k 서버 하나가 약 7.5 GB, 넷이면 30 GB 입니다(2026-09-11 footprint 로 잼).
+# 관제 서버를 안 띄우려면 OLLAMA_FLEET_TOWER=0 — 그러면 런타임은 전처럼 11434 를 씁니다.
 #
 #   scripts/ollama_fleet.sh start  [N]   # 서버를 띄우고 4B 를 한 번씩 데워 둡니다(첫 초안이 적재를 기다리지 않게)
 #   scripts/ollama_fleet.sh stop   [N]
@@ -28,10 +34,27 @@ BASE_PORT="${OLLAMA_FLEET_BASE_PORT:-11434}"     # 이 다음 포트부터 씁�
 CONTEXT="${OLLAMA_FLEET_CONTEXT:-8192}"
 # 데워 둔 모델을 얼마나 오래 들고 있을지. 데모 한 판(13분)보다 넉넉히.
 KEEP_ALIVE="${OLLAMA_FLEET_KEEP_ALIVE:-2h}"
+# 관제 서버. scripts/resolve_stack.sh 가 런타임 자리로 이 포트를 먼저 봅니다.
+TOWER="${OLLAMA_FLEET_TOWER:-1}"
+TOWER_PORT="${OLLAMA_TOWER_PORT:-11439}"
+if [ "$TOWER" = 1 ] && [ "$((BASE_PORT + SIZE))" -ge "$TOWER_PORT" ]; then
+  echo "함대(:$((BASE_PORT + 1))..:$((BASE_PORT + SIZE)))가 관제 서버 :$TOWER_PORT 와 겹칩니다 — OLLAMA_TOWER_PORT 를 옮기세요" >&2
+  exit 2
+fi
 
 port_of() { echo $((BASE_PORT + $1)); }
 url_of() { echo "http://127.0.0.1:$(port_of "$1")/v1"; }
 is_up() { curl -sf --max-time 1 "http://127.0.0.1:$1/api/version" >/dev/null 2>&1; }
+
+# 이 스크립트가 다루는 포트 전부: 드론 서버 N 개, 그리고 관제 서버.
+ports() {
+  for i in $(seq 1 "$SIZE"); do port_of "$i"; done
+  if [ "$TOWER" = 1 ]; then echo "$TOWER_PORT"; fi
+}
+
+tower_note() {
+  if [ "$TOWER" = 1 ]; then echo " + 관제 서버 :$TOWER_PORT"; fi
+}
 
 urls_line() {
   local urls=""
@@ -107,37 +130,41 @@ PY
 )
 
 status_one() {
-  local port=$1 loaded
+  local port=$1 loaded role=""
+  if [ "$port" = "$TOWER_PORT" ]; then role=" (관제)"; fi
   if is_up "$port"; then
     loaded=$(curl -s --max-time 2 "http://127.0.0.1:$port/api/ps" | python3 -c "$PS_SUMMARY" 2>/dev/null || echo "?")
-    echo "  :$port 떠 있음 — $loaded"
+    echo "  :$port$role 떠 있음 — $loaded"
   else
-    echo "  :$port 꺼짐"
+    echo "  :$port$role 꺼짐"
   fi
 }
 
 case "$COMMAND" in
   start)
-    echo "Ollama 함대 $SIZE 대 ($MODEL, ctx $CONTEXT, keep-alive $KEEP_ALIVE)"
-    for i in $(seq 1 "$SIZE"); do start_one "$(port_of "$i")"; done
-    for i in $(seq 1 "$SIZE"); do wait_up "$(port_of "$i")"; done
-    # 넷을 같이 데웁니다. 같은 blob 을 mmap 하므로 따로 하는 것보다 빠릅니다. 서버 자체도 이
+    echo "Ollama 함대 $SIZE 대$(tower_note) ($MODEL, ctx $CONTEXT, keep-alive $KEEP_ALIVE)"
+    for port in $(ports); do start_one "$port"; done
+    for port in $(ports); do wait_up "$port"; done
+    # 같이 데웁니다. 같은 blob 을 mmap 하므로 따로 하는 것보다 빠릅니다. 서버 자체도 이
     # 셸의 자식이라 wait 는 데우기 pid 만 — 아니면 서버가 내려갈 때까지 안 돌아옵니다.
     warmers=""
-    for i in $(seq 1 "$SIZE"); do
-      warm_one "$(port_of "$i")" &
+    for port in $(ports); do
+      warm_one "$port" &
       warmers="$warmers $!"
     done
     # shellcheck disable=SC2086
     wait $warmers
     echo
     echo "export LLM_PER_ASSET_URLS=\"$(urls_line)\""
+    if [ "$TOWER" = 1 ]; then
+      echo "# 관제(런타임 Super 대역) http://127.0.0.1:$TOWER_PORT/v1 — scripts/dev.sh 가 알아서 씁니다"
+    fi
     ;;
   stop)
-    for i in $(seq 1 "$SIZE"); do stop_one "$(port_of "$i")"; done
+    for port in $(ports); do stop_one "$port"; done
     ;;
   status)
-    for i in $(seq 1 "$SIZE"); do status_one "$(port_of "$i")"; done
+    for port in $(ports); do status_one "$port"; done
     echo "LLM_PER_ASSET_URLS=\"$(urls_line)\""
     ;;
   *)

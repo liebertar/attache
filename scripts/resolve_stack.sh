@@ -6,8 +6,9 @@
 #   1) LLM_BASE_URL 을 직접 줬으면 그것. 단 키 없는 Nebius 주소는 없는 것으로 봅니다 — 호출이 전부 401 이라
 #      신청서는 규칙이 쓰면서 화면에는 모델 이름이 붙습니다(.env.example 을 그대로 복사하면 이렇게 됨).
 #   2) NEBIUS_API_KEY 가 있으면 Nebius Token Factory + nvidia/... 모델 id.
-#   3) Ollama 함대(11435..11438, scripts/ollama_fleet.sh)가 답하면 기체마다 4B, 런타임은 11434 가 답할
-#      때만 그 서버의 대역(stand-in)으로.
+#   3) Ollama 함대(11435..11438, scripts/ollama_fleet.sh)가 답하면 기체마다 4B. 런타임의 대역(stand-in)은
+#      관제 서버(11439, 문맥 8k)가 답하면 거기, 아니면 11434 가 답할 때 거기(Ollama 앱은 문맥을 256k 로
+#      잡아 같은 4B 에 KV 캐시를 5 GB 넘게 더 얹습니다).
 #   4) 11434 만 답하면 Ollama 하나를 모두가.
 #   5) 아무것도 없으면 규칙만.
 # 정보 수집: Tavily 는 TAVILY_API_KEY 가 있을 때만, METAR 는 네트워크가 답할 때만 on 으로 표시합니다 —
@@ -15,7 +16,7 @@
 # 않습니다(나중에 네트워크가 돌아오면 저절로 켜짐). 시뮬레이터 공지는 언제나 on 입니다.
 #
 # 확인 주소는 바꿀 수 있습니다(시험이 가짜 서버로 돌림): OLLAMA_HOST_PROBE, OLLAMA_BASE_PORT,
-# OLLAMA_FLEET_SIZE, METAR_PROBE_URL.
+# OLLAMA_FLEET_SIZE, OLLAMA_TOWER_PORT, METAR_PROBE_URL.
 
 NEBIUS_URL=https://api.tokenfactory.nebius.com/v1
 NEBIUS_NANO=nvidia/Nemotron-3_5-Lightning
@@ -24,6 +25,7 @@ NEBIUS_ULTRA=nvidia/Nemotron-3-Ultra-550b-a55b
 OLLAMA_HOST_PROBE="${OLLAMA_HOST_PROBE:-127.0.0.1}"
 OLLAMA_BASE_PORT="${OLLAMA_BASE_PORT:-11434}"
 OLLAMA_FLEET_SIZE="${OLLAMA_FLEET_SIZE:-4}"
+OLLAMA_TOWER_PORT="${OLLAMA_TOWER_PORT:-11439}"
 METAR_PROBE_URL="${METAR_PROBE_URL:-https://aviationweather.gov/api/data/metar?ids=KNYC&format=json}"
 # 로컬 기본 모델. 30B 는 기본 문맥으로 26 GB 를 물어 4B 함대와 같이 못 올립니다(dev.sh 주석 참고).
 LOCAL_NANO_DEFAULT="${LOCAL_NANO_DEFAULT:-nemotron-3-nano:4b}"
@@ -69,8 +71,11 @@ resolve_models() {
     if [ "${#PER_ASSET_URLS[@]}" -eq 0 ] && [ "${#fleet[@]}" -gt 0 ]; then
       PER_ASSET_URLS=("${fleet[@]}")
     fi
+    # 런타임 자리. 관제 서버가 먼저 — 11434 는 Ollama 앱이라 문맥을 256k 로 잡습니다.
     LLM_BASE_URL=""
-    if ollama_up "$OLLAMA_BASE_PORT"; then
+    if ollama_up "$OLLAMA_TOWER_PORT"; then
+      LLM_BASE_URL="http://$OLLAMA_HOST_PROBE:$OLLAMA_TOWER_PORT/v1"
+    elif ollama_up "$OLLAMA_BASE_PORT"; then
       LLM_BASE_URL="http://$OLLAMA_HOST_PROBE:$OLLAMA_BASE_PORT/v1"
     fi
     if [ "${#PER_ASSET_URLS[@]}" -gt 0 ]; then
@@ -163,7 +168,7 @@ print_stack_table() {
         url="${LLM_BASE_URL##*//}"
         echo "          runtime ${RUNTIME_SUPER:-no super} @ ${url%%/*} (Super stand-in)"
       else
-        echo "          runtime rules (11434 did not answer)"
+        echo "          runtime rules (neither the tower server nor 11434 answered)"
       fi ;;
     *) echo "  model   $STACK_MODEL · nano ${MODEL_NANO:-$(agent_nano_for "$LLM_BASE_URL")}" \
             "· super ${RUNTIME_SUPER:-none} @ ${LLM_BASE_URL##*//}" ;;
