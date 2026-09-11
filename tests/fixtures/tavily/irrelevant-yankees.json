@@ -1,0 +1,28 @@
+{
+ "fixture": {
+  "kind": "hand-written",
+  "scene": "Irrelevant search noise for city-wide questions - read as nothing",
+  "as_of": "2026-09-22",
+  "note": "Hand-written in Tavily's response shape for the recorded demo and the tests. Not a real notice: the numbers, times, identifiers and the url path are invented. Everything served from this file is labelled source=recorded."
+ },
+ "calls": [
+  {
+   "op": "search",
+   "match": {
+    "any": [
+     "new york city"
+    ]
+   },
+   "response": {
+    "results": [
+     {
+      "title": "Yankees clinch the AL East title with a walk-off single",
+      "url": "https://bronx-sports.example/2026/09/21/yankees-clinch-al-east",
+      "score": 0.33,
+      "content": "A two-out single in the bottom of the ninth sent the crowd home happy and gave New York its first division title in three years."
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -38,6 +38,9 @@ FROM base AS runtime
 RUN pip install --no-cache-dir pymavlink==2.4.49
 COPY holdshort /app/holdshort
 COPY configs /app/configs
+# 녹음 브리핑의 장면(TAVILY_API_KEY 가 없을 때 관제 브리핑이 읽는 것). 손으로 쓴 장면이고 전부
+# "recorded" 로 표시됩니다. 없으면 녹음 모드가 빈 목록을 읽어 브리핑에 아무것도 없습니다.
+COPY tests/fixtures/tavily /app/tests/fixtures/tavily
 CMD ["python", "-m", "holdshort.runtime.service"]
 
 # ---------------------------------------------------------------------------

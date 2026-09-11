@@ -164,6 +164,29 @@ class IntakeStore:
 
         return self._run(work, [])
 
+    def briefed(self, prefix: str, limit: int = REPORT_ROWS) -> list[dict]:
+        """이 앞머리로 시작하는 항목 중 끝을 본 것, 힌트까지. 표는 그대로이고 읽기만 합니다.
+
+        사전 브리핑(runtime/briefing.py)이 재시작 때 부릅니다. 읽은 쪽을 다시 받지도 다시 읽지도
+        않고, 그때 걸려 있던 조이는 규칙을 그대로 되겁니다 — 재시작이 규칙을 푸는 일이 되면 안
+        됩니다(푸는 것은 사람과 창뿐). 사람을 기다리던 줄은 여기가 아니라 reopen_waiting 이
+        돌려줍니다.
+        """
+        rows = self._run(lambda db: db.execute(
+            "SELECT id, source, kind, text, url, read_by, outcome, hints FROM items "
+            "WHERE id LIKE ? AND outcome IS NOT NULL ORDER BY rowid DESC LIMIT ?",
+            (prefix.replace("%", "") + "%", limit)).fetchall(), [])
+        out = []
+        for row in reversed(rows):
+            record = dict(zip(("id", "source", "kind", "text", "url", "read_by", "outcome",
+                               "hints"), tuple(row), strict=True))
+            try:
+                record["hints"] = json.loads(record["hints"] or "{}")
+            except ValueError:
+                record["hints"] = {}
+            out.append(record)
+        return out
+
     # ---------- 규칙 ----------
 
     def open_rule(self, item_id: str, kind: str, from_tick: int | None,

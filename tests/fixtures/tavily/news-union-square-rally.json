@@ -1,0 +1,30 @@
+{
+ "fixture": {
+  "kind": "hand-written",
+  "scene": "Local-news style article (unofficial domain) about a pre-dawn march gathering at Union Square - read by the grammar, held for a person because the domain is not official",
+  "as_of": "2026-09-22",
+  "note": "Hand-written in Tavily's response shape for the recorded demo and the tests. Not a real notice: the numbers, times, identifiers and the url path are invented. Everything served from this file is labelled source=recorded."
+ },
+ "calls": [
+  {
+   "op": "search",
+   "match": {
+    "any": [
+     "general assembly",
+     "union square"
+    ]
+   },
+   "response": {
+    "results": [
+     {
+      "title": "Climate marchers plan pre-dawn gathering at Union Square ahead of UN week",
+      "url": "https://eastvillage-bulletin.example/2026/09/21/climate-march-union-square",
+      "score": 0.74,
+      "published_date": "Mon, 21 Sep 2026 22:10:00 GMT",
+      "content": "Organizers say several thousand climate marchers will gather at Union Square Park on Tuesday, September 22, from 5:30 a.m. to 7:00 a.m., before walking up Park Avenue toward the United Nations for the opening of the General Assembly high-level week."
+     }
+    ]
+   }
+  }
+ ]
+}

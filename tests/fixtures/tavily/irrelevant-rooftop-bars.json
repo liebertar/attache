@@ -1,0 +1,29 @@
+{
+ "fixture": {
+  "kind": "hand-written",
+  "scene": "Irrelevant search noise for park questions - read as nothing",
+  "as_of": "2026-09-22",
+  "note": "Hand-written in Tavily's response shape for the recorded demo and the tests. Not a real notice: the numbers, times, identifiers and the url path are invented. Everything served from this file is labelled source=recorded."
+ },
+ "calls": [
+  {
+   "op": "search",
+   "match": {
+    "any": [
+     "morningside",
+     "central park"
+    ]
+   },
+   "response": {
+    "results": [
+     {
+      "title": "The 12 best rooftop bars in Morningside Heights, ranked",
+      "url": "https://uptown-eats.example/best-rooftop-bars-morningside-heights",
+      "score": 0.41,
+      "content": "From a cozy terrace on Amsterdam Avenue to a sprawling deck near Columbia, these are the spots worth the climb this fall."
+     }
+    ]
+   }
+  }
+ ]
+}

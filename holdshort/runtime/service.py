@@ -32,6 +32,7 @@ from holdshort.llm.client import TieredLlm
 from holdshort.runtime.advisory import AdvisoryDesk, Refusal, build_options
 from holdshort.runtime.arbiter import Arbiter
 from holdshort.runtime.authority import AuthorityCheck
+from holdshort.runtime.briefing import BriefingDesk
 from holdshort.runtime.commit import Committer
 from holdshort.runtime.intake import (
     HOLD_POLICY_PREFIX,
@@ -124,7 +125,7 @@ class TowerIntake(IntakeBook):
 class Runtime:
     def __init__(self, config_path: str, sim_url: str, ledger_path: str, window_s: float = 1.5,
                  intake_db: str | None = None, metar: bool = False,
-                 await_airspace: bool = False):
+                 await_airspace: bool = False, briefing: bool = False):
         self.config = config_module.load(config_path)
         self.policies = PolicyBook(self.config.policies)
         self.authority = AuthorityCheck(self.config.authority, self.policies)
@@ -206,7 +207,12 @@ class Runtime:
         self._intake_inbox: list[dict] = []     # 검색·수동 입력이 놓고 간 항목. 세계 스레드가 읽음
         # 재시작 전에 사람을 기다리던 항목. 카드는 프로세스와 함께 사라졌으니 다시 읽어 카드를
         # 다시 올립니다 — 안 그러면 아무도 답한 적 없는 보고서가 '본 것' 으로 남아 영영 안 읽힙니다.
-        self._intake_inbox.extend(self.store.reopen_waiting())
+        waiting = self.store.reopen_waiting()
+        # 사전 브리핑(Tavily). 서비스(main)만 켭니다 — 코드로 만든 런타임(시험·하네스)은 METAR
+        # 처럼 꺼져 있습니다. 브리핑이 읽어 둔 것은 여기서 받습니다: 기다리던 카드는 다시
+        # 올리고(다시 읽지 않고), 걸려 있던 규칙은 기록에서 되읽어 다음 판에 그대로 겁니다.
+        self.briefing = BriefingDesk(self, config_path, enabled=briefing)
+        self._intake_inbox.extend(self.briefing.adopt_waiting(waiting))
         self._intake_fetch: FetchStatus | None = None   # 검색 스레드의 마지막 주기 상태
         # 관제 권고. 연속 거절을 세고, 코드가 만든 선택지를 판정으로 확인해 원장에 남깁니다.
         # 모델이 문구를 쓸 때는 따로 스레드에서 — 거절 답장이 모델을 기다리면 운영사가 멈춥니다.
@@ -836,6 +842,10 @@ class Runtime:
         """
         if proposal.action in ROUTED and proposal.params.get("legs"):
             self.advisor.succeeded(proposal.asset_id)   # 승인이 나갔으니 연속 거절은 끊깁니다
+            # 이 판에 아직 안 물어본 동네로 들어가는 회랑이면 사전 브리핑이 그 칸을 묻습니다
+            # (다음 폴링, 작업 스레드). 여기서는 칸만 적습니다 — 승인 스레드는 네트워크를
+            # 기다리지 않습니다.
+            self.briefing.corridor_cleared(proposal.params["legs"], proposal.asset_id)
             withdrew = []
             for other in proposal.params.get("withdraw") or []:
                 standing = self.intents.get(other)
@@ -1167,6 +1177,9 @@ class Runtime:
         self._note_metar_fetch()
         self._take_intake([i for i in bulletins if _is_intake(i)] + self._drain_intake_inbox(),
                           bbox)
+        # 사전 브리핑. 끝난 실행을 규칙으로 옮기고(공지 책으로 — 아래 _apply_notices 가 같은
+        # 폴링에 겁니다), 판이 바뀌었거나 새 동네가 쌓였으면 작업 스레드에 새로 묻게 합니다.
+        self.briefing.poll(bbox)
         self._apply_notices({i["id"] for i in items} | self.intake.notice_ids)
         self._tick_intake()
 
@@ -2252,6 +2265,9 @@ class Runtime:
             "intake": self._intake_snapshot(),
             "weather": self.intake.weather_snapshot(),
             "incidents": incident_snapshot(list(self.notices.records.values()), self.tick),
+            # 사전 브리핑(Tavily). 어디서 왔나(live|recorded|off), 쓴 크레딧, 요약, 읽은 것과
+            # 그 출처.
+            "briefing": self.briefing.snapshot(),
             # 기체마다 무엇이 신청서를 쓰나(등록한 모델). 판정과 무관한 라벨입니다.
             "agents": self.agents_snapshot(),
             # 텔레메트리 심장박동. lost 인 기체의 공간은 예약된 채입니다.
@@ -2403,6 +2419,8 @@ def main() -> None:
         intake_db=os.getenv("INTAKE_DB") or STORE_DEFAULT_PATH,
         metar=True,
         await_airspace=True,
+        # 사전 브리핑. 키가 없으면 녹음(tests/fixtures/tavily)으로 돌고 화면에 recorded 로 뜹니다.
+        briefing=True,
     )
     runtime.start_background()
 
@@ -2442,6 +2460,8 @@ def main() -> None:
         "airspace_revision": runtime.airspace.revision}))
     # 정보 입력. 시연·수동 주입 — 문장 하나를 접수함에 넣고 돌아옵니다. 읽기는 세계 스레드가 합니다.
     server.add("POST", "/intake", lambda body, query: runtime.submit_intake(body))
+    # 사전 브리핑을 한 번 더 — 다음 폴링에 작업 스레드가 묻습니다. 꺼져 있으면 503, 도는 중이면 409.
+    server.add("POST", "/briefing/run", lambda body, query: runtime.briefing.request_run())
     # 원장 보고서. ?asset=<id> 로 한 기체만, ?format=md 로 사람이 읽는 표.
     server.add("GET", "/ledger/report", lambda body, query: (
         200, runtime.report(query.get("asset") or None,

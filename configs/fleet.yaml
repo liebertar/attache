@@ -86,3 +86,39 @@ intake:
     - "NYC temporary flight restriction drones today"
     - "Manhattan building fire today"
   metar_stations: [KNYC, KLGA]
+
+# 사전 브리핑(holdshort/runtime/briefing.py). 판이 시작할 때, 그리고 방금 승인한 회랑이 이 판에 아직
+# 안 물어본 동네(약 cell_km 칸)에 들어설 때 관제탑이 그 자리·그 시간을 Tavily 로 묻습니다: 행사·군중
+# (9월에는 유엔 총회 주간의 VIP 비행 제한), 타워크레인(건물 자료에 없음), 착륙장인 공원·부두의 폐쇄,
+# 임시 비행 제한, 기상 주의보. 문법이 읽고(못 읽는 산문만 Super 가 양식을 채움) 코드가 검사합니다.
+# trusted_domains 에서 온 쪽을 문법이 읽었으면 그 틱에 걸리고(조이는 규칙이라), 그 밖의 도메인이나
+# 모델이 읽은 것은 승인 화면에서 사람을 기다립니다. 기상 주의보는 정보로만 실립니다(이륙 정지는 METAR).
+# 키가 없으면 tests/fixtures/tavily 의 녹음으로 돌고 화면·원장·기록에 recorded 로 표가 납니다.
+# 한 판의 크레딧 한도는 환경 변수 TAVILY_BUDGET_PER_ROUND(기본 20)이고, 위 intake 검색과 나눠 씁니다.
+# 질문의 {park} {street} {borough} {date} {year} 는 착륙장·지명 사전·브리핑하는 날에서 채웁니다.
+briefing:
+  trusted_domains: [faa.gov, weather.gov, noaa.gov, nyc.gov, nycgovparks.org, cityofnewyork.us]
+  cell_km: 1.0
+  max_cells_per_run: 4
+  corridor_debounce_ticks: 12
+  corridor_min_gap_ticks: 25
+  closure_radius_m: 60       # 착륙장 둘레 이만큼 + 착륙 이격 50 m 안에 내리는 경로는 거절
+  crane_radius_m: 30         # 크레인 발자국. 옆 이격 40 m 와 위 이격 crane_clearance_m 가 더해집니다
+  crane_clearance_m: 50      # 건물과 같은 수직 이격
+  max_window_ticks: 6000     # 창을 이만큼(0.8 s/틱, 80분)에서 자릅니다 — 판마다 다시 겁니다
+  max_queries_per_run: 8
+  research: true             # 판 시작마다 Tavily research 한 번(mini, 요청당 4~110 크레딧)
+  research_model: mini
+  queries:
+    round:
+      - "FAA temporary flight restriction New York City drone {date}"
+      - "National Weather Service New York City wind advisory {date}"
+    seasonal:
+      9: ["United Nations General Assembly {year} flight restrictions East Side Manhattan"]
+    park: ["{park} closure {date}"]
+    street: ["tower crane permit near {street} {borough}"]
+  # 판 시작마다 걷는 공식 사이트. crawl = map(10쪽당 1) + extract(5쪽당 1) 크레딧입니다.
+  crawl:
+    - url: "https://tfr.faa.gov/"
+      instructions: "active temporary flight restrictions for New York, NY"
+      limit: 6
