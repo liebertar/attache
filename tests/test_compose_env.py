@@ -2,7 +2,8 @@
 
 A Nebius key alone must reach Token Factory wherever the runtime side calls a model, and an
 explicitly empty MODEL_ULTRA must turn the arbiter model off — compose's default is a Nebius id that
-a local Ollama does not have. The direct world stays on rules unless DIRECT_LLM_URL is given.
+a local Ollama does not have. The default stack is the runtime and four drones; the direct wiring is
+an overlay (drone/docker-compose.direct.yml) and stays on rules unless DIRECT_LLM_URL is given.
 """
 
 import unittest
@@ -21,10 +22,21 @@ class ComposeEnvTest(unittest.TestCase):
     def test_a_nebius_key_alone_reaches_token_factory_on_the_runtime_side_only(self):
         self.assertIn(NEBIUS, self.services["runtime"]["environment"]["LLM_BASE_URL"])
         for number in range(1, 5):
-            guarded = self.services[f"guarded-drone-0{number}"]["environment"]["LLM_BASE_URL"]
-            self.assertIn(NEBIUS, guarded)
-            direct = self.services[f"direct-drone-0{number}"]["environment"]["LLM_BASE_URL"]
-            self.assertEqual(direct, "${DIRECT_LLM_URL:-}", "직결 세계는 규칙이 기본입니다")
+            drone = self.services[f"drone-0{number}"]["environment"]["LLM_BASE_URL"]
+            self.assertIn(NEBIUS, drone)
+        text = Path("drone/docker-compose.direct.yml").read_text(encoding="utf-8")
+        overlay = yaml.safe_load(text)
+        for number in range(1, 5):
+            direct = overlay["services"][f"direct-drone-0{number}"]["environment"]["LLM_BASE_URL"]
+            self.assertEqual(direct, "${DIRECT_LLM_URL:-}", "the direct wiring defaults to rules")
+
+    def test_the_default_stack_is_the_runtime_and_four_drones(self):
+        drones = {f"drone-0{number}" for number in range(1, 5)}
+        self.assertEqual(set(self.services), {"sim", "runtime", "ui"} | drones)
+        for name in sorted(drones):
+            with self.subTest(drone=name):
+                # a high-urgency form goes to Super (drone/agent/propose.py), so drones need its id
+                self.assertIn("MODEL_SUPER", self.services[name]["environment"])
 
     def test_an_empty_model_ultra_turns_the_arbiter_off(self):
         ultra = self.services["runtime"]["environment"]["MODEL_ULTRA"]
@@ -52,7 +64,7 @@ class ComposeEnvTest(unittest.TestCase):
                                  {"file": "docker-compose.local.yml", "service": name})
                 self.assertEqual(service["restart"], "always")
         self.assertEqual(dev["runtime"]["volumes"], ["ledger-dev:/data"],
-                         "dev 의 원장·접수 기록은 로컬과 다른 볼륨")
+                         "dev's ledger and intake log use a different volume from local")
 
     def test_both_files_group_the_stack_under_sky_net(self):
         for path in ("docker-compose.local.yml", "docker-compose.dev.yml"):

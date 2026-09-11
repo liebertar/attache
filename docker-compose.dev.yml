@@ -1,5 +1,5 @@
-# dev 서버(공유 기계, 예: Nebius VM)에서 스택 전체. 서비스는 로컬 파일에서 그대로 가져오고(extends)
-# dev 에 필요한 것만 바꿉니다: 늘 재시작, 비밀은 .env.dev, 원장·접수 기록은 따로 둔 볼륨.
+# The whole stack on a shared dev server (for example a Nebius VM). Services come from the local
+# file (extends); dev changes only what it needs: always restart, secrets in .env.dev, own volume.
 #   cp .env.dev.example .env.dev      # NEBIUS_API_KEY, TAVILY_API_KEY
 #   docker compose -f docker-compose.dev.yml --env-file .env.dev up -d --build
 
@@ -24,38 +24,22 @@ services:
     extends: {file: docker-compose.local.yml, service: ui}
     <<: *dev
     depends_on: [runtime]
-  guarded-drone-01:
-    extends: {file: docker-compose.local.yml, service: guarded-drone-01}
+  drone-01:
+    extends: {file: docker-compose.local.yml, service: drone-01}
     <<: *dev
     depends_on: [runtime]
-  guarded-drone-02:
-    extends: {file: docker-compose.local.yml, service: guarded-drone-02}
+  drone-02:
+    extends: {file: docker-compose.local.yml, service: drone-02}
     <<: *dev
     depends_on: [runtime]
-  guarded-drone-03:
-    extends: {file: docker-compose.local.yml, service: guarded-drone-03}
+  drone-03:
+    extends: {file: docker-compose.local.yml, service: drone-03}
     <<: *dev
     depends_on: [runtime]
-  guarded-drone-04:
-    extends: {file: docker-compose.local.yml, service: guarded-drone-04}
+  drone-04:
+    extends: {file: docker-compose.local.yml, service: drone-04}
     <<: *dev
     depends_on: [runtime]
-  direct-drone-01:
-    extends: {file: docker-compose.local.yml, service: direct-drone-01}
-    <<: *dev
-    depends_on: [sim]
-  direct-drone-02:
-    extends: {file: docker-compose.local.yml, service: direct-drone-02}
-    <<: *dev
-    depends_on: [sim]
-  direct-drone-03:
-    extends: {file: docker-compose.local.yml, service: direct-drone-03}
-    <<: *dev
-    depends_on: [sim]
-  direct-drone-04:
-    extends: {file: docker-compose.local.yml, service: direct-drone-04}
-    <<: *dev
-    depends_on: [sim]
 
 networks:
   fleet: {}
