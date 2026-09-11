@@ -24,15 +24,27 @@ Nebius × NVIDIA Global AI Hackathon 2026 · Devpost · track: **Physical AI**.
 - Judging: four criteria, equally weighted — technological implementation, design, potential impact,
   quality of the idea.
 
+## What answers which prize
+
+| Prize or requirement | What answers it |
+|---|---|
+| NVIDIA open model (required) | Nemotron in every drone's agent: it writes the request form and picks a route by calling `choose_route`. Super reads prose notices and the briefing pages the grammar cannot. Every filing carries `params.model_trace`, which the map's hover card shows in plain words |
+| Runs on Nebius (required) | `NEBIUS_API_KEY` alone switches every tier to Token Factory, under `scripts/dev.sh` and under compose. Optional cuOpt dispatch (`DISPATCH=cuopt`, `CUOPT_URL`) is meant for a Nebius AI Cloud GPU; so far it is tested only against a fake server that follows cuOpt's REST protocol |
+| Best Use of Tavily | The pre-flight briefing: search, extract, crawl and research about the places and the day being flown. Every rule carries its source URL, title, domain and fetch time into the ledger (`briefing_run`, `briefing_item`, `briefing_rule`), the intake store and `/state.briefing` |
+| Physical AI track | One guarded aircraft flown by a real PX4 autopilot (SIH) behind the runtime: the cleared route becomes a PX4 mission, a recall reaches the autopilot, a refused filing never arms it |
+
 ## Submission checklist
 
-- [ ] Repository public, license present, README in English with run instructions (`docker compose up --build`)
-- [ ] Runs on Nebius Token Factory: `NEBIUS_API_KEY` wiring measured and the numbers in `docs/MODELS.md`
-- [ ] Video < 3 min following `docs/DEMO.md`, with the real autopilot scene (PX4 SITL) if it lands in time
+- [ ] Repository public, license present, README in English with run instructions (`docker compose up --build`,
+  and `docker compose --env-file .env.local up --build` with keys)
+- [ ] Runs on Nebius Token Factory: `NEBIUS_API_KEY` wiring measured, tool calling included, and the numbers in
+  `docs/MODELS.md`
+- [ ] Video < 3 min following `docs/DEMO.md`, recorded with `scripts/demo.sh`; the PX4 scene with `scripts/sitl.sh`
 - [ ] Demo URL: the map served from a public host, or the compose stack on a small VM
 - [ ] Devpost text: what it does, how it is built, what the models do and do not do, the standards position
 - [ ] Tool feedback for Nebius and NVIDIA (required field; also a bonus prize)
-- [ ] Optional: a Tavily source live in the intake for the Tavily bonus
+- [ ] Tavily key set and one live briefing on video, so the cited rules are live rather than "recorded"
+- [ ] Optional: cuOpt dispatch run once against a real cuOpt server on a Nebius AI Cloud GPU
 
 ## Open questions
 

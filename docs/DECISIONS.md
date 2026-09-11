@@ -47,3 +47,29 @@ swappable behind a thin interface if a deployment wants Postgres.
 
 **Name.** Attaché described a helper that attaches to something. The system is a clearance authority: agents
 hold short until the tower clears. Hence Holdshort.
+
+**The model chooses among the planner's routes; it does not draw them.** A 4B model writing waypoints rarely
+cleared the judge on long crossings. Finding a path between buildings is a search, and A* does it. Choosing
+among routes that are already legal, given the weather, the closed cells and the other aircraft's windows, is
+a judgement, and calling a tool is what the Nemotron cards describe. Drafts stay as the last resort after
+every candidate is refused. The runtime judges a pick exactly as it judges any other route.
+
+**PX4 is a mirror, not the world of record.** The simulator decides positions, cargo and the scoreboards for
+all four aircraft; PX4 flies one of them from the same commands, and its answers are written beside the
+ledger (`AUTOPILOT_LOG`, `/state.autopilots`) without ever changing a verdict. The two-world comparison needs
+one world scoring both wirings, and PX4 SIH keeps lockstep only at 1× on this Mac's Docker while the round
+runs at 4×. What PX4 proves is the command path: the cleared route arrives as a real mission, a recall
+reaches a real autopilot, a refused filing never arms it.
+
+**Recorded briefing is always labelled.** Without a Tavily key the briefing replays hand-written fixtures in
+Tavily's response shape. The map, the ledger and the intake store all say "recorded", and recorded items carry
+their own id prefix, so a recorded scene cannot pass for a live answer on the day a key is added.
+
+**Zone dwell counts only what a wiring could have avoided.** No aircraft leaves a zone the tick it closes. An
+aircraft inside at closure is allowed the time to the nearest exit at cruise from anywhere in the zone
+(22 ticks); every tick after that counts, and so does every tick of an aircraft that entered after closure.
+Both wirings are scored the same way. The difference is that one of them can be told to leave.
+
+**The tower gets its own model server.** The Ollama app loads a 262,144-token context, which puts over 5 GB
+more KV cache on the same 4B model, while a notice is about 2,000 characters. `scripts/ollama_fleet.sh` starts
+a tower server on 11439 with an 8k context, and the resolver prefers it to 11434.
