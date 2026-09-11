@@ -61,6 +61,20 @@ weather:
   min_visibility_m: 1500
   hold_default_ticks: 500
 
+# 배차: 어느 기체가 어느 착륙장을 어떤 순서로 도는가. 운영사(여기서는 시뮬레이터)의 일이고,
+# 런타임은 이 절을 읽지 않습니다 — 런타임은 받은 경로를 판정할 뿐 누가 어느 주문을 받을지 정하지
+# 않습니다. 코드는 sim/dispatch.py 이고, 어느 쪽이 짜든 기체는 그 정차까지 갈 경로를 따로 신청합니다.
+# solver: rules  — 오늘의 규칙 배차(씨앗 7 의 판이 그대로).
+# solver: cuopt  — NVIDIA cuOpt 서버(GPU, Nebius AI Cloud)에 기단의 다음 한 바퀴를 묻습니다.
+#                  서버가 없거나 늦거나 답이 이상하면 그 정차는 규칙이 정하고 backoff_s 만큼 쉽니다.
+# 환경 변수 DISPATCH / CUOPT_URL / CUOPT_TIMEOUT_S / CUOPT_TIME_LIMIT_S / CUOPT_BACKOFF_S 가 이깁니다.
+dispatch:
+  solver: rules
+  cuopt_url: ""
+  timeout_s: 2.0        # 세계 스레드가 기다리는 최대(초). 이만큼 틱이 멈춥니다
+  time_limit_s: 1.0     # 서버가 푸는 시간(초)
+  backoff_s: 60         # 한 번 실패하면 이만큼은 규칙으로
+
 # 정보 수집. TAVILY_API_KEY 가 있을 때만 INTAKE_PERIOD_S 마다 아래 질문을 검색합니다. 결과는
 # 문법(METAR 어투·주소 있는 사고)이 먼저 읽고, 못 읽는 것만 Super 가 구조화해 사람 확인을 기다립니다.
 # metar_stations 는 키 없이 aviationweather.gov 에서 METAR_PERIOD_S(기본 300 초)마다 받는 관측소입니다.

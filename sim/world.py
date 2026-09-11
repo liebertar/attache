@@ -1093,29 +1093,21 @@ class World:
         vehicle.job_label = "Warehouse"
 
     def _assign_job(self, vehicle: Vehicle) -> None:
-        """다음 배달지. 첫 정차는 아무 착륙장이고, 두 번째는 첫 정차에서 가까운 여섯 곳 중 하나.
+        """다음 배달지. 누가 어디를 어떤 순서로 도는지는 배차기(sim/dispatch.py)가 정합니다.
 
-        먼 두 곳을 연달아 찍으면(할렘 → 배터리파크) 한 바퀴가 한 판을 넘깁니다. 실제 배차도
-        한 번 나가서는 같은 동네를 돕니다.
+        배차는 운영사의 일이지 런타임의 일이 아닙니다 — 런타임은 받은 경로를 판정할 뿐, 누가 어느
+        주문을 받을지는 정하지 않습니다. 기본은 규칙 배차(예전 이 자리에 있던 코드 그대로)라 씨앗 7
+        의 판은 한 틱도 달라지지 않고, CUOPT_URL 이 있으면 cuOpt(GPU)가 대신 짭니다. 어느 쪽이든
+        기체는 받은 정차까지 갈 경로를 런타임에 따로 신청해야 합니다.
+        import 가 함수 안에 있는 것은 sim.dispatch 가 이 파일을 읽기 때문입니다(순환 import).
         """
-        # 다른 기체가 지금 가고 있는 착륙장은 피합니다. 착륙장은 한 번에 한 대라(런타임 규칙),
-        # 같은 곳을 두 대가 잡으면 뒤의 기체가 앞 기체가 떠날 때까지 첫 정차에서 1300틱을 앉아
-        # 있었습니다. 실제 배차도 같은 곳에 두 대를 동시에 보내지 않습니다.
-        taken = {other.job_label for other in self.vehicles.values()
-                 if other is not vehicle and other.job_label}
-        pool = [area for area in LANDING_AREAS
-                if area["name"] != vehicle.job_label and area["name"] not in taken]
-        if not pool:
-            pool = [area for area in LANDING_AREAS if area["name"] != vehicle.job_label]
-        if not pool:
+        from sim.dispatch import dispatcher_for
+
+        area = dispatcher_for(self).next_stop(self, vehicle)
+        if area is None:
             vehicle.job_x = vehicle.job_y = None
             vehicle.job_label = ""
             return
-        if vehicle.stops_left < STOPS_PER_TRIP and vehicle.job_x is not None:
-            here_lat, here_lon = to_latlon(vehicle.job_x, vehicle.job_y)
-            pool = sorted(pool, key=lambda a: math.hypot((a["lat"] - here_lat) * 110_570,
-                                                         (a["lon"] - here_lon) * 84_400))[:6]
-        area = self._rng.choice(pool)
         vehicle.job_label = area["name"]
         vehicle.job_x, vehicle.job_y = to_grid(area["lat"], area["lon"])
 

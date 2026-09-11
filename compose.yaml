@@ -60,6 +60,14 @@ services:
       # 직결 세계 에이전트의 모델 id. 그 에이전트들은 world 망에만 있어 런타임에 등록할 수 없어서
       # 시뮬레이터가 기체마다 싣습니다(agent_model). DIRECT_LLM_URL 을 줬으면 같이 주세요(비면 규칙).
       DIRECT_MODEL: ${DIRECT_MODEL:-}
+      # 배차(sim/dispatch.py). 비우면 규칙 배차. DISPATCH=cuopt 와 CUOPT_URL(GPU 가 있는 cuOpt 서버)을
+      # 주면 cuOpt 가 짜고, 무엇이든 어긋나면 그 정차는 규칙이 정합니다. 시뮬 이미지에는
+      # configs/fleet.yaml 이 없어서 compose 에서는 여기 환경 변수만 배차기를 고릅니다.
+      DISPATCH: ${DISPATCH:-}
+      CUOPT_URL: ${CUOPT_URL:-}
+      CUOPT_TIMEOUT_S: ${CUOPT_TIMEOUT_S:-}
+      CUOPT_TIME_LIMIT_S: ${CUOPT_TIME_LIMIT_S:-}
+      CUOPT_BACKOFF_S: ${CUOPT_BACKOFF_S:-}
     ports: ["8100:8100"]
     networks: [world]
 
