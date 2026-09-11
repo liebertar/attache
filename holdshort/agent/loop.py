@@ -100,8 +100,8 @@ class GuardedAgent:
         # 판정은 런타임이 합니다 — 초안은 신청서에 legs 로 실릴 뿐입니다.
         self.service_bbox = None
         self.drafter = self._build_drafter()
-        # 후보 중 하나를 고르는 이 기체의 모델. 신청서를 쓰는 것과 같은 모델(NANO)입니다 —
-        # 화면의 model_ok 가 그 모델이 요즘 답하는지를 말하므로, 다른 길로 부르면 거짓말이 됩니다.
+        # 후보 중 하나를 고르는 이 기체의 모델. 신청서를 쓰는 것과 같은 모델(NANO)입니다 — 화면의
+        # model_ok 는 신청서와 이 고르기를 누가 썼는지로 정합니다(ModelHealth).
         self.chooser = RouteChooser(self.llm)
         # 초안은 거절이 오는 순간 작업 스레드에서 시작합니다. 화면이 거절을 보여주는 5.6초를
         # 모델이 그리는 시간과 겹치려고요 — 예전에는 5.6초를 다 기다린 뒤에 물어서 그만큼 더
@@ -114,10 +114,31 @@ class GuardedAgent:
         self._choice = None
         self._form: dict | None = None
         self._draft_attempts = 0
+        # 모델에게 물어 그 답을 쓴 횟수와, 물었지만 규칙이 대신 쓴 횟수(신청서·경로 고르기만).
+        # 등록(ModelHealth)이 이것으로 화면에 모델 이름을 달지 rules 를 달지 정합니다.
+        self.model_answers = 0
+        self.model_misses = 0
         self.airspace_revision = None
         # 우리 기체가 다니고 싶은 높이. 허용 천장이 더 낮으면 런타임이 거절하고,
         # 그때 계획기가 구간마다 낮춰서 다시 그립니다.
         self.preferred_alt_m = float(os.getenv("CRUISE_ALT_M", str(Router.cruise_alt_default())))
+
+    def _count_form(self, trace: dict | None) -> None:
+        """신청서 하나. 모델이 없어서 규칙이 쓴 것(no model)은 물은 적이 없으니 세지 않습니다."""
+        if not trace or trace.get("fallback_reason") == "no model":
+            return
+        self._count(bool(trace.get("used")))
+
+    def _count_choice(self, choice) -> None:
+        """경로 고르기 하나. 모델에게 묻지 않고 규칙이 고른 것은 세지 않습니다."""
+        if choice is not None and (choice.asked or choice.by_model):
+            self._count(choice.by_model)
+
+    def _count(self, used: bool) -> None:
+        if used:
+            self.model_answers += 1
+        else:
+            self.model_misses += 1
 
     def _build_drafter(self) -> ModelDrafter | None:
         drafter = ModelDrafter(self.llm, self.planner, bbox=self.service_bbox)
@@ -186,6 +207,7 @@ class GuardedAgent:
         if pending is None:
             return decision      # 지난 고르기가 아직 돌고 있습니다. 이번 차례는 접습니다
         outcome = self._collect_choice(pending, refused_at)
+        self._count_choice(outcome.choice if outcome else None)
         airborne_now, moved_to = self._position_now()
         if airborne_now:
             return decision      # 그새 떴습니다. 지상에서 그린 길은 뜻이 없어 이번 차례는 접습니다
@@ -503,6 +525,7 @@ class GuardedAgent:
             concern, telemetry, self._open_pad(), frozenset(self.banned),
             tuple(sorted(self.pads) or FALLBACK_PADS),
         )
+        self._count_form(self.proposer.last_trace)
         if time.time() < self.cooldown.get(proposal.action, 0.0):
             return  # 방금 거절당한 걸 계속 들이밀지 않습니다
         self.cooldown[proposal.action] = time.time() + self.repeat_s
@@ -583,21 +606,24 @@ def identity(asset_id: str, llm: TieredLlm, model_ok: bool | None = None) -> dic
 
 
 class ModelHealth:
-    """신청서 모델이 요즘 답하나. 등록할 때마다 한 번, 지난 등록 뒤의 Nano 호출로 봅니다.
+    """이 기체의 모델이 요즘 이 기체의 판단(신청서·경로 고르기)을 쓰고 있나. 등록할 때마다 한 번.
 
-    답을 하나라도 받아 썼으면 True, 부른 것이 전부 규칙으로 넘어갔으면(시간 초과·연결 실패·양식
-    아닌 답) False, 그 사이에 부른 적이 없으면 지난 판단 그대로입니다. 처음에는 None(아직 모름) —
-    런타임은 설정된 모델 이름을 믿고 답니다.
+    지난 등록 뒤로 모델에게 물어 그 답을 쓴 적이 한 번이라도 있으면 True, 물었는데 전부 규칙이
+    대신 썼으면(시간 초과·양식 아닌 답·없는 후보) False, 그 사이에 물은 적이 없으면 지난 판단
+    그대로입니다. 처음에는 None(아직 모름) — 런타임은 설정된 모델 이름을 믿고 답니다.
+
+    경로 초안은 세지 않습니다. 초안은 모든 후보가 거절된 뒤의 마지막 수단이라 잘 안 통하는 게
+    정상입니다. 예전처럼 LLM 통계를 통째로 보면, 초안 실패만 쌓인 창에서 신청서는 전부 모델이
+    썼는데도 화면이 rules 로 바뀌었습니다(2026-09-11 실측, drone-01·03).
     """
 
-    def __init__(self, llm: TieredLlm):
-        self.llm = llm
+    def __init__(self, counts):
+        self.counts = counts          # () -> (모델의 답을 쓴 횟수, 물었지만 규칙이 쓴 횟수)
         self.state: bool | None = None
         self._counted = (0, 0)
 
     def check(self) -> bool | None:
-        stats = self.llm.stats[LlmTier.NANO.value]
-        answered, missed = stats.ok, stats.fallback
+        answered, missed = self.counts()
         if answered > self._counted[0]:
             self.state = True
         elif missed > self._counted[1]:
@@ -661,7 +687,7 @@ def main() -> None:
     llm = build_llm()
     runtime_url = os.getenv("RUNTIME_URL", "http://runtime:8000")
     agent = GuardedAgent(asset_id, runtime_url, Proposer(llm))
-    health = ModelHealth(llm)
+    health = ModelHealth(lambda: (agent.model_answers, agent.model_misses))
     registration = Registration(runtime_url, lambda: identity(asset_id, llm, health.check()),
                                 float(os.getenv("REGISTER_PERIOD_S") or REGISTER_PERIOD_S))
     print(f"agent {asset_id} up, files to runtime "

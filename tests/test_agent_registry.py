@@ -13,7 +13,10 @@ import threading
 import time
 import unittest
 
-from holdshort.agent.loop import ModelHealth, Registration, identity
+from holdshort.agent.chooser import Choice
+from holdshort.agent.loop import GuardedAgent, ModelHealth, Registration, identity
+from holdshort.agent.propose import Proposer
+from holdshort.agent.trace import form_part
 from holdshort.core.config import model_display
 from holdshort.llm.client import TieredLlm
 from holdshort.runtime import service as service_module
@@ -158,16 +161,36 @@ class IdentityTest(unittest.TestCase):
 
 class ModelHealthTest(unittest.TestCase):
     def test_answered_since_the_last_registration_is_true_and_all_missed_is_false(self):
-        client = llm("http://127.0.0.1:11435/v1", "nemotron-3-nano:4b")
-        health = ModelHealth(client)
-        nano = client.stats["nano"]
-        self.assertIsNone(health.check(), "아직 부른 적이 없으면 모릅니다")
-        nano.fallback += 2
-        self.assertIs(health.check(), False, "부른 것이 전부 규칙으로 넘어갔습니다")
-        self.assertIs(health.check(), False, "그 사이에 부른 적이 없으면 지난 판단 그대로")
-        nano.fallback += 3
-        nano.ok += 1
-        self.assertIs(health.check(), True, "하나라도 답을 받아 썼으면 모델이 쓴 것입니다")
+        counts = [0, 0]
+        health = ModelHealth(lambda: tuple(counts))
+        self.assertIsNone(health.check(), "아직 물은 적이 없으면 모릅니다")
+        counts[1] += 2
+        self.assertIs(health.check(), False, "물은 것을 전부 규칙이 대신 썼습니다")
+        self.assertIs(health.check(), False, "그 사이에 물은 적이 없으면 지난 판단 그대로")
+        counts[1] += 3
+        counts[0] += 1
+        self.assertIs(health.check(), True, "하나라도 모델의 답을 썼으면 모델이 쓴 것입니다")
+
+    def test_forms_and_choices_count_and_route_drafts_do_not(self):
+        client = llm("http://127.0.0.1:9/v1", "nemotron-3-nano:4b")
+        agent = GuardedAgent("drone-01", "http://127.0.0.1:9", Proposer(client))
+        health = ModelHealth(lambda: (agent.model_answers, agent.model_misses))
+        agent._count_form(form_part("nemotron-3-nano:4b", "delivery", "fly_route", "go", 900,
+                                    True, None))
+        self.assertIs(health.check(), True)
+        client.stats["nano"].fallback += 5
+        self.assertIs(health.check(), True,
+                      "초안 실패(마지막 수단)만 쌓였다고 화면이 rules 가 되면 안 됩니다")
+        agent._count_form(form_part("", "delivery", "fly_route", "go", 6000, False, "timeout"))
+        agent._count_choice(Choice("a", "rules: the shortest legal route", path="rules",
+                                   asked=True, fallback_reason="timeout"))
+        self.assertIs(health.check(), False, "물었지만 규칙이 썼습니다")
+        agent._count_form(form_part("", "delivery", "fly_route", "go", 0, False, "no model"))
+        agent._count_choice(Choice("a", "rules: the shortest legal route", path="rules"))
+        self.assertIs(health.check(), False, "묻지 않은 것은 세지 않아 지난 판단 그대로")
+        agent._count_choice(Choice("c", "clear of traffic", model="nemotron-3-nano:4b",
+                                   path="tools", asked=True))
+        self.assertIs(health.check(), True)
 
 
 class FakeRuntime(http.server.BaseHTTPRequestHandler):
