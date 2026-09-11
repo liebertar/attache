@@ -70,8 +70,8 @@
   .box.a h3 { color:var(--gate-ink); } .box.b h3 { color:var(--refuse); }
 
   ol.todo { margin:8px 0 0; padding-left:0; list-style:none; counter-reset:t; display:grid; gap:10px; max-width:80ch; }
-  ol.todo li { counter-increment:t; display:grid; grid-template-columns:34px 1fr; gap:10px; align-items:start; font-size:15px; }
-  ol.todo li::before { content:counter(t); font-family:"Gothic A1",sans-serif; font-weight:800; font-size:14px; color:var(--gate-ink); background:var(--gate-soft); width:26px; height:26px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; margin-top:3px; }
+  ol.todo li { counter-increment:t; position:relative; padding-left:44px; font-size:15px; }
+  ol.todo li::before { content:counter(t); position:absolute; left:0; top:3px; font-family:"Gothic A1",sans-serif; font-weight:800; font-size:14px; color:var(--gate-ink); background:var(--gate-soft); width:26px; height:26px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; }
   ol.todo li b { font-family:"Gothic A1",sans-serif; }
   ul.plain { margin:6px 0 0; padding-left:18px; max-width:80ch; }
   ul.plain li { margin:5px 0; font-size:15px; }
