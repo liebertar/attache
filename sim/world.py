@@ -6,6 +6,7 @@ nothing holds the rules. Both worlds run the same code from the same seed; the o
 difference is who is allowed to call act().
 """
 
+import functools
 import json
 import math
 import os
@@ -16,12 +17,15 @@ from pathlib import Path
 
 from holdshort.core.geo import (
     DEFAULT_CEILING_M,
+    METRES_PER_DEG_LAT,
+    METRES_PER_DEG_LON,
     TRAFFIC_LATERAL_M,
     TRAFFIC_VERTICAL_M,
     VERTICAL_CLEARANCE_M,
     Airspace,
     Volume,
     building_clearance_m,
+    nearest_exit,
 )
 from holdshort.core.notam import Clock, parse_notice
 
@@ -479,6 +483,28 @@ INCIDENT_CENTRE = _address_coords(INCIDENT_ADDRESS)
 AIRSPACE = Airspace()
 
 
+@functools.lru_cache(maxsize=1)
+def zone_exit_ticks(samples: int = 24) -> int:
+    """닫힌 구역 안 어디서든 가장 가까운 바깥(이격 포함, 런타임의 nearest_exit)까지 순항으로 몇 틱.
+
+    구역 안을 촘촘히 짚어 가장 먼 자리를 씁니다. 회수가 닿는 틱과 끝자리 반올림으로 두 틱을
+    더합니다. 점수판은 닫힐 때 안에 있던 기체에게 이만큼을 줍니다 — 두 세계에 같게.
+    """
+    lats = [point[0] for point in ZONE_VOLUME.polygon]
+    lons = [point[1] for point in ZONE_VOLUME.polygon]
+    farthest = 0.0
+    for i in range(samples + 1):
+        for j in range(samples + 1):
+            lat = min(lats) + (max(lats) - min(lats)) * i / samples
+            lon = min(lons) + (max(lons) - min(lons)) * j / samples
+            door = nearest_exit(ZONE_VOLUME, lat, lon)
+            if door is None:
+                continue
+            farthest = max(farthest, math.hypot((door[0] - lat) * METRES_PER_DEG_LAT,
+                                                (door[1] - lon) * METRES_PER_DEG_LON))
+    return math.ceil(farthest / (CRUISE_MPS * SIM_SECONDS_PER_TICK)) + 2
+
+
 @dataclass
 class Vehicle:
     id: str
@@ -497,6 +523,7 @@ class Vehicle:
     charge_mode: str = "normal"
     spend: float = 0.0
     in_zone: bool = False
+    zone_grace_until: int = 0     # 닫힐 때 안에 있었으면 나갈 시간이 끝나는 틱
     over_ceiling: bool = False
     airborne: bool = False          # 지난 틱에 떠 있었나. 이륙(땅 → 공중)을 세는 데 씁니다
     in_incident: bool = False
@@ -1183,20 +1210,24 @@ class World:
         """구역 안 기체를 셉니다. 신청이 아니라 위치입니다.
 
         규칙이 도착한 순간 이미 안에 있던 기체는 침범으로 세지 않습니다. 그건 아무도
-        잘못한 게 아닙니다. 대신 그 뒤로 얼마나 오래 남아 있었는지를 셉니다. 나가라고
-        시킬 수 있는 쪽과 각자 알아서 나가는 쪽의 차이가 거기서 벌어집니다.
+        잘못한 게 아닙니다. 가장 가까운 바깥까지 나는 시간(zone_exit_ticks)도 세지 않습니다 —
+        순간이동은 없으니 어느 배선이든 그만큼은 안에 있습니다. 그 뒤로도 남아 있던 시간과, 닫힌
+        뒤에 들어간 기체가 머문 시간을 셉니다. 나가라고 시킬 수 있는 쪽과 각자 알아서 나가는
+        쪽의 차이가 거기서 벌어집니다. 두 세계에 같은 셈입니다.
         """
         if not (ZONE_TICK <= tick <= ZONE_UNTIL):
             return
         for vehicle in self.vehicles.values():
-            if vehicle.state == "grounded":
-                continue
-            inside = ZONE_VOLUME.covers(*to_latlon(vehicle.x, vehicle.y))
-            if inside:
-                self.score.zone_dwell_ticks += 1
+            flying = vehicle.state != "grounded"
+            inside = flying and ZONE_VOLUME.covers(*to_latlon(vehicle.x, vehicle.y))
             if tick == ZONE_TICK:
                 vehicle.in_zone = inside  # 규칙 도착 시점의 상태는 그냥 기록만
+                vehicle.zone_grace_until = tick + (zone_exit_ticks() if inside else 0)
                 continue
+            if not flying:
+                continue
+            if inside and tick > vehicle.zone_grace_until:
+                self.score.zone_dwell_ticks += 1
             if inside and not vehicle.in_zone:
                 self.score.zone_incursions += 1
                 self._log(tick, "비행금지 구역 침범", f"{vehicle.id} 가 병원 상공에 들어감")

@@ -23,7 +23,7 @@ from holdshort.agent.planner import OperatorPlanner
 from holdshort.agent.propose import COSTS, by_rule
 from holdshort.agent.trace import route_part
 from holdshort.core.config import load as config_load
-from holdshort.core.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, first_breach, nearest_exit
+from holdshort.core.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, first_breach
 from holdshort.core.models import Verdict
 from holdshort.core.route import Router
 from holdshort.llm.client import LlmReply, TieredLlm
@@ -336,9 +336,11 @@ def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_facto
         guarded.drafter = drafter_factory(runtime, guarded.planner)
     direct = DirectSide(simulation.worlds["direct"])
     # 기체가 판 동안 무엇을 했는지. 점수판은 규칙 위반을 세고, 이건 순환이 실제로 도는지 봅니다.
-    # zone_ticks·inside_at_closure: 점수판의 zone_dwell_ticks 를 기체별로 나눈 것(같은 셈법).
+    # zone_ticks: 닫힌 구역 안에 있던 틱 전부. zone_excess: 점수판의 zone_dwell_ticks 를 기체별로
+    # 나눈 것(같은 셈법 — 닫힐 때 안에 있었으면 나갈 시간을 넘긴 틱만).
     trace = {vid: {"states": set(), "delivered": 0, "hovering": 0, "max_load": 0, "home": 0,
-                   "zone_ticks": 0, "inside_at_closure": False}
+                   "zone_ticks": 0, "zone_excess": 0, "grace_until": 0,
+                   "inside_at_closure": False}
              for vid in guarded_world.vehicles}
     at_home = dict.fromkeys(guarded_world.vehicles, True)
 
@@ -381,36 +383,18 @@ def run(tmp_ledger: str, ticks: int = TICKS, drafter_factory=None, adapter_facto
 
 def _count_zone_tick(row: dict, vehicle, tick: int) -> None:
     """sim.world._detect_zone_incursions 와 같은 셈을 기체별로. 창 안에서, 멈춘 기체는 빼고."""
-    if not (sim_world.ZONE_TICK <= tick <= sim_world.ZONE_UNTIL) or vehicle.state == "grounded":
+    if not (sim_world.ZONE_TICK <= tick <= sim_world.ZONE_UNTIL):
         return
-    inside = sim_world.ZONE_VOLUME.covers(*sim_world.to_latlon(vehicle.x, vehicle.y))
-    if inside:
-        row["zone_ticks"] += 1
+    inside = (vehicle.state != "grounded"
+              and sim_world.ZONE_VOLUME.covers(*sim_world.to_latlon(vehicle.x, vehicle.y)))
     if tick == sim_world.ZONE_TICK:
         row["inside_at_closure"] = inside
-
-
-def zone_exit_ticks(samples: int = 24) -> int:
-    """닫힌 구역 안 어디서든 가장 가까운 바깥(이격 포함, 런타임의 nearest_exit)까지 순항으로 몇 틱.
-
-    구역 안을 촘촘히 짚어 가장 먼 자리를 씁니다. 회수가 닿는 틱과 끝자리 반올림으로 두 틱을
-    더합니다.
-    """
-    volume = sim_world.ZONE_VOLUME
-    lats = [point[0] for point in volume.polygon]
-    lons = [point[1] for point in volume.polygon]
-    farthest = 0.0
-    for i in range(samples + 1):
-        for j in range(samples + 1):
-            lat = min(lats) + (max(lats) - min(lats)) * i / samples
-            lon = min(lons) + (max(lons) - min(lons)) * j / samples
-            door = nearest_exit(volume, lat, lon)
-            if door is None:
-                continue
-            farthest = max(farthest, math.hypot((door[0] - lat) * METRES_PER_DEG_LAT,
-                                                (door[1] - lon) * METRES_PER_DEG_LON))
-    per_tick = sim_world.CRUISE_MPS * sim_world.SIM_SECONDS_PER_TICK
-    return math.ceil(farthest / per_tick) + 2
+        row["grace_until"] = tick + (sim_world.zone_exit_ticks() if inside else 0)
+        return
+    if inside:
+        row["zone_ticks"] += 1
+        if tick > row["grace_until"]:
+            row["zone_excess"] += 1
 
 
 def min_distance_m(legs: list[dict], centre) -> float:
@@ -811,12 +795,14 @@ class TwoWorldsTest(unittest.TestCase):
 
         직결 세계와 크기를 견주지는 않습니다. 두 세계의 기체는 다른 길(판정받은 길 · 직선)을 날아
         닫히는 순간 안에 있는 기체가 다릅니다. 씨앗 7 에서 후보 (c) 로 돌아간 drone-03 은 런타임
-        세계에서만 안에 있었습니다(런타임 7틱, 직결 0). 예전 단언(런타임 ≤ 직결)은 두 쪽 다 0 이라
-        지나갔을 뿐, 이 차이를 본 적이 없습니다.
+        세계에서만 안에 있었고 7틱 만에 나갔습니다 — 나갈 시간 안이라 점수판은 0 입니다. 예전
+        단언(런타임 ≤ 직결)은 두 쪽 다 0 이라 지나갔을 뿐, 이 차이를 본 적이 없습니다.
         """
         self.assertEqual(self.guarded["zone_incursions"], 0)
+        self.assertEqual(self.guarded["zone_dwell_ticks"], 0,
+                         "나갈 시간을 넘겨 머문 기체가 없어야 합니다")
         recalled_at = {row["asset"]: row["tick"] for row in self.stats["zone_recalls"]}
-        bound = zone_exit_ticks()
+        bound = sim_world.zone_exit_ticks()
         for asset, row in self.trace.items():
             with self.subTest(asset=asset):
                 if not row["inside_at_closure"]:
@@ -826,7 +812,7 @@ class TwoWorldsTest(unittest.TestCase):
                                  "닫힌 그 틱에 회수되어야 합니다")
                 self.assertLessEqual(row["zone_ticks"], bound,
                                      "가장 가까운 바깥까지 나는 시간보다 오래 머물렀습니다")
-        self.assertEqual(sum(row["zone_ticks"] for row in self.trace.values()),
+        self.assertEqual(sum(row["zone_excess"] for row in self.trace.values()),
                          self.guarded["zone_dwell_ticks"], "기체별 셈과 점수판은 같은 것을 셉니다")
 
     def test_takeoffs_are_held_by_the_weather_report_only_where_something_reads_it(self):
