@@ -23,11 +23,14 @@ x-build-direct: &build-direct
       required: false
   restart: unless-stopped
 
-# 모델 설정. 비우면 규칙만으로 돕니다. Mac 의 Ollama 를 컨테이너에서 쓰려면
-# LLM_BASE_URL=http://host.docker.internal:11434/v1 (.env.example 의 Ollama 블록 참고).
+# 모델 설정. 비우면 규칙만으로 돕니다. NEBIUS_API_KEY 만 주면 Token Factory 주소가 채워지고 모델 id 는
+# 아래 nvidia/... 기본값입니다(scripts/dev.sh 와 같은 약속). Mac 의 Ollama 를 컨테이너에서 쓰려면 주소를
+# host.docker.internal 로 — 런타임은 관제 서버 :11439, 드론은 LLM_URL_1..4 = :11435..:11438 — 주고
+# MODEL_NANO·MODEL_SUPER 도 같이 줘야 합니다. 기본값이 Nebius id 라 안 주면 Ollama 가 모르는 모델이라
+# 답하고 규칙이 씁니다(.env.example 의 compose 블록).
 # 런타임만 Super/Ultra 를 부릅니다(공지 읽기·권고·중재). 드론 에이전트는 Nano 하나뿐입니다.
 x-llm: &llm
-  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-${NEBIUS_API_KEY:+https://api.tokenfactory.nebius.com/v1}}
   NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
   MODEL_NANO: ${MODEL_NANO:-nvidia/Nemotron-3_5-Lightning}
   MODEL_SUPER: ${MODEL_SUPER:-nvidia/nemotron-3-super-120b-a12b}
@@ -109,28 +112,28 @@ services:
   # --- 런타임을 거치는 세계 -------------------------------------------------
   guarded-drone-01:
     <<: *build-agent
-    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_1:-${LLM_BASE_URL:-}}",
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_1:-${LLM_BASE_URL:-${NEBIUS_API_KEY:+https://api.tokenfactory.nebius.com/v1}}}",
                    ASSET_ID: drone-01, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
   guarded-drone-02:
     <<: *build-agent
-    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_2:-${LLM_BASE_URL:-}}",
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_2:-${LLM_BASE_URL:-${NEBIUS_API_KEY:+https://api.tokenfactory.nebius.com/v1}}}",
                    ASSET_ID: drone-02, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
   guarded-drone-03:
     <<: *build-agent
-    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_3:-${LLM_BASE_URL:-}}",
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_3:-${LLM_BASE_URL:-${NEBIUS_API_KEY:+https://api.tokenfactory.nebius.com/v1}}}",
                    ASSET_ID: drone-03, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
 
   guarded-drone-04:
     <<: *build-agent
-    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_4:-${LLM_BASE_URL:-}}",
+    environment: { <<: *agent-llm, LLM_BASE_URL: "${LLM_URL_4:-${LLM_BASE_URL:-${NEBIUS_API_KEY:+https://api.tokenfactory.nebius.com/v1}}}",
                    ASSET_ID: drone-04, RUNTIME_URL: "http://runtime:8000" }
     networks: [fleet]
     depends_on: [runtime]
