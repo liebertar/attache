@@ -293,19 +293,30 @@ export function hex(lat, lon, radiusM, base, thicknessM) {
  * 육각 한 덩어리로는 무엇인지 안 읽혀서 팔과 로터를 따로 세웁니다.
  * 실물(약 1m)보다 훨씬 큽니다 — 실물 크기면 줌 14.5 에서 한 픽셀도 안 됩니다.
  */
-export function droneBody(lat, lon, altitude, heading = 0) {
+// scale 은 PX4 유령 기체용입니다 — 같은 자리를 나는 파란 기체와 겹쳐도 테두리처럼 한 둘레 크게 보이게.
+export function droneBody(lat, lon, altitude, heading = 0, scale = 1) {
   const base = Math.max(0, altitude - 1);
-  const parts = [hex(lat, lon, 5, base, 3.5)];
+  const parts = [hex(lat, lon, 5 * scale, base, 3.5 * scale)];
   const turn = (heading * Math.PI) / 180;
-  const armM = 11;
+  const armM = 11 * scale;
   for (let i = 0; i < 4; i++) {
     const angle = turn + Math.PI / 4 + (i / 4) * 2 * Math.PI;
     const dLat = (armM * Math.cos(angle)) / METRES_PER_DEG_LAT;
     const dLon = (armM * Math.sin(angle)) / METRES_PER_DEG_LAT
       / (Math.cos(lat * Math.PI / 180) || 1);
-    parts.push(hex(lat + dLat, lon + dLon, 4.5, base + 1, 1.6));
+    parts.push(hex(lat + dLat, lon + dLon, 4.5 * scale, base + 1, 1.6 * scale));
   }
   return parts;
+}
+
+/** 공사 크레인. 가는 기둥과 꼭대기의 긴 팔 — 건물 자료(OSM)에 없는 임시 장애물이라 건물과 다르게 보여야 합니다. */
+export function craneShape(lat, lon, heightM) {
+  const scale = Math.cos(lat * Math.PI / 180) || 1;
+  const east = m => m / METRES_PER_DEG_LAT / scale, north = m => m / METRES_PER_DEG_LAT;
+  const top = Math.max(6, Number(heightM) || 0);
+  const jib = [[lon + east(-10), lat - north(1.2)], [lon + east(32), lat - north(1.2)],
+               [lon + east(32), lat + north(1.2)], [lon + east(-10), lat + north(1.2)], [lon + east(-10), lat - north(1.2)]];
+  return [hex(lat, lon, 2.2, 0, top), {polygon: jib, base: top - 3.2, height: top - 1}];
 }
 
 /** 네모 상자 하나. 짐은 상자로 보여야 짐입니다. */
@@ -328,6 +339,86 @@ export function groundDisc(lat, lon, radiusM, sides = 28) {
     ring.push([lon + rLon * Math.cos(angle), lat + r * Math.sin(angle)]);
   }
   return ring;
+}
+
+// 관제탑과 신호선. 런타임의 자리는 기호입니다 — 창고 위 공중에 띄운 가는 기둥이고, 실제 서버가
+// 거기 있다는 뜻이 아닙니다. 선은 회랑과 같은 3D 점선 토막이되 훨씬 가늘게(폭 3 m) — 회랑과 기체가
+// 늘 주인공이고 선은 배경입니다.
+export const TOWER_ALT_M = 250;
+// 폭 4.4 m. 3 m 로 그렸더니 줌 16 에서 2 픽셀 남짓이라 밝은 바탕에 묻혔습니다.
+const SIGNAL_DASH_M = 20;
+const SIGNAL_GAP_M = 22;
+const SIGNAL_HALF_M = 2.2;
+// 끊긴 링크는 가운데가 비어 보여야 합니다. 선 길이의 이 구간에는 토막을 두지 않습니다.
+export const SIGNAL_BREAK = [0.36, 0.64];
+
+/** 창고 위에 뜬 관제탑 표지. 가는 기둥 하나와 얇은 머리판 — 탑이 아니라 기호로 읽히게. */
+export function towerColumn(lat, lon, altM = TOWER_ALT_M) {
+  return [hex(lat, lon, 4.5, altM - 26, 26), hex(lat, lon, 10, altM, 2.5)];
+}
+
+/** 두 3D 점 사이 t(0~1) 지점. 고도도 같이 섞습니다. */
+export function signalPoint(from, to, t) {
+  return {lat: from.lat + (to.lat - from.lat) * t, lon: from.lon + (to.lon - from.lon) * t,
+          alt_m: Number(from.alt_m) + (Number(to.alt_m) - Number(from.alt_m)) * t};
+}
+
+/** 한 토막의 발자국. 수평으로 긴 토막은 진행 방향으로 누운 가는 판, 거의 수직인 토막(옥상 바로 위 탑까지)은
+ * 작은 정사각 — 가파른 줄을 수평 판으로 자르면 계단으로 보였습니다. */
+function dashFootprint(a, b, halfM) {
+  const scale = Math.cos(a.lat * Math.PI / 180) || 1;
+  const dLat = b.lat - a.lat, dLon = (b.lon - a.lon) * scale;
+  const flat = Math.hypot(dLat, dLon) * METRES_PER_DEG_LAT;
+  if (flat > halfM * 2) return ribbon([a, b], halfM, 1)[0].polygon;
+  const r = halfM / METRES_PER_DEG_LAT, rLon = r / scale;
+  const lat = (a.lat + b.lat) / 2, lon = (a.lon + b.lon) / 2;
+  return [[lon - rLon, lat - r], [lon + rLon, lat - r], [lon + rLon, lat + r], [lon - rLon, lat + r], [lon - rLon, lat - r]];
+}
+
+/**
+ * 기체에서 관제탑까지의 점선. 토막은 3D 길이로 나눕니다 — 수평 길이로 나누면 옥상에서 250 m 위 탑으로
+ * 거의 수직으로 오르는 줄이 토막 하나가 됩니다. 토막마다 자기 고도 구간을 base~height 로 가집니다.
+ * broken 이면 가운데(SIGNAL_BREAK)를 비웁니다 — 링크 두절.
+ */
+export function signalDashes(from, to, broken = false, halfM = SIGNAL_HALF_M) {
+  const scale = Math.cos(from.lat * Math.PI / 180) || 1;
+  const dx = (to.lon - from.lon) * scale * METRES_PER_DEG_LAT, dy = (to.lat - from.lat) * METRES_PER_DEG_LAT;
+  const dz = Number(to.alt_m) - Number(from.alt_m);
+  const length = Math.hypot(dx, dy, dz);
+  const out = [];
+  if (!(length > 1)) return out;
+  for (let s = 0; s < length; s += SIGNAL_DASH_M + SIGNAL_GAP_M) {
+    const t0 = s / length, t1 = Math.min(s + SIGNAL_DASH_M, length) / length;
+    if (broken && t1 > SIGNAL_BREAK[0] && t0 < SIGNAL_BREAK[1]) continue;
+    const a = signalPoint(from, to, t0), b = signalPoint(from, to, t1);
+    out.push({polygon: dashFootprint(a, b, halfM),
+              base: Math.max(0, Math.min(a.alt_m, b.alt_m) - halfM),
+              height: Math.max(a.alt_m, b.alt_m) + halfM});
+  }
+  return out;
+}
+
+/** 선 위를 지나가는 사건 하나(신청·판정·회수·텔레메트리). 고도에 뜬 작은 육각 덩어리입니다. */
+export function signalDot(from, to, t, radiusM = 7) {
+  const p = signalPoint(from, to, Math.max(0, Math.min(1, t)));
+  return hex(p.lat, p.lon, radiusM, p.alt_m - radiusM, radiusM * 2);
+}
+
+/** 지면 한 점 위 altM 이 화면에서 몇 픽셀 위로 떠 보이는가(근사). 공중 표지의 이름표를 거기 붙입니다.
+ * MapLibre 는 한 변 512 픽셀 타일이라 줌 z 의 1 픽셀은 둘레 / (512·2^z) 미터입니다. 원근 왜곡은 무시합니다. */
+export function towerLift(zoom, pitchDeg, lat, altM) {
+  return altM / metresPerPixel(zoom, lat) * Math.sin(pitchDeg * Math.PI / 180);
+}
+
+/** 화면 한 픽셀이 땅에서 몇 미터인가(화면 가운데 기준). */
+export function metresPerPixel(zoom, lat) {
+  return 40075016.686 * (Math.cos(lat * Math.PI / 180) || 1) / (512 * 2 ** zoom);
+}
+
+/** 신호선의 반폭(m). 미터로 고정하면 줌 14 아래에서 한 픽셀도 안 돼 사라지고, 가까이 가면 굵어집니다.
+ * 화면에서 늘 2.4 픽셀쯤 되게 하되, 가까이서는 SIGNAL_HALF_M 보다 가늘어지지 않습니다. */
+export function signalHalfWidth(zoom, lat) {
+  return Math.max(SIGNAL_HALF_M, metresPerPixel(zoom, lat) * 1.2);
 }
 
 /** 실은 짐. 기체 위로 개수만큼 쌓입니다. 싣는 중이면 늘고 내리는 중이면 줄어듭니다. */

@@ -54,13 +54,17 @@
   .row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
   /* 세 기둥. 왼쪽(머리·키·범례), 가운데 아래(거절·권고·링크 두절), 오른쪽(점수·기록·공지).
      기둥 안의 카드는 위아래로 쌓여 서로 겹칠 수 없고, 빈 카드는 자리도 차지하지 않습니다. */
-  #head{position:absolute;top:12px;left:12px;width:300px}
+  /* 왼쪽 기둥도 위아래로 쌓습니다: 머리 · 키 안내(남는 자리의 가운데) · 범례(출처 표기 바로 위 — 출처
+     표기는 아래 12px 에 높이 26, 6px 띄워 44). 전에는 셋을 따로 띄워 두어 1280×800 에서 범례가 키 안내의
+     마지막 두 줄(1–4 · L)을 60px 덮었습니다. 자리가 모자라면 범례가 줄고 스크롤합니다. */
+  #left{position:absolute;top:12px;left:12px;bottom:44px;width:300px;display:flex;
+        flex-direction:column;gap:10px;pointer-events:none}
+  #left>.card{pointer-events:auto;flex:0 0 auto;min-height:0}
   #head p{margin:8px 0 0}
-  #keys{position:absolute;top:50%;left:12px;transform:translateY(-50%);white-space:nowrap;
-        padding:8px 12px}
+  #left>#keys{align-self:flex-start;margin:auto 0;white-space:nowrap;padding:8px 12px}
   #keys div{padding:1px 0}
-  /* 범례는 출처 표기 바로 위. 출처 표기(아래 12px, 높이 26)와 6px 띄웁니다: 12 + 26 + 6 = 44. */
-  #legend{position:absolute;bottom:44px;left:12px;max-width:300px;line-height:1.8}
+  #left>#legend{flex:0 1 auto;min-height:56px;overflow:auto;line-height:1.8}
+  #left>#legend.min{min-height:0}
   #legend>div:not(.meta){display:flex;flex-wrap:wrap;column-gap:12px}
   #legend .li{white-space:nowrap}
   #legend .meta{line-height:1.5;margin-top:3px}
@@ -69,9 +73,16 @@
   #right>.card{pointer-events:auto;flex:0 0 auto;min-height:0}
   /* 기록 카드만 줄어듭니다. #right>.card 보다 구체적이어야 합니다 — 전에는 #acts 만 적어 규칙이 져서
      기록이 화면 아래로 빠져나갔습니다(1280×800 에서 864px 까지). */
-  #right>#acts{flex:0 1 auto;display:flex;flex-direction:column;overflow:hidden}
+  #right>#acts{flex:0 1 auto;display:flex;flex-direction:column;overflow:hidden;min-height:118px}
   #feed{flex:1 1 auto;overflow:hidden;min-height:0}
-  #banner{margin-top:auto}
+  /* 브리핑과 공지도 줄어듭니다(목록만 스크롤). 전에는 둘이 줄지 않아 1280×800 에서 기록이 제목줄만 남고
+     공지 카드가 화면 아래(825px)로 빠졌습니다. 기록은 네 줄쯤(118px)은 남깁니다. */
+  #right>#briefing{flex:0 1 auto;display:flex;flex-direction:column;overflow:hidden;min-height:96px}
+  /* 요약과 목록이 같이 줄고 각자 스크롤합니다. 요약만 버티면 목록이 0px 이 되어 항목을 볼 길이 없었습니다. */
+  #briefing .bf-summary{flex:0 1 auto;min-height:1.5em;overflow:auto}
+  #briefing .bf-list{flex:0 1 auto;min-height:0}
+  #right>#banner{flex:0 1 auto;overflow:auto;min-height:64px;margin-top:auto}
+  #right>#acts.min,#right>#briefing.min,#right>#banner.min{min-height:0}
   #banner div{padding:2px 0}
   #banner div+div{border-top:1px solid var(--line)}
   #banner i{color:var(--warn);font-style:italic}
@@ -170,13 +181,48 @@
   .pop dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
   .pop dt{color:var(--dim);font-size:11px}
   .pop dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+  /* 관제 브리핑. 항목 하나 = 종류 그림 · 장소 · 한 줄 · 출처 도메인 · 신뢰 표지. 목록만 넘치면 스크롤. */
+  #briefing .bf-summary{margin-top:6px;color:var(--dim)}
+  #briefing .bf-list{max-height:210px;overflow:auto;margin-top:4px}
+  #briefing .bi{display:grid;grid-template-columns:14px 1fr;column-gap:8px;padding:5px 0;border-top:1px solid var(--line)}
+  #briefing .bi:first-child{border-top:0}
+  #briefing svg.kind{width:14px;height:14px;color:var(--dim);margin-top:2px}
+  #briefing .bi-top{display:flex;align-items:center;justify-content:space-between;gap:6px}
+  #briefing .bi-top .tag,.bar .tools .tag{margin:0;white-space:nowrap;flex:0 0 auto}
+  .t-info{background:rgba(147,164,175,.16);color:var(--dim)}
+  .t-rec{background:rgba(232,176,58,.14);color:#ffd98a}
+  /* 모델이 한 일. 마우스를 올린 기체 옆에 뜨는 작은 카드 — 기체를 가리지 않게 옆으로 비켜 섭니다. */
+  #trace{position:absolute;z-index:5;width:300px;pointer-events:none}
+  #trace dl{margin:6px 0 0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px}
+  #trace dt{color:var(--dim);font-size:11px;white-space:nowrap;padding-top:1px}
+  #trace dd{margin:0;overflow-wrap:anywhere}
+  /* 시연 자막(?demo=1). 가운데 아래, 크게. 거절·권고 카드 더미는 자막 위로 올라갑니다. */
+  #caption{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);width:min(780px,calc(100% - 720px));
+           padding:10px 18px;text-align:center;pointer-events:none}
+  #caption-text{font-size:19px;line-height:1.4;font-weight:500}
+  #caption-text:empty,#caption-meta:empty{display:none}
+  body.demo #stack{bottom:112px}
+  /* 관제탑 이름표. 공중에 뜬 표지 위에 붙는 글자라 지도 레이어가 아니라 표지(Marker)입니다. */
+  .tower-label{font:600 10.5px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:.9px;
+               color:#cfe3ff;text-shadow:0 0 3px #0a0e11,0 0 6px #0a0e11;pointer-events:none;white-space:nowrap}
+  .route-key.signal{border-color:#8ec5ff;border-top-width:2px;border-top-style:dotted}
+  .route-key.signal-lost{border-color:#7d8f9a;border-top-width:2px;border-top-style:dashed}
+  /* 경로 후보(기체 카드). 고른 것에 ●. */
+  .pop .rc{margin:4px 0 0;padding:0;list-style:none;font-size:11px;line-height:1.5}
+  .pop .rc li{padding-left:14px;position:relative;color:var(--dim)}
+  .pop .rc li::before{content:"○";position:absolute;left:0}
+  .pop .rc li.chosen{color:var(--text)}
+  .pop .rc li.chosen::before{content:"●";color:var(--ok)}
+  @media(max-width:1280px){ #caption-text{font-size:16px} }
   /* 좁은 화면. 가운데 자리가 안 나오면 더미는 왼쪽 기둥, 머리 카드 밑으로 갑니다(키 안내는 숨김). */
   @media(max-width:1050px){
     #keys{display:none}
     #stack{left:12px;transform:none;width:300px;top:248px;bottom:auto}
   }
+  /* 낮은 화면. 머리 + 키 안내 + 범례 한 줄이 기둥에 안 들어가면 키 안내를 숨깁니다(좁은 화면과 같이). */
+  @media(max-height:680px){ #keys{display:none} }
   @media(max-width:640px){
-    #head{width:calc(100% - 24px)}
+    #left{width:calc(100% - 24px)}
     #right{top:auto;bottom:12px;width:205px;max-height:50vh}
     #legend{max-width:calc(100% - 24px)}
     #stack{bottom:auto;top:200px;width:calc(100% - 24px)}
@@ -186,6 +232,8 @@
 <body>
 <div id="map"></div>
 
+<!-- 왼쪽 기둥: 머리 · 키 안내 · 범례. 위아래로 쌓여 서로 겹칠 수 없습니다. -->
+<div id="left">
 <div class="card" id="head">
   <div class="topline">
     <h1 data-t="title"></h1>
@@ -219,11 +267,13 @@
     <span class="kk"><span class="kc">N</span></span><span data-t="k_north"></span>
     <span class="kk"><span class="kc">H</span></span><span data-t="k_home"></span>
     <span class="kk"><span class="kc">1</span><span class="plus">–</span><span class="kc">4</span></span><span data-t="k_focus"></span>
+    <span class="kk"><span class="kc">L</span></span><span data-t="k_signals"></span>
   </div>
 </div>
 
 <!-- 범례. 지금 화면에 있는 것만 — 줄은 renderLegend 가 스냅샷을 보고 채웁니다. -->
 <div class="card meta" id="legend" hidden></div>
+</div>
 
 <div id="right">
   <div class="card" id="score" hidden>
@@ -238,6 +288,8 @@
     <div class="bar"><h2 data-t="ledger"></h2><button type="button" class="min" data-min="acts" aria-expanded="true" aria-label="minimize" title="minimize">–</button></div>
     <div id="feed"></div>
   </div>
+  <!-- 관제 브리핑. 관제가 검색으로 모은 크레인·행사·폐쇄·제한 — 출처 도메인과 신뢰 표지가 같이. renderBriefing 이 채웁니다. -->
+  <div class="card" id="briefing" hidden></div>
   <!-- 공지·날씨·사고. 한 카드, 항목마다 한 줄. -->
   <div class="card" id="banner" hidden></div>
 </div>
@@ -262,9 +314,14 @@
   <div class="card" id="lostlink" role="alert" aria-atomic="true" hidden></div>
 </div>
 
+<!-- 모델이 한 일. 파란 기체나 기록 줄에 마우스를 올리면(터치는 누르면) 그 신청서의 model_trace 를 사람 말로. -->
+<div class="card" id="trace" role="tooltip" hidden></div>
+<!-- 시연 자막(?demo=1). 원장 코드와 값으로 조립한 한두 줄. -->
+<div class="card" id="caption" role="status" aria-live="polite" hidden><div id="caption-text"></div><div id="caption-meta" class="meta"></div></div>
+
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script type="module">
-import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, curveShell, curveColumns, hex, droneBody, cargoStack, groundDisc, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
+import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, curveShell, curveColumns, hex, droneBody, cargoStack, groundDisc, craneShape, signalDashes, signalDot, signalHalfWidth, towerColumn, towerLift, TOWER_ALT_M, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
 // 두 번째 스택을 같은 화면으로 보려고 ?rt=8010&sim=8110 처럼 포트를 바꿀 수 있습니다. 기본은 8000/8100.
 const query = typeof URLSearchParams === "function" ? new URLSearchParams(location.search || "") : new Map();
 const SIM = `http://${location.hostname}:${query.get("sim") || 8100}`;
@@ -293,7 +350,7 @@ const TEXT = {
     lg_nofly:"No-fly grid", lg_source:"FAA UAS Facility Map · OpenStreetMap buildings — real data.",
     keys_mouse:"drag pan · scroll zoom · right-drag or Ctrl+drag orbit",
     keys_arrows:"arrows pan · Shift+arrows rotate/tilt · +/- zoom",
-    keys_letters:"N north · H home · 1-4 focus drone",
+    keys_letters:"N north · H home · 1-4 focus drone · L tower lines",
     keys_title:"controls", k_drag:"drag", k_pan:"pan", k_zoom:"zoom", k_orbit:"orbit", k_rotate_tilt:"rotate / tilt",
     k_north:"north", k_home:"home", k_focus:"focus drone", legend_title:"legend", score_title:"scoreboard",
     notices_title:"notices", lostlink_title:"lost link", minimize:"minimize", expand:"expand",
@@ -390,6 +447,57 @@ const TEXT = {
     r_weather_confirmed:"confirmed by a person — takeoffs held", r_weather_refused:"refused by a person — no hold",
     r_weather_lapsed:"window closed before a person looked", r_incident_keepout:"%s · %s m keep-out until tick %s",
     k_weather:"weather", k_incident:"incident", k_notice:"restriction", k_none:"not fleet-relevant",
+    // 관제탑과 신호선(L). 탑의 자리는 기호입니다 — 런타임이 창고 위 250 m 에 떠 있다는 뜻이 아닙니다.
+    k_signals:"tower lines", tower_label:"HOLDSHORT TOWER", lg_tower:"HOLDSHORT TOWER",
+    lg_tower_note:"the runtime — symbolic position. Dotted lines are live links; grey and broken is a lost link.",
+    lg_signal:"link", lg_signal_lost:"lost link", lg_px4:"PX4 SITL mirror",
+    lg_crane:"Crane (briefing)", lg_closed:"Closed landing area",
+    // 관제 브리핑. 믿을 만한 도메인의 조이는 규칙은 바로, 나머지는 사람을 기다리고, 규칙이 없으면 정보만.
+    briefing_title:"tower briefing", bf_recorded:"RECORDED", bf_applied:"APPLIED",
+    bf_held:"WAITING FOR A PERSON", bf_info:"INFO ONLY",
+    bf_meta:"briefed at tick %s · %s of %s searches", bf_until:"until tick %s",
+    bf_kind_crane:"crane", bf_kind_event:"event", bf_kind_closure:"closure",
+    bf_kind_restriction:"restriction", bf_kind_weather:"weather", bf_kind_info:"information",
+    bf_crane:"CRANE %s m · %s", bf_closed:"CLOSED · %s",
+    blk_crane:"CRANE %s m (%s)", blk_briefing:"%s (%s)", blk_closed:"%s CLOSED (%s)",
+    src_recorded:"%s · recorded",
+    // 모델이 한 일. 신청서에 실린 model_trace 값만 씁니다.
+    tr_asked:"Asked", tr_answered:"Answered", tr_code:"Code", tr_route:"Route", tr_runtime:"Runtime",
+    tr_form_by:"Form by", tr_route_by:"Route by", tr_accepted:"accepted",
+    tr_replaced:"replaced by rules — %s", tr_rules_only:"rules wrote it — %s", tr_no_answer:"no model answer",
+    why_no_model:"no model", why_timeout:"no answer in time", why_invalid:"an action it may not file",
+    tr_straight:"straight line", tr_choice:"the model chose the %s among %s candidates — “%s”",
+    tr_choice_rules:"rules chose the %s among %s candidates", tr_draft_ok:"model draft, %s legs",
+    tr_draft_failed:"model draft failed — %s; A* drew it", tr_breach_building:"it crossed a %s m building",
+    tr_astar:"A* (rules)", tr_secs:"%s s",
+    // 경로 선택. 후보는 코드가 그리고 모델은 고르기만 합니다.
+    drafter_choice:"model choice", rc_chose:"%s chose the %s", rc_why:"%s — %s",
+    rc_options:"Route options", rc_candidate:"%s · %s legs · %s km · %s–%s m", rc_rules:"rules",
+    // PX4 SITL 거울. 같은 명령을 받는 진짜 조종장치이고, 판정에는 쓰지 않습니다.
+    px4_step:"step %s", px4_armed:"armed", px4_disarmed:"disarmed", px4_stale:"no heartbeat %s s",
+    // 시연 자막(?demo=1). 원장 코드와 값으로만 조립합니다.
+    cap_refused:"%s filed %s to %s — %s. Refused.", cap_refused_here:"%s filed %s — %s. Refused.",
+    cap_filed_straight:"a straight line", cap_filed_astar:"an A* route",
+    cap_filed_draft:"a model-drawn route", cap_filed_choice:"the %s", cap_filed_route:"a route",
+    cap_blk_building:"it clips a %s m building", cap_blk_zone:"it enters %s",
+    cap_blk_grid:"it crosses an FAA no-fly grid cell", cap_blk_ceiling:"it climbs above the %s m ceiling",
+    cap_blk_traffic:"it crosses %s's cleared corridor", cap_blk_landing:"there is no room to land — %s",
+    cap_blk_takeoff:"there is no room to lift off — %s", cap_blk_crane:"it clips a %s m crane (%s)",
+    cap_refiled:"%s refiled %s — approved: %s.", cap_policy:"%s filed a %s — %s. Refused.",
+    cap_recall:"A rule arrived — %s's approved route was pulled back (%s). It holds until a new one is approved.",
+    cap_notice:"NOTAM · %s, tick %s–%s — read by %s. Routes through it are pulled back, new ones refused.",
+    cap_notice_held:"A notice arrived as prose — %s. Read by %s; nothing applies until a person confirms.",
+    cap_weather:"WEATHER HOLD · %s — takeoffs held until tick %s. Aircraft already in the air continue to land.",
+    cap_fire:"%s — %s m keep-out until tick %s. Routes through it are pulled back; landing areas inside are unusable.",
+    cap_lost:"%s lost its link at tick %s. The runtime keeps its filed space reserved — nobody else may enter it.",
+    cap_restored:"%s is back — the reserved space is released.",
+    cap_advisory:"After %s refusals in a row the tower suggests to %s: %s. Information only — the operator decides.",
+    cap_recall_ad:"Airworthiness directive — %s grounded (tick %s–%s). Blue refuses the moment it lands.",
+    cap_paused:"director paused for %s s — you moved the map",
+    bf_refused:"REFUSED BY A PERSON", bf_lapsed:"LAPSED",
+    cap_briefing:"Tower briefing — %s, from %s. It applies now: routes through it are refused.",
+    cap_briefing_closed:"Tower briefing — %s, from %s. Landings there are refused.",
+    cap_briefing_held:"Tower briefing — %s, from %s. Nothing applies until a person confirms.",
   },
   ko: {
     title:"같은 기단, 다른 배선",
@@ -407,7 +515,7 @@ const TEXT = {
     lg_nofly:"비행금지 격자", lg_source:"FAA UAS Facility Map · OpenStreetMap 건물 — 실제 데이터.",
     keys_mouse:"드래그 이동 · 스크롤 확대 · 우클릭 드래그 또는 Ctrl+드래그 돌려보기",
     keys_arrows:"화살표 이동 · Shift+화살표 회전·기울이기 · +/- 확대·축소",
-    keys_letters:"N 정북 · H 처음 화면 · 1-4 기체로",
+    keys_letters:"N 정북 · H 처음 화면 · 1-4 기체로 · L 관제 신호선",
     keys_title:"조작", k_drag:"드래그", k_pan:"이동", k_zoom:"확대·축소", k_orbit:"돌려보기", k_rotate_tilt:"회전·기울이기",
     k_north:"정북", k_home:"처음 화면", k_focus:"기체로", legend_title:"범례", score_title:"점수판",
     notices_title:"공지", lostlink_title:"링크 두절", minimize:"최소화", expand:"펼치기",
@@ -499,6 +607,51 @@ const TEXT = {
     r_weather_confirmed:"사람이 확인 — 이륙 정지", r_weather_refused:"사람이 거부 — 대기 없음",
     r_weather_lapsed:"사람이 보기 전에 창이 닫힘", r_incident_keepout:"%s · 반경 %s m 접근 금지, 틱 %s 까지",
     k_weather:"날씨", k_incident:"사고", k_notice:"제한", k_none:"기단과 무관",
+    k_signals:"관제 신호선", tower_label:"HOLDSHORT 관제탑", lg_tower:"HOLDSHORT 관제탑",
+    lg_tower_note:"런타임 — 자리는 기호입니다. 점선은 살아 있는 링크, 회색으로 끊긴 선은 링크 두절.",
+    lg_signal:"링크", lg_signal_lost:"링크 두절", lg_px4:"PX4 SITL 거울",
+    lg_crane:"크레인 (브리핑)", lg_closed:"폐쇄된 착륙장",
+    briefing_title:"관제 브리핑", bf_recorded:"녹화본", bf_applied:"적용",
+    bf_held:"사람 확인 대기", bf_info:"정보만",
+    bf_meta:"틱 %s 브리핑 · 검색 %s/%s", bf_until:"틱 %s 까지",
+    bf_kind_crane:"크레인", bf_kind_event:"행사", bf_kind_closure:"폐쇄",
+    bf_kind_restriction:"제한", bf_kind_weather:"날씨", bf_kind_info:"정보",
+    bf_crane:"크레인 %s m · %s", bf_closed:"폐쇄 · %s",
+    blk_crane:"크레인 %s m (%s)", blk_briefing:"%s (%s)", blk_closed:"%s 폐쇄 (%s)",
+    src_recorded:"%s · 녹화본",
+    tr_asked:"물음", tr_answered:"답", tr_code:"코드", tr_route:"경로", tr_runtime:"런타임",
+    tr_form_by:"신청서 작성", tr_route_by:"경로 작성", tr_accepted:"그대로 받음",
+    tr_replaced:"규칙이 대신 씀 — %s", tr_rules_only:"규칙이 씀 — %s", tr_no_answer:"모델 답 없음",
+    why_no_model:"모델 없음", why_timeout:"시간 안에 답이 없음", why_invalid:"낼 수 없는 행동",
+    tr_straight:"직선", tr_choice:"모델이 고른 경로: %s (후보 %s개) — “%s”",
+    tr_choice_rules:"규칙이 고른 경로: %s (후보 %s개)", tr_draft_ok:"모델 초안, %s구간",
+    tr_draft_failed:"모델 초안 실패 — %s. A* 가 그림", tr_breach_building:"%s m 건물을 지남",
+    tr_astar:"A* (규칙)", tr_secs:"%s초",
+    drafter_choice:"모델 선택", rc_chose:"%s 의 선택: %s", rc_why:"%s — %s",
+    rc_options:"경로 후보", rc_candidate:"%s · %s구간 · %s km · %s–%s m", rc_rules:"규칙",
+    px4_step:"%s단계", px4_armed:"시동", px4_disarmed:"시동 꺼짐", px4_stale:"심장박동 %s초 없음",
+    cap_refused:"%s — %s, 목적지 %s. %s. 거절.", cap_refused_here:"%s — %s. %s. 거절.",
+    cap_filed_straight:"직선 경로", cap_filed_astar:"A* 경로",
+    cap_filed_draft:"모델이 그린 경로", cap_filed_choice:"%s", cap_filed_route:"경로",
+    cap_blk_building:"%s m 건물을 스칩니다", cap_blk_zone:"%s 안으로 들어갑니다",
+    cap_blk_grid:"FAA 비행금지 격자를 지납니다", cap_blk_ceiling:"천장 %s m 위로 오릅니다",
+    cap_blk_traffic:"%s 의 승인 회랑과 교차합니다", cap_blk_landing:"내릴 자리가 없습니다 — %s",
+    cap_blk_takeoff:"뜰 자리가 없습니다 — %s", cap_blk_crane:"%s m 크레인을 스칩니다 (%s)",
+    cap_refiled:"%s — %s 로 다시 냄. 승인: %s.", cap_policy:"%s — %s. %s. 거절.",
+    cap_recall:"규칙이 도착해 %s 의 승인 경로를 회수했습니다 (%s). 새 경로가 승인될 때까지 대기합니다.",
+    cap_notice:"NOTAM · %s, 틱 %s–%s — %s이 읽음. 지나던 승인 경로는 회수되고 새 경로는 거절됩니다.",
+    cap_notice_held:"공지가 문장으로 도착했습니다 — %s. %s이 읽었고, 사람이 확인하기 전에는 아무것도 막지 않습니다.",
+    cap_weather:"기상 대기 · %s — 틱 %s 까지 이륙 정지. 떠 있는 기체는 그대로 내립니다.",
+    cap_fire:"%s — 반경 %s m 접근 금지, 틱 %s 까지. 지나던 경로는 회수되고 안의 착륙장은 못 씁니다.",
+    cap_lost:"%s 링크 두절 (틱 %s). 런타임은 그 기체가 낸 공간을 그대로 잡아 둡니다 — 아무도 못 들어갑니다.",
+    cap_restored:"%s 링크 복구 — 잡아 둔 공간을 풉니다.",
+    cap_advisory:"연속 거절 %s회 뒤 관제가 %s 에 권고: %s. 정보일 뿐 — 결정은 운영사가 합니다.",
+    cap_recall_ad:"감항성 지시 — %s 운항 정지 (틱 %s–%s). 파란 쪽은 내리는 즉시 거부합니다.",
+    cap_paused:"지도를 움직여서 연출을 %s초 멈춤",
+    bf_refused:"사람이 거부", bf_lapsed:"창 닫힘",
+    cap_briefing:"관제 브리핑 — %s, 출처 %s. 지금 걸립니다: 지나는 경로는 거절됩니다.",
+    cap_briefing_closed:"관제 브리핑 — %s, 출처 %s. 거기로 내리는 경로는 거절됩니다.",
+    cap_briefing_held:"관제 브리핑 — %s, 출처 %s. 사람이 확인하기 전에는 아무것도 막지 않습니다.",
   },
 };
 
@@ -519,7 +672,8 @@ function t(key, ...args){
 
 // 패널 접기. 상태는 브라우저에 남깁니다 — 저장소가 막혀 있어도(사생활 창 등) 화면은 그대로 돕니다.
 // 거절·권고·링크 두절 카드는 접어 두어도 그 종류의 새 사건이 오면 다시 펼칩니다.
-const PANELS = ["head", "keys", "legend", "score", "acts", "banner", "denial", "advisory", "lostlink"];
+const PANELS = ["head", "keys", "legend", "score", "acts", "briefing", "banner", "denial", "advisory",
+                "lostlink"];
 const PANEL_STORE = "holdshort-panels";
 let minimized = {};
 try { minimized = JSON.parse(localStorage.getItem(PANEL_STORE) || "{}") || {}; }
@@ -558,9 +712,13 @@ function minButton(id){
   return `<button type="button" class="min" data-min="${id}" aria-expanded="${!on}" ` +
          `aria-label="${label}" title="${label}">${on ? "+" : "–"}</button>`;
 }
-/** 다시 그리는 카드(범례·공지·링크 두절)의 제목줄. 버튼은 문서 한 곳에서 받습니다(아래 click). */
-function panelBar(id, titleKey){
-  return `<div class="bar"><span class="bar-title">${t(titleKey)}</span>${minButton(id)}</div>`;
+/** 다시 그리는 카드(범례·공지·링크 두절·브리핑)의 제목줄. 버튼은 문서 한 곳에서 받습니다(아래 click).
+ * extra 는 제목줄 오른쪽, 접기 버튼 왼쪽에 붙는 표지입니다(브리핑의 '녹화본'). */
+function panelBar(id, titleKey, extra = ""){
+  const title = `<span class="bar-title">${t(titleKey)}</span>`;
+  return extra
+    ? `<div class="bar">${title}<span class="tools">${extra}${minButton(id)}</span></div>`
+    : `<div class="bar">${title}${minButton(id)}</div>`;
 }
 document.addEventListener?.("click", event => {
   const button = event.target?.closest?.("[data-min]");
@@ -595,6 +753,23 @@ let stages = [];
 const queued = new Map();       // 기체별로 다음 구간이 시작할 수 있는 시각
 let seenDenials = new Set(), denialUntil = 0, roundStartedAt = 0;
 let seenAdvisories = new Set(), advisoryUntil = 0;
+
+// 아래 상태는 여기서 미리 선언합니다 — 화면 말 적용(applyLanguage)이 모듈 끝의 함수들보다 먼저 한 번 돌고,
+// 그때 자막·범례가 이 값들을 읽습니다.
+// 시연 연출. ?demo=1 일 때만 삽니다 — 평소 화면에서 카메라가 저 혼자 움직이면 안 됩니다.
+const DEMO = query.get("demo") === "1";
+const director = {queue:[], current:null, pausedUntil:0, restUntil:0,
+                  seen:new Set(), ledgerSeen:new Set(), lost:new Set()};
+let captionKey = null;
+// 관제탑 신호선. 켜고 끄기는 L, 상태는 브라우저에 남습니다(막혀 있어도 화면은 그대로 돕니다).
+let signalsOn = true;
+try { signalsOn = localStorage.getItem("holdshort-signals") !== "off"; } catch (error) { void error; }
+let signalEvents = [], signalBuiltAt = -Infinity, towerMarker = null;
+const signalSeen = new Set(), telemetryDotAt = new Map();
+// PX4 거울, 모델이 한 일 카드, 범례가 마지막으로 받은 인자.
+const px4Motion = new Map();
+let traceTarget = null, legendArgs = null;
+if (DEMO) document.body?.classList?.add?.("demo");
 
 // 공역은 [위도, 경도] 로 옵니다. GeoJSON 은 [경도, 위도] 이고 고리를 닫아야 합니다.
 function closedRing(points){
@@ -681,16 +856,19 @@ map.on("load", () => {
   // 원은 땅에 붙은 다각형(반지름 30m)입니다. 화면을 향한 동그라미는 기울여도 안 눕습니다.
   map.addSource("landing", {type:"geojson", data: empty()});
   map.addSource("landing-disc", {type:"geojson", data: empty()});
+  // 브리핑이 '닫혔다'고 읽은 착륙장은 회색입니다 — 여기로는 배달을 못 받습니다. 색만 바뀌고 자리는 남습니다.
+  const closedGrey = (open, closed) => ["case", ["boolean", ["get", "closed"], false], closed, open];
   map.addLayer({id:"landing-fill", type:"fill", source:"landing-disc",
-    paint:{"fill-color":"#18b3a6","fill-opacity":.22}}, firstLabel);
+    paint:{"fill-color":closedGrey("#18b3a6", "#5b6770"), "fill-opacity":.22}}, firstLabel);
   map.addLayer({id:"landing-ring", type:"line", source:"landing-disc",
-    paint:{"line-color":"#18b3a6","line-width":1.6,"line-opacity":.9}}, firstLabel);
+    paint:{"line-color":closedGrey("#18b3a6", "#7d8f9a"),"line-width":1.6,"line-opacity":.9}}, firstLabel);
   map.addLayer({id:"landing-label", type:"symbol", source:"landing",
     layout:{"text-field":["concat",["get","name"],"\n",["get","tag"]],
             "text-size":["interpolate",["linear"],["zoom"],12,9,16,12],
             "text-font":["Noto Sans Regular"],"text-offset":[0,1.4],"text-anchor":"top",
             "text-line-height":1.2},
-    paint:{"text-color":"#18b3a6","text-halo-color":"#0a0e11","text-halo-width":1.3}});
+    paint:{"text-color":["case",["boolean",["get","closed"],false],"#9aa7b0","#18b3a6"],
+           "text-halo-color":"#0a0e11","text-halo-width":1.3}});
 
   // 창고 옥상 위 기체 자리 넷. 착륙·하역·적재는 늘 여기서 합니다 — 안 그리면 창고 근처 아무 데나
   // 앉았다 뜨는 것처럼 보였습니다. 옥상 높이에 얇은 판으로 올립니다.
@@ -716,6 +894,51 @@ map.on("load", () => {
     paint:{"fill-extrusion-color":"#c9a26a",
       "fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"],
       "fill-extrusion-opacity":.9}});
+
+  // 관제탑(기호)과 신호선. 파란 기체마다 탑까지 옅은 점선이 갑니다 — 직접 조종(주황)에는 선이 없고,
+  // 그 대비가 이 화면의 뜻입니다. 불투명도는 레이어 단위(자료로 못 바꿈)라 선·끊긴 선·텔레메트리·사건을
+  // 레이어 넷으로 나눕니다.
+  // 바탕 지도가 밝은 회색이라 옅은 하늘색(#cfe3ff)은 불투명도 .3 에서 아예 안 보였습니다(스크린샷으로 확인).
+  // 기체와 같은 파랑을 반투명으로 — 회랑(폭 18 m, .85)보다 한참 가늘고 옅되 보이기는 합니다.
+  const raise = {"fill-extrusion-base":["get","base"], "fill-extrusion-height":["get","height"]};
+  map.addSource("tower", {type:"geojson", data:empty()});
+  map.addLayer({id:"tower", type:"fill-extrusion", source:"tower",
+    paint:{...raise, "fill-extrusion-color":"#8ec5ff", "fill-extrusion-opacity":.9}});
+  map.addSource("signal-line", {type:"geojson", data:empty()});
+  map.addLayer({id:"signal-line", type:"fill-extrusion", source:"signal-line",
+    filter:["==",["get","kind"],"line"],
+    paint:{...raise, "fill-extrusion-color":"#3d8bff", "fill-extrusion-opacity":.5}});
+  map.addLayer({id:"signal-lost", type:"fill-extrusion", source:"signal-line",
+    filter:["==",["get","kind"],"lost"],
+    paint:{...raise, "fill-extrusion-color":"#5b6770", "fill-extrusion-opacity":.6}});
+  map.addSource("signal-dot", {type:"geojson", data:empty()});
+  map.addLayer({id:"signal-tick", type:"fill-extrusion", source:"signal-dot",
+    filter:["==",["get","kind"],"tick"],
+    paint:{...raise, "fill-extrusion-color":"#3d8bff", "fill-extrusion-opacity":.6}});
+  map.addLayer({id:"signal-dot", type:"fill-extrusion", source:"signal-dot",
+    filter:["==",["get","kind"],"dot"],
+    paint:{...raise, "fill-extrusion-color":["get","colour"], "fill-extrusion-opacity":.95}});
+
+  // PX4 SITL 거울. 같은 명령을 받는 진짜 조종장치의 자리 — 유령처럼 옅게, 기체보다 한 둘레 크게.
+  map.addSource("px4", {type:"geojson", data:empty()});
+  map.addLayer({id:"px4-body", type:"fill-extrusion", source:"px4",
+    paint:{...raise, "fill-extrusion-color":"#d9c8ff", "fill-extrusion-opacity":.45}});
+  map.addSource("px4-label", {type:"geojson", data:empty()});
+  map.addLayer({id:"px4-label", type:"symbol", source:"px4-label",
+    layout:{"text-field":["get","label"], "text-size":11, "text-font":["Noto Sans Regular"],
+            "text-offset":[0,-1.4], "text-anchor":"bottom", "text-allow-overlap":true,
+            "text-line-height":1.25},
+    paint:{"text-color":"#d9c8ff","text-halo-color":"#0a0e11","text-halo-width":1.4}});
+
+  // 브리핑이 찾은 공사 크레인. 건물 자료(OSM)에 없는 임시 장애물이라 건물색이 아니라 주황으로 세웁니다.
+  map.addSource("brief-crane", {type:"geojson", data:empty()});
+  map.addLayer({id:"brief-crane", type:"fill-extrusion", source:"brief-crane",
+    paint:{...raise, "fill-extrusion-color":"#ffb020", "fill-extrusion-opacity":.9}});
+  map.addSource("brief-crane-label", {type:"geojson", data:empty()});
+  map.addLayer({id:"brief-crane-label", type:"symbol", source:"brief-crane-label",
+    layout:{"text-field":["get","label"], "text-size":11.5, "text-font":["Noto Sans Regular"],
+            "text-offset":[0,-1.2], "text-anchor":"bottom", "text-allow-overlap":true},
+    paint:{"text-color":"#ffcf70","text-halo-color":"#0a0e11","text-halo-width":1.6}});
 
   for (const [id, colour] of [["guarded","#3d8bff"], ["direct","#ff7a3d"]]){
     map.addSource(id, {type:"geojson", data: empty()});
@@ -745,11 +968,29 @@ map.on("load", () => {
     map.on("click", `${world}-icon`, event => {
       const id = event.features?.[0]?.properties?.id;
       const asset = latest?.worlds?.[world]?.assets?.[id];
-      if (asset) popup.setLngLat(event.lngLat).setHTML(assetCard(world, asset)).addTo(map);
+      if (!asset) return;
+      // 터치에는 마우스를 올려 둘 방법이 없습니다. 파란 기체를 처음 누르면 '모델이 한 일' 카드가,
+      // 그 상태에서 다시 누르면 여느 때처럼 기체 카드가 뜹니다.
+      if (world === "guarded" && !canHover() && traceTarget?.asset !== id
+          && showTraceFor(id, event.point)) return;
+      hideTrace();
+      popup.setLngLat(event.lngLat).setHTML(assetCard(world, asset)).addTo(map);
     });
     map.on("mouseenter", `${world}-icon`, () => {map.getCanvas().style.cursor = "pointer";});
     map.on("mouseleave", `${world}-icon`, () => {map.getCanvas().style.cursor = "";});
   }
+  // 모델이 한 일. 파란 기체(몸통·이름표) 위에 마우스가 있는 동안만 카드가 옆에 서 있습니다.
+  for (const layer of ["craft-body", "guarded-icon"]){
+    map.on("mousemove", layer, hoverAircraft);
+    map.on("mouseleave", layer, () => hideTrace("aircraft"));
+  }
+  // 빈 곳을 누르면(터치) 카드를 접습니다.
+  map.on("click", event => {
+    const hit = map.queryRenderedFeatures?.(event.point, {layers:["craft-body", "guarded-icon"]}) || [];
+    if (!hit.length) hideTrace("aircraft");
+  });
+  // 사람이 지도를 만지면 연출은 20초 쉽니다. 연출이 부른 flyTo 에는 originalEvent 가 없어 구별됩니다.
+  for (const type of ["dragstart", "zoomstart", "rotatestart", "pitchstart"]) map.on(type, userMoved);
 
   poll();
   requestAnimationFrame(draw);
@@ -800,6 +1041,7 @@ function assetCard(world, v){
     [t("p_route"), guarded ? `${(v.route || []).length}` : t("p_none")],
     [t("p_done"), `${v.delivered ?? 0}`],
   ];
+  let options = "";
   if (guarded){
     const last = (lastRuntime?.ledger || []).find(e => e.proposal?.asset_id === v.id && e.outcome !== "pending");
     if (last){
@@ -808,13 +1050,15 @@ function assetCard(world, v){
       if (drafter) rows.push([t("p_drafter"), drafter]);
       rows.push([t("p_judged"), reasonText(last)]);
     }
+    // 모델이 후보 가운데 하나를 골랐으면 후보를 그대로 보여 줍니다 — 고른 것에 ●.
+    options = routeOptions(latestChoice(v.id));
   }
   return `<div class="pop"><h3>
       <span class="k" style="background:var(--${guarded ? "guard" : "direct"})"></span>
       ${safe(v.id)}
       <span style="color:var(--dim);font-weight:400">${t(guarded ? "p_guarded" : "p_direct")}</span>
     </h3><dl>${rows.map(([key, value]) =>
-      `<dt>${safe(key)}</dt><dd>${safe(value)}</dd>`).join("")}</dl></div>`;
+      `<dt>${safe(key)}</dt><dd>${safe(value)}</dd>`).join("")}</dl>${options}</div>`;
 }
 
 let latest = null, lastRuntime = null;
@@ -827,6 +1071,8 @@ function applyLanguage(){
   for (const button of (document.querySelectorAll?.("#show button") || []))
     if (button.dataset.show) button.className = button.dataset.show === showing ? "on" : "";
   for (const id of PANELS) setMinimized(id, isMinimized(id), false);
+  captionKey = null;      // 자막은 언어가 바뀌면 지금 장면을 새 말로 다시 씁니다
+  renderCaption();
   if (latest) renderSnapshot(latest, lastRuntime);
 }
 
@@ -858,6 +1104,8 @@ function handleKey(event){
   const tag = event.target?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA") return false;
   const key = String(event.key || "").toLowerCase();
+  // 신호선 켜고 끄기. 카메라를 움직이는 키가 아니라서 연출을 멈추지 않습니다.
+  if (key === "l"){ toggleSignals(); return true; }
   if (key === "n") camera("north");
   else if (key === "h") camera("home");
   else if (/^[1-4]$/.test(key)) focusAsset(`drone-0${key}`);
@@ -870,6 +1118,7 @@ function handleKey(event){
   else if (key === "+" || key === "=") map.zoomIn({duration:300});
   else if (key === "-" || key === "_") map.zoomOut({duration:300});
   else return false;
+  pauseDirector();   // 사람이 카메라를 잡았습니다 — 연출은 그동안 쉽니다
   return true;
 }
 document.addEventListener?.("keydown", event => {
@@ -880,6 +1129,7 @@ document.addEventListener?.("keydown", event => {
 function focusAsset(id){
   const v = latest?.worlds?.guarded?.assets?.[id];
   if (!v) return;
+  pauseDirector();   // 사람이 고른 기체입니다. 연출이 곧바로 다른 데로 끌고 가면 안 됩니다
   map.flyTo({center:[v.lon, v.lat], zoom:16.4, pitch:58, bearing:map.getBearing(), duration:900});
 }
 document.getElementById("denial")?.addEventListener("click", event => {
@@ -896,8 +1146,17 @@ document.getElementById("lostlink")?.addEventListener("click", event => {
 });
 document.getElementById("feed")?.addEventListener("click", event => {
   const row = event.target.closest?.("[data-asset]");
-  if (row) focusAsset(row.dataset.asset);
+  if (!row) return;
+  // 터치에는 hover 가 없습니다. 기록 줄을 누르면 그 줄의 '모델이 한 일' 카드도 같이 뜹니다.
+  if (!canHover()) showTraceForRow(row);
+  focusAsset(row.dataset.asset);
 });
+// 기록 줄에 마우스를 올리면 그 줄을 쓴 모델이 무엇을 했는지 옆에 뜹니다.
+document.getElementById("feed")?.addEventListener("mouseover", event => {
+  const row = event.target?.closest?.("[data-entry]");
+  if (row) showTraceForRow(row);
+});
+document.getElementById("feed")?.addEventListener("mouseleave", () => hideTrace("feed"));
 
 // 판을 시나리오 시작점으로 되감습니다. 조종장치로 가는 명령이 아니라 시연 조작입니다.
 document.getElementById("restart")?.addEventListener("click", async () => {
@@ -924,11 +1183,14 @@ function draw(){
   expireDenials(now);
   const ribbons0 = [];
   const staged = drawStages(now, ribbons0);
+  directorTick(now);
   if (!latest){
     map.getSource("flightpath")?.setData({type:"FeatureCollection", features:ribbons0});
     return;
   }
   const ribbons = ribbons0, craft = [], cargo = [];
+  // 이 프레임에 그린 파란 기체의 자리. 신호선과 '모델이 한 일' 카드가 같은 자리를 씁니다.
+  const drawn = new Map();
   let anyLost = false;
   for (const world of ["guarded","direct"]){
     const features = [];
@@ -978,9 +1240,10 @@ function draw(){
           sub: [agentName(world, v.id), altitudeWord].filter(Boolean).join(" · ")},
       });
       const altitude = roofLifted(point[1], point[0], Number(v.alt_m ?? 0));
+      if (world === "guarded") drawn.set(v.id, {lat:point[1], lon:point[0], alt_m:altitude});
       if (visible(world)){
         for (const part of droneBody(point[1], point[0], altitude, heading))
-          craft.push(extrusion(part, {world}));
+          craft.push(extrusion(part, {world, id:v.id}));
         for (const box of cargoStack(point[1], point[0], altitude, Number(v.load) || 0))
           cargo.push(extrusion(box, {}));
       }
@@ -994,6 +1257,10 @@ function draw(){
   map.getSource("cargo")?.setData({type:"FeatureCollection", features:cargo});
   // 테두리는 가는 막대라 판보다 진해야 보입니다. .25 ~ .85 사이를 1.6초에 한 번 숨쉽니다.
   shellAlpha(anyLost ? .25 + .6 * Math.abs(Math.sin(now / 500)) : 0);
+  drawSignals(now, drawn);
+  drawPx4(now);
+  followTrace(drawn);
+  placeTowerLabel();
 }
 
 /** 끊긴 회랑 껍질의 밝기. 한 겹의 레이어라 끊긴 기체가 여럿이어도 같이 숨쉽니다. */
@@ -1157,6 +1424,7 @@ async function poll(){
       renderDenials(rt.value, performance.now());
       renderAdvisories(rt.value, performance.now());
       renderLinks(rt.value);
+      renderBriefing(rt.value);
     }
   } catch (error) { console.error("지도 갱신 실패", error); }
   finally { setTimeout(poll, Math.max(0, POLL_MS - (performance.now() - started))); }
@@ -1169,6 +1437,9 @@ function renderSnapshot(data, runtime){
     seenAdvisories.clear(); advisoryUntil = 0;
     denialUntil = 0; roundStartedAt = Date.now() / 1000;
     map.getSource("flightpath")?.setData(empty());
+    // 신호선의 점과 연출의 장면도 판마다 새로 시작합니다 — 지난 판의 사건이 다시 날아다니면 안 됩니다.
+    signalEvents = []; signalSeen.clear(); telemetryDotAt.clear(); signalBuiltAt = -Infinity;
+    resetDirector(); hideTrace();
   }
   latest = data;
   document.getElementById("round-tick").textContent = t("round_tick", data.round ?? "—", data.tick);
@@ -1224,18 +1495,25 @@ function renderSnapshot(data, runtime){
     : [];
   for (const n of (runtime?.notices || [])){
     if (!n.applied || !(n.polygon?.length > 2) || (zone?.active && n.id === zone.id)) continue;
+    // 브리핑의 크레인·폐쇄는 제 모양이 따로 있습니다(주황 기둥, 회색 착륙장). 붉은 원까지 겹치면 두 번 말합니다.
+    if (n.kind === "crane" || n.kind === "closure") continue;
     zoneFeatures.push({type:"Feature", properties:{id:n.id, name:n.name || n.id},
       geometry:{type:"Polygon", coordinates:[closedRing(n.polygon)]}});
   }
+  // 관제 브리핑이 걸어 둔 것. 행사·제한은 위에서 공지로(이름째) 칠했고, 크레인은 세우고, 닫힌 착륙장은 회색으로.
+  const marks = briefingMarks(runtime, data.worlds.guarded);
   map.getSource("zone")?.setData({type:"FeatureCollection", features: zoneFeatures});
+  renderCranes(marks);
 
   const areas = data.worlds.guarded.landing_areas || [];
+  const shut = area => marks.closed.get(area.id) ?? marks.closed.get(area.name);
   map.getSource("landing")?.setData({type:"FeatureCollection", features: areas.map(a => ({
     type:"Feature", geometry:{type:"Point", coordinates:[a.lon, a.lat]},
-    properties:{name:a.name, tag:t("lg_landing")}}))});
+    properties:{name:a.name, closed:shut(a) !== undefined,
+                tag:shut(a) !== undefined ? t("bf_closed", shut(a)) : t("lg_landing")}}))});
   map.getSource("landing-disc")?.setData({type:"FeatureCollection", features: areas.map(a => ({
     type:"Feature", geometry:{type:"Polygon", coordinates:[groundDisc(a.lat, a.lon, 30)]},
-    properties:{name:a.name}}))});
+    properties:{name:a.name, closed:shut(a) !== undefined}}))});
 
   const depot = data.worlds.guarded.depot_coords;
   map.getSource("depot")?.setData({type:"FeatureCollection", features:depot ? [{
@@ -1254,9 +1532,18 @@ function renderSnapshot(data, runtime){
          <td class="${d[key]?'hit':'zero'}">${d[key] ?? 0}</td></tr>`).join("");
   document.getElementById("score").hidden = !(g || d);
 
-  if (runtime) { renderFeed(runtime); renderDenials(runtime, now); renderAdvisories(runtime, now); renderLinks(runtime); }
+  if (runtime) {
+    renderFeed(runtime); renderDenials(runtime, now); renderAdvisories(runtime, now); renderLinks(runtime);
+    renderBriefing(runtime); renderAutopilots(runtime, now);
+    // 신호선의 점은 원장에서 나옵니다(신청·판정·회수·텔레메트리). 되짚어 그리는 구간과 시각을 맞추려고
+    // renderDenials 다음입니다.
+    spawnSignals(runtime, now);
+    directorFeed(data, runtime, now);
+    if (traceTarget?.from === "aircraft") showTraceFor(traceTarget.asset, traceTarget.point);
+  }
+  renderTower();
   paintDepotBuilding();
-  renderLegend(data, zoneFeatures.length > 0);
+  renderLegend(data, zoneFeatures.length > 0, marks);
 
   // 지금 걸려 있는 공지. 무슨 규칙이 언제 도착했고 무엇을 막는지 그대로 씁니다.
   // 공지는 문장으로 옵니다. 런타임이 읽어서 구역으로 만든 것(notices)이 있으면 그것을 쓰고,
@@ -1265,7 +1552,9 @@ function renderSnapshot(data, runtime){
   const bulletins = data.bulletins || [];
   // 걸린 것, 사람을 기다리는 것, 그리고 사람이 확인했지만 창이 아직 안 열린 것. 마지막을 빼면 확인한
   // 공지가 '아직 못 읽음' 으로 보입니다.
-  const notices = (runtime?.notices || []).filter(n => n.applied || n.held || n.source === "human");
+  // 브리핑이 건 공지(citation 이 실린 것)는 브리핑 카드가 출처째 말합니다 — 배너에 또 쓰지 않습니다.
+  const notices = (runtime?.notices || [])
+    .filter(n => !n.citation && (n.applied || n.held || n.source === "human"));
   const known = new Set(notices.map(n => n.id));
   const lines = notices.map(n => noticeLine(n, runtime));
   // 날씨. 걸린 대기는 정책이고(/state.weather.hold), 모델이 읽어 사람을 기다리는 보고서는 아직 아무것도 안 막습니다.
@@ -1294,9 +1583,10 @@ function renderSnapshot(data, runtime){
 }
 
 /** 범례. 지금 화면에 있는 것만 줄을 얻습니다 — 격자가 안 실렸으면 천장 색도 없습니다. */
-function renderLegend(data, zoned){
+function renderLegend(data, zoned, marks = {cranes:[], closed:new Map()}){
   const legend = document.getElementById("legend");
   if (!legend) return;
+  legendArgs = [data, zoned, marks];   // L 로 신호선을 껐다 켤 때 이 줄들만 다시 그립니다
   const world = data.worlds?.guarded || {};
   // 항목 하나 = 안 끊기는 한 덩어리. 줄은 항목 사이에서만 넘어갑니다 — 한 줄로 고정했더니
   // 창고·착륙장·닫힌 구역이 한꺼번에 있을 때 카드 폭(300)을 넘어 "Closed zo" 로 잘렸습니다.
@@ -1311,7 +1601,16 @@ function renderLegend(data, zoned){
   if (world.depot_coords) places.push(swatch("#eee7ce", t("lg_depot")));
   if (world.landing_areas?.length) places.push(swatch("#18b3a6", t("lg_landing")));
   if (zoned) places.push(swatch("#ff3b30", t("lg_zone")));
+  if (marks.cranes?.length) places.push(swatch("#ffb020", t("lg_crane")));
+  if (marks.closed?.size) places.push(swatch("#5b6770", t("lg_closed")));
+  if (px4Motion.size) places.push(swatch("#d9c8ff", t("lg_px4")));
   if (places.length) rows.push(row(places));
+  // 관제탑과 신호선(L). 탑의 자리가 기호라는 것은 범례에서 말해야 합니다 — 지도만 보면 건물처럼 읽힙니다.
+  if (signalsOn && world.depot_coords && visible("guarded")){
+    rows.push(row([swatch("#cfe3ff", t("lg_tower")), key("signal", t("lg_signal")),
+                   ...(lost ? [key("signal-lost", t("lg_signal_lost"))] : [])]));
+    rows.push(`<div class="meta">${t("lg_tower_note")}</div>`);
+  }
   if (world.bands?.length){
     const step = (colour, value) => `<span class="k" style="background:${colour}"></span>${value}`;
     rows.push(row([swatch("#c1121f", t("lg_nofly")), item(`${t("lg_ceil")} ` + [step("#ffb020", "30"),
@@ -1388,13 +1687,22 @@ function shortModel(name){
 }
 function drafterWord(params, legs){
   const d = String(params?.drafter || "");
+  // 후보는 코드가 그리고 모델은 고르기만 한 경로. 누가 골랐는지는 승인 문구와 기록 줄이 따로 씁니다.
+  if (d.startsWith("choice")) return t("drafter_choice");
   if (d.startsWith("nano")) return t("drafter_nano");
   if (d === "astar") return t("drafter_astar");
   if (d === "straight" || (!d && (legs?.length || 0) === 2)) return t("drafter_straight");
   return d ? t("drafter_model") : "";
 }
 // 승인 문구는 판정 코드에서 나옵니다. "APPROVED · RUNTIME" 은 아무 정보도 아니었습니다.
-function approvedWord(decision, params){
+// 모델이 후보 가운데 하나를 고른 신청이면 누가 무엇을 왜 골랐는지가 머리글입니다.
+function approvedWord(decision, params, asset){
+  const chose = choiceWords(params, asset);
+  const word = verdictWord(decision, params);
+  if (!chose) return word;
+  return word === t("r_within_limits") ? chose : `${word} · ${chose}`;
+}
+function verdictWord(decision, params){
   // 교차 때문에 고도를 올리거나 앞 기체를 기다린 승인은 그 방법을 씁니다.
   if (params?.resolution === "altitude" && params.altitude_shift_m)
     return t("res_altitude", Math.round(params.altitude_shift_m));
@@ -1532,11 +1840,11 @@ function stageRoute(entry, now){
   // 같은 신청을 두 번 낸 것은 길이 막힌 게 아닙니다. 원장에는 경유점째 남지만 다시 그리지 않습니다.
   if (decision.code === "duplicate") return;
   const params = entry.proposal.params || {};
-  const by = approvedWord(decision, params);
   // 한 기체에 한 선만. 앞 구간이 완전히 사라진 다음에 다음 구간이 시작합니다.
   // 노란 선 → 거절되어 회수 → 그 다음에 새 노란 선 → 승인. 절대 겹치지 않습니다.
   // 시뮬레이터도 이 재생이 끝날 때까지 기체를 잡아둡니다(CLEARANCE_TICKS).
   const asset = entry.proposal.asset_id;
+  const by = approvedWord(decision, params, asset);
   // 재생은 지상 출발에만 합니다. 나는 중에 경로가 바뀌면(회수 뒤 재경로) 기체는 이미 움직이고
   // 있어서, 옛 자리에서 노란 선을 다시 그리면 기체와 따로 노는 선이 하나 더 생깁니다.
   // 그 경우 비행 회랑이 바로 새 경로로 바뀌는 것으로 충분합니다.
@@ -1563,9 +1871,8 @@ function stageRoute(entry, now){
                     legs.slice(1)),
     blocker: airspace && params.blocked_polygon?.length ? {
       polygon: params.blocked_polygon,
-      // 건물만 높이를 가집니다. 구역·격자는 0 → 바닥 채색.
-      height: String(params.blocked_volume || "").startsWith("bldg-")
-        ? Number(params.blocked_ceiling_m) || 0 : 0,
+      // 건물과 크레인만 높이를 가집니다. 구역·격자는 0 → 바닥 채색.
+      height: tallVolume(params) ? Number(params.blocked_ceiling_m) || 0 : 0,
     } : null,
     breach: airspace && params.blocked_at ? {at: params.blocked_at, params} : null,
   });
@@ -1647,6 +1954,15 @@ const PLACES = new Set(["origin", "destination", "landing", "takeoff", "column"]
 function blockedLabel(params){
   const id = params.blocked_volume || "";
   const height = Math.round(Number(params.blocked_ceiling_m) || 0);
+  // 관제 브리핑이 세운 규칙이 막았으면 그 규칙을 출처째 부릅니다 — "CRANE 95 m (nyc.gov)".
+  const brief = briefingFor(id);
+  if (brief){
+    const named = briefingLabel(brief, height, params);
+    if (params.blocked_kind === "landing") return t("blk_landing", named);
+    if (params.blocked_kind === "takeoff") return t("blk_takeoff", named);
+    if (params.blocked_kind === "column") return t("blk_column", named);
+    return named;
+  }
   // 경로의 양끝이 기체·목적지와 안 맞으면 판정 밖을 나는 구간이 생깁니다. 막은 건 물체가 아니라 간격입니다.
   if (ENDPOINTS.has(params.blocked_kind))
     return t(params.blocked_kind === "origin" ? "blk_origin" : "blk_destination",
@@ -1683,6 +1999,7 @@ function drawStages(now, corridors){
     const headline =
       phase === "approved" ? `${t("ph_approved")} · ${stage.by}`
       : phase === "refused" ? `${t("ph_refused")} · ${stage.reason}`
+        + (stage.params?.route_choice && stage.drafter ? ` · ${stage.drafter}` : "")
       : phase === "drawing" && stage.drafter ? `${t(PHRASE[phase])} · ${stage.drafter}`
       : t(PHRASE[phase]);
     labels.push({type:"Feature",
@@ -1755,8 +2072,9 @@ const FEED_LINES = 10;
 
 // 디버그 핸들. 밖(playwright)에서 화면 상태를 읽기만 합니다. 여기로 쓰지 않습니다.
 if (typeof window !== "undefined")
-  window.__holdshort = {map, motion, flights, queued, api:{sim:SIM, rt:RT},
-    get latest(){ return latest; }, get stages(){ return stages; }};
+  window.__holdshort = {map, motion, flights, queued, api:{sim:SIM, rt:RT}, director, toggleSignals,
+    get latest(){ return latest; }, get stages(){ return stages; },
+    get signals(){ return signalEvents; }, get demo(){ return DEMO; }};
 
 function renderFeed(runtime){
   const seen = new Set(), lines = [];
@@ -1776,9 +2094,12 @@ function renderFeed(runtime){
     const drafter = ROUTED.includes(p.action) ? drafterWord(p.params, p.params?.legs) : "";
     const drew = drafter && drafter !== t("drafter_straight") ? ` · ${safe(drafter)}` : "";
     const why = d.detail?.arbiter_reason ? `<div class="note">${safe(d.detail.arbiter_reason)}</div>` : "";
-    lines.push(`<div class="ev" data-asset="${safe(p.asset_id)}"><span class="tag ${cls}">${word}</span>
+    // 모델이 후보 중에 골랐으면 그 한 줄. 무엇을 왜 골랐는지는 판정 사유와 다른 일입니다.
+    const chose = choiceWords(p.params, p.asset_id);
+    const picked = chose ? `<div class="note">${safe(chose)}</div>` : "";
+    lines.push(`<div class="ev" data-asset="${safe(p.asset_id)}" data-entry="${safe(entry.id)}"><span class="tag ${cls}">${word}</span>
       <b>${safe(assetWord(p.asset_id))}</b>${wrote} ${t(p.action)}${drew}
-      <div class="meta">${reasonText(entry)}${who}${how}</div>${why}</div>`);
+      <div class="meta">${reasonText(entry)}${who}${how}</div>${picked}${why}</div>`);
     if (lines.length >= FEED_LINES) break;
   }
   // 빈 기록은 빈 상자입니다. 첫 결정이 오면 그때 카드가 생깁니다.
@@ -1790,6 +2111,818 @@ function renderFeed(runtime){
   feed.style.maskImage = fade;
   feed.style.webkitMaskImage = fade;
   renderLlmLine(runtime);
+}
+
+// ---------- 관제 브리핑 ----------
+// 관제가 검색으로 모아 읽은 것: 크레인·행사·폐쇄·제한. 믿을 만한 도메인에서 온 조이는 규칙만 바로 걸리고,
+// 다른 도메인은 사람을 기다리며 아무것도 막지 않고, 규칙이 없는 것은 정보로만 남습니다. 화면은 그 판단을
+// 그대로 보여 줍니다 — 출처 도메인은 링크로, 신뢰는 표지로, 걸린 것만 지도에.
+const KIND_GLYPH = {
+  crane:'<path d="M3.4 15V3.2M1.4 15h4M3.4 3.2h9.4M12.8 3.2v3.4M4.6 5.4 8.4 3.2" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="11.6" y="6.6" width="2.4" height="2" fill="currentColor"/>',
+  event:'<circle cx="5" cy="4.6" r="1.7" fill="currentColor"/><circle cx="11" cy="4.6" r="1.7" fill="currentColor"/><path d="M1.8 13.6c.3-3 1.4-4.4 3.2-4.4s2.9 1.4 3.2 4.4M7.8 13.6c.3-3 1.4-4.4 3.2-4.4s2.9 1.4 3.2 4.4" fill="none" stroke="currentColor" stroke-width="1.2"/>',
+  closure:'<rect x="1.4" y="5.6" width="13.2" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4 5.6 7 9.6M8.2 5.6l3 4M3 9.6V14M13 9.6V14" stroke="currentColor" stroke-width="1.2"/>',
+  restriction:'<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3.8 3.8 12.2 12.2" stroke="currentColor" stroke-width="1.3"/>',
+  weather:'<path d="M4.6 12.4h7.1a2.8 2.8 0 0 0 .3-5.6A4 4 0 0 0 4.4 7.3a2.6 2.6 0 0 0 .2 5.1Z" fill="none" stroke="currentColor" stroke-width="1.2"/>',
+  info:'<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8 7.2v4.4" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="4.8" r=".9" fill="currentColor"/>',
+};
+// 항목의 처지. 런타임은 status(applied·approved·held·info·refused·lapsed …)로 줍니다 — trust 는 출처 도메인이
+// 공식인지(official·unofficial)라 표지가 아닙니다. trust 에 처지가 실려 오는 모양(applied·held·info)도 받습니다.
+const STANDING = {applied:["t-auto", "bf_applied"], approved:["t-auto", "bf_applied"], held:["t-human", "bf_held"],
+                  refused:["t-deny", "bf_refused"], lapsed:["t-info", "bf_lapsed"], info:["t-info", "bf_info"]};
+function standingOf(item){
+  return STANDING[item.status] || STANDING[item.trust] || STANDING.info;
+}
+
+function briefingItems(runtime = lastRuntime){
+  return runtime?.briefing?.items || [];
+}
+/** 규칙 id 로 브리핑 항목 찾기. 거절이 무엇 때문인지 이름 붙일 때 씁니다. */
+function briefingFor(id){
+  if (!id) return null;
+  const item = briefingItems().find(entry => entry.rule_id === id || entry.id === id);
+  if (item) return item;
+  // 항목 목록(최근 몇 개만 실림)에서 빠졌어도 공지 책에는 출처째 남아 있습니다.
+  const notice = (lastRuntime?.notices || []).find(n => n.id === id && n.citation);
+  return notice ? {kind:notice.kind, rule_id:id, domain:notice.citation.domain,
+                   recorded:Boolean(notice.citation.recorded),
+                   place:String(notice.name || "").replace(/^[A-Z]+ · /, "")} : null;
+}
+/**
+ * 출처 도메인. 녹화본(손으로 쓴 장면이나 전에 받아 둔 답)이면 그렇다고 붙입니다 — 브리핑 카드에만 적고
+ * 자막·크레인·"무엇이 막았나" 에서 빼면, 가짜 공지가 오늘 검색한 공지와 같은 말로 화면에 섭니다.
+ */
+function sourceWord(domain, recorded){
+  const name = domain || "—";
+  return recorded ? t("src_recorded", name) : name;
+}
+function briefingLabel(item, height, params){
+  const domain = sourceWord(item.domain, item.recorded);
+  if (item.kind === "crane")
+    return t("blk_crane", height || Math.round(Number(item.height_m) || 0) || "—", domain);
+  if (item.kind === "closure") return t("blk_closed", item.place || params?.blocked_name || "—", domain);
+  return t("blk_briefing", item.place || params?.blocked_name || item.summary || "—", domain);
+}
+/** 높이를 가진 부피인가. 건물과 크레인만 세우고, 구역·격자는 바닥에 칠합니다. */
+function tallVolume(params){
+  const id = String(params?.blocked_volume || "");
+  return id.startsWith("bldg-") || id.startsWith("crane") || briefingFor(id)?.kind === "crane";
+}
+/** 링크는 http(s) 만. 검색이 가져온 주소를 그대로 href 에 넣으면 javascript: 주소도 실립니다. */
+function safeUrl(url){
+  return /^https?:\/\//i.test(String(url || "")) ? safe(url) : "";
+}
+function renderBriefing(runtime){
+  const card = document.getElementById("briefing");
+  if (!card) return;
+  const briefing = runtime?.briefing || {};
+  const items = briefing.items || [];
+  // 꺼져 있거나 한 번도 안 돌았으면 카드가 없습니다. 그때의 요약 자리에는 안내 문장(한국어 자리표시)이 옵니다.
+  const said = Boolean(briefing.summary) && (briefing.runs ?? 1) > 0 && briefing.source !== "off";
+  card.hidden = briefing.enabled === false || (!items.length && !said);
+  if (card.hidden) return;
+  // 녹화본은 녹화본이라고 말합니다 — 라이브 검색과 같은 화면이면 거짓말입니다.
+  const recorded = briefing.source === "recorded" ? `<span class="tag t-rec">${t("bf_recorded")}</span>` : "";
+  const summary = briefing.summary ? `<div class="bf-summary">${safe(briefing.summary)}</div>` : "";
+  const meta = briefing.last_run_tick == null ? ""
+    : `<div class="meta">${t("bf_meta", briefing.last_run_tick, briefing.credits_used ?? 0,
+                            briefing.budget ?? "—")}</div>`;
+  card.innerHTML = panelBar("briefing", "briefing_title", recorded) + summary
+    + `<div class="bf-list">${items.map(briefingRow).join("")}</div>` + meta;
+}
+function briefingRow(item){
+  const kind = KIND_GLYPH[item.kind] ? item.kind : "info";
+  const [cls, key] = standingOf(item);
+  const href = safeUrl(item.url), domain = safe(item.domain || "");
+  const source = href ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${domain || href}</a>`
+                      : domain;
+  const until = item.until_tick == null ? "" : ` · ${t("bf_until", item.until_tick)}`;
+  const word = t(`bf_kind_${kind}`);
+  return `<div class="bi" data-kind="${kind}">`
+    + `<svg class="kind" viewBox="0 0 16 16" role="img" aria-label="${word}"><title>${word}</title>${KIND_GLYPH[kind]}</svg>`
+    + `<div><div class="bi-top"><b>${safe(item.place || word)}</b><span class="tag ${cls}">${t(key)}</span></div>`
+    + `<div>${safe(item.summary || "")}</div><div class="meta">${source}${until}</div></div></div>`;
+}
+/**
+ * 브리핑 규칙이 지도에 남기는 것. 런타임은 규칙마다 공지 책에 BriefingNotice 를 겁니다 — id 가 항목의 rule_id,
+ * 자리는 polygon(원), 크레인 높이는 ceiling_m, 출처는 citation. 걸린 것(applied)만 그립니다: 사람을 기다리는 것은
+ * 아무것도 막지 않습니다. 행사·제한은 공지로 이름째 칠해지고, 크레인은 세우고, 닫힌 착륙장은 회색으로.
+ */
+function briefingMarks(runtime, world){
+  const marks = {cranes:[], closed:new Map()};
+  const items = new Map(briefingItems(runtime).filter(item => item.rule_id).map(item => [item.rule_id, item]));
+  for (const notice of runtime?.notices || []){
+    const item = items.get(notice.id);
+    if ((!notice.citation && !item) || !notice.applied) continue;
+    const domain = sourceWord(notice.citation?.domain || item?.domain,
+                              notice.citation?.recorded ?? item?.recorded);
+    if (notice.kind === "crane"){
+      const at = ringCentre(notice.polygon), height = Number(notice.ceiling_m);
+      if (at && height > 0) marks.cranes.push({...at, height, label:t("bf_crane", Math.round(height), domain)});
+    } else if (notice.kind === "closure"){
+      // 폐쇄 원(반경 60 m)은 착륙장을 가운데 둡니다. 원 안에 선 착륙장, 없으면 이름이 맞는 착륙장.
+      const ring = notice.polygon?.length > 2 ? closedRing(notice.polygon) : null;
+      for (const area of world?.landing_areas || [])
+        if ((ring && insideRing(ring, area.lon, area.lat)) || (item && sameArea(area, item)))
+          marks.closed.set(area.id || area.name, domain);
+    }
+  }
+  return marks;
+}
+function ringCentre(polygon){
+  if (!(polygon?.length > 2)) return null;
+  const lat = polygon.reduce((sum, p) => sum + p[0], 0) / polygon.length;
+  const lon = polygon.reduce((sum, p) => sum + p[1], 0) / polygon.length;
+  return {lat, lon};
+}
+/** 브리핑이 말한 장소가 이 착륙장인가. 이름은 사람이 쓴 것이라 한쪽이 다른 쪽을 품고만 있어도 같은 곳입니다. */
+function sameArea(area, item){
+  if (item.landing_area && (item.landing_area === area.id || item.landing_area === area.name)) return true;
+  const name = String(area.name || "").toLowerCase(), place = String(item.place || "").toLowerCase();
+  return Boolean(name && place) && (place.includes(name) || name.includes(place));
+}
+function renderCranes(marks){
+  const parts = [], labels = [];
+  for (const crane of marks.cranes || []){
+    for (const piece of craneShape(crane.lat, crane.lon, crane.height)) parts.push(extrusion(piece, {}));
+    labels.push({type:"Feature", geometry:{type:"Point", coordinates:[crane.lon, crane.lat]},
+                 properties:{label:crane.label}});
+  }
+  map.getSource("brief-crane")?.setData({type:"FeatureCollection", features:parts});
+  map.getSource("brief-crane-label")?.setData({type:"FeatureCollection", features:labels});
+}
+
+// ---------- 모델이 한 일 ----------
+// 신청서에 실려 온 params.model_trace 를 사람 말로 옮깁니다. 원문 JSON 은 안 보여 줍니다.
+// 없는 신청서(옛 줄)에는 누가 썼고 누가 그렸는지만. 판정은 언제나 런타임이 했고 그 줄도 같이 보입니다.
+const FALLBACK_WHY = {"no model":"why_no_model", "timeout":"why_timeout", "invalid action":"why_invalid"};
+const TRACE_GAP_PX = 56;
+const VERDICT_WORD = {auto:"ph_approved", denied:"ph_refused", human:"t_human", queued:"t_queued"};
+
+/** 마우스를 올려 둘 수 있는 기기인가. 터치에는 hover 가 없어 누르는 것으로 대신합니다. */
+function canHover(){
+  return typeof matchMedia !== "function" || matchMedia("(hover: hover)").matches;
+}
+function latestFiling(asset){
+  return (lastRuntime?.ledger || []).find(e => e.proposal?.asset_id === asset
+    && e.proposal.author !== "runtime" && e.outcome !== "pending") || null;
+}
+/** 그 기체에 실린 모델의 화면 이름. 등록된 모델과 같은 id 면 등록된 표시 이름을 씁니다. */
+function traceName(asset, model){
+  const agent = lastRuntime?.agents?.[asset];
+  const id = model || agent?.model || "";
+  if (!id) return t("model_rules");
+  if (agent?.model === id && agent.display && agent.display !== t("model_rules")) return agent.display;
+  return modelName(id) || t("model_rules");
+}
+function secondsWord(ms){
+  return ms == null || !Number.isFinite(Number(ms)) ? "" : t("tr_secs", (Number(ms) / 1000).toFixed(1));
+}
+function clip(text, max){
+  const value = String(text ?? "");
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+function traceHtml(entry){
+  const p = entry.proposal, form = p.params?.model_trace?.form || {};
+  const name = p.params?.model_trace
+    ? traceName(p.asset_id, form.model)
+    : (p.author && p.author !== "rules" ? traceName(p.asset_id, p.author) : t("model_rules"));
+  // 걸린 시간은 모델이 쓴 신청서에만. 규칙이 쓴 것은 latency_ms 0 으로 와서 "0.0 s" 가 뜻 없이 붙었습니다.
+  const latency = form.model ? secondsWord(form.latency_ms) : "";
+  const rows = traceRows(entry);
+  return `<div class="bar"><b>${safe(name)}</b><span class="meta">${safe(p.asset_id)}`
+    + `${latency ? ` · ${latency}` : ""}</span></div>`
+    + `<dl>${rows.map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("")}</dl>`;
+}
+function traceRows(entry){
+  const p = entry.proposal, params = p.params || {}, trace = params.model_trace;
+  if (!trace){
+    const rows = [[t("tr_form_by"), safe(tierOf(p.author, p.asset_id) || t("by_rules"))]];
+    const drafter = drafterWord(params, params.legs);
+    if (drafter) rows.push([t("tr_route_by"), safe(drafter)]);
+    return rows;
+  }
+  const form = trace.form || {}, rows = [];
+  if (form.concern) rows.push([t("tr_asked"), safe(form.concern)]);
+  rows.push([t("tr_answered"), form.model ? answerWords(form) : t("tr_no_answer")]);
+  rows.push([t("tr_code"), codeWords(form)]);
+  const route = routeWords(trace.route, params);
+  if (route) rows.push([t("tr_route"), route]);
+  rows.push([t("tr_runtime"), `${t(VERDICT_WORD[entry.decision?.verdict] || "t_auto")} — ${safe(reasonText(entry))}`]);
+  return rows;
+}
+function answerWords(form){
+  const action = safe(t(form.action) || form.action || "—");
+  return form.rationale ? `${action} — “${safe(clip(form.rationale, 150))}”` : action;
+}
+function codeWords(form){
+  if (form.model && form.used !== false) return t("tr_accepted");
+  const why = FALLBACK_WHY[String(form.fallback_reason || "")];
+  const reason = why ? t(why) : safe(form.fallback_reason || "—");
+  return t(form.model ? "tr_replaced" : "tr_rules_only", reason);
+}
+function routeWords(route, params){
+  const source = route?.source || "", draft = route?.draft;
+  const failed = Boolean(draft && draft.used === false && draft.breach);
+  // 규칙이 후보 중에 고르면 source 는 "astar" 이고 choice 가 같이 옵니다(실제 원장에서 확인). 고른 것이 먼저입니다.
+  if (source === "choice" || (route?.choice && !failed && source !== "draft"))
+    return choiceTrace(route.choice, params);
+  if (source === "draft")
+    return failed ? t("tr_draft_failed", breachWords(draft.breach))
+                  : t("tr_draft_ok", (params.legs || []).length);
+  if (source === "astar") return failed ? t("tr_draft_failed", breachWords(draft.breach)) : t("tr_astar");
+  if (source === "straight") return t("tr_straight");
+  return safe(drafterWord(params, params.legs));
+}
+function choiceTrace(choice, params){
+  const rc = params.route_choice || {};
+  const list = Array.isArray(choice?.candidates) ? choice.candidates : rc.candidates;
+  const count = Array.isArray(list) ? list.length : Number(choice?.candidates) || 0;
+  const chosen = choice?.chosen ?? rc.chosen;
+  const label = safe(candidateLabel(chosen, Array.isArray(list) ? list : rc.candidates));
+  const why = choice?.reason ?? rc.reason;
+  if (rc.path === "rules" || (!why && !rc.model)) return t("tr_choice_rules", label, count);
+  return t("tr_choice", label, count, safe(clip(why, 150)));
+}
+/** 모델 초안이 무엇에 걸렸는가. 값은 "crossed bldg-t02452, roof 114 m" 처럼 옵니다. */
+function breachWords(breach){
+  const text = String(breach || "");
+  const roof = text.match(/(\d+(?:\.\d+)?)\s*m/i);
+  return /bldg-|building/i.test(text) && roof
+    ? t("tr_breach_building", Math.round(Number(roof[1]))) : safe(text);
+}
+function candidateLabel(chosen, candidates){
+  const found = Array.isArray(candidates) ? candidates.find(c => c.id === chosen) : null;
+  return found?.label || chosen || "—";
+}
+/** 기체 카드의 후보 목록. 고른 것에 ●. */
+function routeOptions(rc){
+  if (!(rc?.candidates?.length)) return "";
+  const line = c => t("rc_candidate", c.label || c.id, c.legs_count ?? "—",
+                      ((Number(c.length_m) || 0) / 1000).toFixed(1),
+                      Math.round(Number(c.min_alt_m) || 0), Math.round(Number(c.max_alt_m) || 0));
+  return `<div class="meta" style="margin-top:6px">${t("rc_options")}</div><ul class="rc">`
+    + rc.candidates.map(c => `<li class="${c.id === rc.chosen ? "chosen" : ""}">${safe(line(c))}</li>`).join("")
+    + "</ul>";
+}
+function latestChoice(asset){
+  return (lastRuntime?.ledger || [])
+    .find(e => e.proposal?.asset_id === asset && e.proposal.params?.route_choice)?.proposal.params.route_choice;
+}
+/** 누가 무엇을 왜 골랐는가. 후보는 코드가 그렸고 모델은 고르기만 했습니다 — 그린 사람은 drafter 가 따로 말합니다. */
+function choiceWords(params, asset){
+  const rc = params?.route_choice;
+  if (!rc?.chosen) return "";
+  const who = rc.path === "rules" || !rc.model ? t("rc_rules") : traceName(asset, rc.model);
+  const chose = t("rc_chose", who, candidateLabel(rc.chosen, rc.candidates));
+  return rc.reason ? t("rc_why", chose, clip(rc.reason, 90)) : chose;
+}
+function hoverAircraft(event){
+  if (popup.isOpen?.()) return;
+  const feature = (event.features || [])
+    .find(f => (f.properties?.world || "guarded") === "guarded" && f.properties?.id);
+  if (!feature) return;
+  if (!showTraceFor(feature.properties.id, event.point)) hideTrace("aircraft");
+}
+function showTraceFor(asset, point){
+  const entry = latestFiling(asset);
+  if (!entry) return false;
+  // 마우스가 움직일 때마다 불립니다. 같은 신청서·같은 언어면 카드를 다시 쓰지 않고 자리만 옮깁니다.
+  const same = traceTarget?.from === "aircraft" && traceTarget.asset === asset
+    && traceTarget.entry === entry.id && traceTarget.lang === lang;
+  traceTarget = {from:"aircraft", asset, entry:entry.id, lang, point:point || traceTarget?.point};
+  if (same && document.getElementById("trace")?.hidden === false) moveTrace();
+  else paintTrace(entry);
+  return true;
+}
+function showTraceForRow(row){
+  const entry = (lastRuntime?.ledger || []).find(e => e.id === row?.dataset?.entry);
+  if (!entry || entry.proposal?.author === "runtime") return;
+  const box = row.getBoundingClientRect?.();
+  traceTarget = {from:"feed", asset:entry.proposal.asset_id, entry:entry.id,
+    point:{x: box ? box.left : (globalThis.innerWidth || 1500) - 302, y: box ? box.top + 14 : 140}};
+  paintTrace(entry);
+}
+function paintTrace(entry){
+  const card = document.getElementById("trace");
+  if (!card) return;
+  card.innerHTML = traceHtml(entry);
+  card.hidden = false;
+  moveTrace(card);
+}
+function moveTrace(card){
+  const element = card || document.getElementById("trace");
+  if (!element || element.hidden || !traceTarget?.point) return;
+  const size = {w:element.offsetWidth || 300, h:element.offsetHeight || 190};
+  const view = {w:globalThis.innerWidth || 1500, h:globalThis.innerHeight || 940,
+                reserveRight: traceTarget.from === "aircraft" ? 302 : 0};
+  const at = placeTrace(traceTarget.point, size, view);
+  element.style.left = `${Math.round(at.left)}px`;
+  element.style.top = `${Math.round(at.top)}px`;
+}
+/**
+ * 카드 자리. 기체(anchor)에서 옆으로 비켜 섭니다 — 가로로 비키면 고도에 떠 있는 기체를 가릴 수가 없습니다.
+ * 오른쪽이 좁으면 왼쪽으로, 양옆이 다 좁으면 위(없으면 아래)로. 세로는 화면 안으로 끌어옵니다.
+ */
+function placeTrace(anchor, size, view, gap = TRACE_GAP_PX){
+  const margin = 12, right = view.w - (view.reserveRight || 0) - margin;
+  const inView = y => Math.max(margin, Math.min(view.h - size.h - margin, y));
+  if (anchor.x + gap + size.w <= right) return {left:anchor.x + gap, top:inView(anchor.y - size.h / 2)};
+  if (anchor.x - gap - size.w >= margin) return {left:anchor.x - gap - size.w, top:inView(anchor.y - size.h / 2)};
+  const left = Math.max(margin, Math.min(right - size.w, anchor.x - size.w / 2));
+  const above = anchor.y - gap - size.h;
+  return {left, top: above >= margin ? above : Math.min(view.h - size.h - margin, anchor.y + gap)};
+}
+function followTrace(drawn){
+  if (traceTarget?.from !== "aircraft" || !map.project) return;
+  const at = drawn.get(traceTarget.asset);
+  if (!at) return;
+  const point = map.project([at.lon, at.lat]);
+  traceTarget.point = {x:point.x, y:point.y};
+  moveTrace();
+}
+function hideTrace(from){
+  if (from && traceTarget && traceTarget.from !== from) return;
+  traceTarget = null;
+  const card = document.getElementById("trace");
+  if (card) card.hidden = true;
+}
+
+// ---------- 관제탑과 신호선 ----------
+// 런타임과 기체 사이에 오간 것이 눈에 보여야 합니다 — 신청은 위로, 판정은 아래로, 회수는 빨갛게,
+// 텔레메트리는 몇 초에 한 번 작은 점으로. 직접 조종(주황)에는 선이 없고, 그 빈 자리가 이 화면의 뜻입니다.
+// 탑의 자리는 기호입니다: 창고 위 250 m. 범례가 그렇게 말합니다.
+const SIGNAL_TRAVEL_MS = 1300;
+const TELEMETRY_EVERY_MS = 3200;
+const SIGNAL_REBUILD_MS = 150;     // 선은 초당 몇 번만 다시 짓습니다(점은 매 프레임)
+const SIGNAL_COLOUR = {file:"#ffd23f", auto:"#29c76f", denied:"#ff3b30", human:"#e8b03a",
+                       queued:"#e8b03a", recall:"#ff3b30", tick:"#cfe3ff"};
+
+function towerPoint(){
+  const depot = latest?.worlds?.guarded?.depot_coords;
+  return depot ? {lat:depot.lat, lon:depot.lon, alt_m:TOWER_ALT_M} : null;
+}
+function toggleSignals(){
+  signalsOn = !signalsOn;
+  try { localStorage.setItem("holdshort-signals", signalsOn ? "on" : "off"); } catch (error) { void error; }
+  signalBuiltAt = -Infinity;
+  renderTower();
+  if (legendArgs) renderLegend(...legendArgs);
+}
+function renderTower(){
+  const tower = towerPoint(), on = Boolean(tower && signalsOn && visible("guarded"));
+  map.getSource("tower")?.setData({type:"FeatureCollection",
+    features: on ? towerColumn(tower.lat, tower.lon).map(part => extrusion(part, {})) : []});
+  if (!on || !tower) return;
+  // 이름표는 공중에 떠야 해서 지도 레이어가 아니라 표지입니다(MapLibre 심볼은 고도를 모릅니다).
+  if (!towerMarker && typeof maplibregl.Marker === "function" && document.createElement){
+    const element = document.createElement("div");
+    element.className = "tower-label";
+    towerMarker = new maplibregl.Marker({element, anchor:"bottom"}).setLngLat([tower.lon, tower.lat]).addTo(map);
+  }
+  if (towerMarker) towerMarker.getElement().textContent = t("tower_label");
+}
+/** 공중 표지의 이름표를 탑 높이에 맞춰 올립니다. 지도가 정확한 3D 투영을 주면 그것을, 아니면 근사값을. */
+function altitudeOffset(lon, lat, altM){
+  try {
+    const transform = map.transform;
+    if (transform?.coordinatePoint && maplibregl.MercatorCoordinate?.fromLngLat){
+      const coord = maplibregl.MercatorCoordinate.fromLngLat({lng:lon, lat});
+      const ground = transform.coordinatePoint(coord, 0), up = transform.coordinatePoint(coord, altM);
+      if (Number.isFinite(up?.y) && Number.isFinite(ground?.y)) return [up.x - ground.x, up.y - ground.y];
+    }
+  } catch (error) { void error; }
+  return [0, -towerLift(map.getZoom?.() ?? 14.5, map.getPitch?.() ?? 45, lat, altM)];
+}
+function placeTowerLabel(){
+  const tower = towerPoint();
+  if (!towerMarker || !tower) return;
+  const element = towerMarker.getElement();
+  element.hidden = !(signalsOn && visible("guarded"));
+  if (element.hidden) return;
+  const [dx, dy] = altitudeOffset(tower.lon, tower.lat, TOWER_ALT_M + 10);
+  towerMarker.setOffset([dx, dy]);
+}
+/** 원장에 닫힌 결정 하나 = 선 위를 지나는 점 하나(또는 둘). 되짚어 그리는 구간이 있으면 그 시각에 맞춥니다. */
+function spawnSignals(runtime, now){
+  const assets = latest?.worlds?.guarded?.assets || {};
+  const closed = (runtime.ledger || []).filter(e => e.outcome !== "pending");
+  const fresh = closed.filter(e => !signalSeen.has(e.id) && e.at >= roundStartedAt
+    && Date.now() - e.at * 1000 < DENIAL_MS);
+  signalSeen.clear();
+  for (const entry of closed) signalSeen.add(entry.id);
+  for (const entry of [...fresh].sort((a, b) => a.at - b.at)){
+    const asset = entry.proposal?.asset_id;
+    if (!assets[asset]) continue;
+    if (entry.proposal.author === "runtime"){
+      // 회수는 관제가 기체에 내려보내는 것입니다. 빨갛게 내려갑니다.
+      if (["recalled", "withdrawn"].includes(entry.decision?.code))
+        pushSignal(asset, "down", SIGNAL_COLOUR.recall, now);
+      continue;
+    }
+    const stage = stages.find(s => s.id === entry.id);
+    const filed = stage ? stage.at : now;
+    const judged = stage ? stage.at + GROW_MS + CHECK_MS - SIGNAL_TRAVEL_MS : now + SIGNAL_TRAVEL_MS;
+    pushSignal(asset, "up", SIGNAL_COLOUR.file, filed);
+    pushSignal(asset, "down", SIGNAL_COLOUR[entry.decision?.verdict] || SIGNAL_COLOUR.human,
+               Math.max(filed + SIGNAL_TRAVEL_MS * 0.8, judged));
+  }
+  // 텔레메트리. 살아 있는 링크에서만, 기체마다 몇 초에 하나씩 — 끊긴 기체에서는 아무것도 올라가지 않습니다.
+  const ids = Object.keys(assets).sort();
+  ids.forEach((id, index) => {
+    if (linkLost(id)){ telemetryDotAt.delete(id); return; }
+    const last = telemetryDotAt.get(id);
+    if (last === undefined){
+      telemetryDotAt.set(id, now - index * (TELEMETRY_EVERY_MS / Math.max(1, ids.length)));
+      return;
+    }
+    if (now - last < TELEMETRY_EVERY_MS) return;
+    pushSignal(id, "up", SIGNAL_COLOUR.tick, now, "tick");
+    telemetryDotAt.set(id, now);
+  });
+}
+function pushSignal(asset, dir, colour, start, kind = "dot"){
+  signalEvents.push({asset, dir, colour, start, kind, duration: kind === "tick" ? 1700 : SIGNAL_TRAVEL_MS});
+  if (signalEvents.length > 60) signalEvents.splice(0, signalEvents.length - 60);
+}
+function drawSignals(now, drawn){
+  const tower = towerPoint();
+  const on = Boolean(tower && signalsOn && visible("guarded"));
+  if (!on){
+    if (signalBuiltAt !== null){
+      map.getSource("signal-line")?.setData(empty());
+      map.getSource("signal-dot")?.setData(empty());
+      signalBuiltAt = null;
+    }
+    return;
+  }
+  if (signalBuiltAt === null || now - signalBuiltAt >= SIGNAL_REBUILD_MS){
+    const lines = [];
+    // 폭은 줌에 따라 — 미터로 고정하면 넓은 화면(줌 14 아래)에서 선이 한 픽셀도 안 돼 사라집니다.
+    const halfM = signalHalfWidth(map.getZoom?.() ?? 16, tower.lat);
+    for (const [id, at] of drawn){
+      const lost = linkLost(id);
+      for (const piece of signalDashes(at, tower, lost, halfM))
+        lines.push(extrusion(piece, {asset:id, kind: lost ? "lost" : "line"}));
+    }
+    map.getSource("signal-line")?.setData({type:"FeatureCollection", features:lines});
+    signalBuiltAt = now;
+  }
+  const dots = [];
+  for (const event of signalEvents){
+    const progress = (now - event.start) / event.duration;
+    const at = drawn.get(event.asset);
+    if (progress < 0 || progress > 1 || !at || linkLost(event.asset)) continue;
+    dots.push(extrusion(signalDot(at, tower, event.dir === "up" ? progress : 1 - progress,
+                                  event.kind === "tick" ? 3.5 : 7),
+                        {asset:event.asset, kind:event.kind, colour:event.colour}));
+  }
+  map.getSource("signal-dot")?.setData({type:"FeatureCollection", features:dots});
+  signalEvents = signalEvents.filter(event => now <= event.start + event.duration);
+}
+
+// ---------- PX4 SITL 거울 ----------
+// /state.autopilots 에 있는 기체는 진짜 조종장치(PX4)가 같은 명령을 같이 받는 기체입니다. 그 자리를 유령으로
+// 그립니다 — 판정에 쓰는 텔레메트리는 시뮬레이터 것이고, 이 유령은 명령이 조종장치까지 닿았다는 표시입니다.
+function renderAutopilots(runtime, now){
+  const pilots = runtime?.autopilots || {};
+  for (const [asset, pilot] of Object.entries(pilots)){
+    const lat = Number(pilot?.lat), lon = Number(pilot?.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const previous = px4Motion.get(asset);
+    px4Motion.set(asset, {start: previous ? motionPoint(previous, now, POLL_MS) : [lon, lat],
+                          end:[lon, lat], at:now, pilot});
+  }
+  for (const asset of [...px4Motion.keys()]) if (!pilots[asset]) px4Motion.delete(asset);
+}
+function drawPx4(now){
+  const bodies = [], labels = [];
+  if (visible("guarded")) for (const [asset, motion] of px4Motion){
+    const [lon, lat] = motionPoint(motion, now, POLL_MS);
+    const ahead = motionPoint(motion, now + 16, POLL_MS);
+    const heading = ahead[0] === lon && ahead[1] === lat ? 0
+      : Math.atan2((ahead[0] - lon) * Math.cos(lat * Math.PI / 180), ahead[1] - lat) * 180 / Math.PI;
+    for (const part of droneBody(lat, lon, Math.max(0, Number(motion.pilot.alt_m) || 0), heading, 1.35))
+      bodies.push(extrusion(part, {asset}));
+    labels.push({type:"Feature", geometry:{type:"Point", coordinates:[lon, lat]},
+                 properties:{asset, label:px4Label(asset, motion.pilot)}});
+  }
+  map.getSource("px4")?.setData({type:"FeatureCollection", features:bodies});
+  map.getSource("px4-label")?.setData({type:"FeatureCollection", features:labels});
+}
+function px4Label(asset, pilot){
+  const parts = [pilot.mode ? String(pilot.mode) : "",
+                 pilot.mission_seq == null ? "" : t("px4_step", pilot.mission_seq),
+                 t(pilot.armed ? "px4_armed" : "px4_disarmed"),
+                 Number(pilot.last_heartbeat_s) > 5 ? t("px4_stale", Math.round(pilot.last_heartbeat_s)) : ""];
+  return `PX4 SITL · ${asset}\n${parts.filter(Boolean).join(" · ")}`;
+}
+
+// ---------- 시연 연출 (?demo=1) ----------
+// 녹화용입니다. 원장과 /state 에 새 장면이 나타나면 카메라가 그 기체·구역으로 가서 읽을 만큼 머물고 넓은
+// 화면으로 돌아옵니다. 자막은 원장 코드와 값으로만 조립합니다 — 지어낸 문장은 없습니다.
+// 사람이 지도를 만지면 20초 쉽니다. ?demo=1 이 아니면 이 아래는 아무것도 하지 않습니다.
+const DIRECTOR_PAUSE_MS = 20000;
+const SHOT_MIN_MS = 3500;      // 더 급한 장면이 와도 이만큼은 보여 줍니다
+const SHOT_STALE_MS = 25000;   // 이보다 오래 줄 서 있던 장면은 이미 지난 일입니다
+const REST_MS = 4000;          // 넓은 화면으로 돌아온 뒤 거절 장면을 다시 받기까지
+const FLY_MS = 2200;
+// 브리핑은 판 첫머리에 여럿이 한꺼번에 옵니다. 공지·기상·화재·두절(3)을 밀어내지 않게 2 입니다.
+const SHOT_PRIORITY = {refusal:1, advisory:2, recall:2, restored:2, briefing:2,
+                       notice:3, held:3, weather:3, fire:3, lost:3, directive:3};
+const SHOT_HOLD = {refusal:7000, advisory:8000, recall:7000, restored:5000, briefing:7000,
+                   notice:9000, held:8000, weather:9000, fire:9000, lost:10000, directive:8000};
+
+function resetDirector(){
+  director.queue = []; director.current = null;
+  director.seen.clear(); director.ledgerSeen.clear(); director.lost.clear();
+  director.restUntil = 0;
+  renderCaption();
+}
+function userMoved(event){
+  if (event?.originalEvent) pauseDirector();
+}
+function pauseDirector(now = performance.now()){
+  if (!DEMO) return;
+  director.pausedUntil = now + DIRECTOR_PAUSE_MS;
+}
+function directorFeed(data, runtime, now){
+  if (!DEMO || !runtime) return;
+  for (const shot of sceneShots(data, runtime)) queueShot(shot, now);
+  for (const entry of freshLedger(runtime)) ledgerShot(entry, now);
+}
+function freshLedger(runtime){
+  const closed = (runtime.ledger || []).filter(e => e.outcome !== "pending");
+  const fresh = closed.filter(e => !director.ledgerSeen.has(e.id) && e.at >= roundStartedAt
+    && Date.now() - e.at * 1000 < 10000);
+  director.ledgerSeen.clear();
+  for (const entry of closed) director.ledgerSeen.add(entry.id);
+  return fresh.sort((a, b) => a.at - b.at);
+}
+function ledgerShot(entry, now){
+  const p = entry.proposal, d = entry.decision || {};
+  if (p.author === "runtime"){
+    if (d.code === "recalled") queueShot(recallShot(entry), now);
+    return;
+  }
+  if (!latest?.worlds?.guarded?.assets?.[p.asset_id]) return;
+  if (d.verdict === "denied" && d.code !== "duplicate" && ["fly_route", "depart"].includes(p.action))
+    queueShot(refusalShot(entry), now);
+  else if (d.verdict === "auto" && p.action === "fly_route") refiled(entry, now);
+}
+/** 거절 장면을 보는 중에 그 기체의 새 경로가 승인되면, 같은 화면에서 자막만 이어 씁니다 — 이야기가 끝나야 합니다. */
+function refiled(entry, now){
+  const current = director.current;
+  director.queue = director.queue.filter(s => !(s.kind === "refusal" && s.asset === entry.proposal.asset_id));
+  if (!current || current.kind !== "refusal" || current.asset !== entry.proposal.asset_id) return;
+  const params = entry.proposal.params || {};
+  current.caption = () => t("cap_refiled", entry.proposal.asset_id, filedPhrase(params),
+                            approvedWord(entry.decision, params, entry.proposal.asset_id));
+  current.until = Math.max(current.until, now + 5000);
+  captionKey = null;
+}
+function sceneShots(data, runtime){
+  const shots = [];
+  for (const notice of runtime.notices || []){
+    if (notice.kind === "incident") continue;            // 사고는 아래 incidents 가 반경까지 압니다
+    if (notice.citation) shots.push(briefingShot(notice));   // 관제 브리핑이 건 것 — 출처째 말합니다
+    else if (notice.applied) shots.push(noticeShot(notice));
+    else if (notice.held) shots.push(heldShot(notice));
+  }
+  if (runtime.weather?.hold) shots.push(weatherShot(runtime.weather.hold));
+  for (const incident of runtime.incidents || []) if (incident.applied) shots.push(fireShot(incident));
+  for (const [asset, link] of Object.entries(runtime.links || {})){
+    if (link?.status === "lost"){
+      director.lost.add(asset);
+      shots.push(lostShot(asset, link));
+    } else if (director.lost.has(asset)){
+      director.lost.delete(asset);
+      shots.push(restoredShot(asset, link));
+    }
+  }
+  for (const advisory of runtime.advisories || [])
+    if (advisory.ledger_id && (advisory.at ?? 0) >= roundStartedAt
+        && Date.now() - (advisory.at ?? 0) * 1000 < ADVISORY_MS) shots.push(advisoryShot(advisory));
+  for (const bulletin of data?.bulletins || [])
+    if (bulletin.kind === "recall") shots.push(directiveShot(bulletin));
+  return shots.filter(Boolean);
+}
+function queueShot(shot, now){
+  if (!shot?.camera || director.seen.has(shot.id)) return;
+  director.seen.add(shot.id);
+  const priority = SHOT_PRIORITY[shot.kind] || 1;
+  // 거절은 몇 초마다 옵니다. 장면이 줄 서 있거나 도는 중이면 거절은 버립니다 — 기록 카드가 그대로 보여 줍니다.
+  if (priority === 1 && (director.queue.length || (director.current && director.current.priority > 1))) return;
+  director.queue.push({...shot, priority, holdMs:SHOT_HOLD[shot.kind] || 7000, queuedAt:now});
+}
+function pickShot(now){
+  director.queue = director.queue.filter(shot => now - shot.queuedAt < SHOT_STALE_MS);
+  if (!director.queue.length) return null;
+  const best = director.queue.reduce((a, b) => (b.priority > a.priority ? b : a));
+  const current = director.current;
+  if (current && (best.priority <= current.priority || now - current.started < SHOT_MIN_MS)) return null;
+  if (!current && best.priority === 1 && now < director.restUntil) return null;
+  director.queue.splice(director.queue.indexOf(best), 1);
+  return best;
+}
+function directorTick(now){
+  if (!DEMO) return;
+  const paused = now < director.pausedUntil;
+  if (director.current && now >= director.current.until){
+    director.current = null;
+    if (!paused && !director.queue.length){
+      map.flyTo({...HOME_VIEW, bearing:currentBearing(), duration:FLY_MS + 400, essential:true});
+      director.restUntil = now + REST_MS;
+    }
+  }
+  if (!paused){
+    const next = pickShot(now);
+    if (next){
+      director.current = {...next, started:now, until:now + next.holdMs};
+      map.flyTo({...next.camera, duration:FLY_MS, essential:true});
+    }
+  }
+  renderCaption(now);
+}
+function renderCaption(now = performance.now()){
+  const card = document.getElementById("caption");
+  if (!card) return;
+  const text = DEMO && director.current ? director.current.caption() : "";
+  const paused = DEMO && now < director.pausedUntil
+    ? t("cap_paused", Math.ceil((director.pausedUntil - now) / 1000)) : "";
+  const key = `${text}|${paused}`;
+  if (key === captionKey) return;
+  captionKey = key;
+  document.getElementById("caption-text").textContent = text;
+  document.getElementById("caption-meta").textContent = paused;
+  card.hidden = !text && !paused;
+}
+
+// 카메라. 장면마다 무엇이 한 화면에 들어와야 하는지가 다릅니다 — 거절은 기체와 막은 것, 공지는 구역 전체,
+// 기상 대기는 창고와 서 있는 기체들, 사고는 원, 두절은 그 기체.
+function currentBearing(){
+  return map.getBearing?.() ?? HOME_VIEW.bearing;
+}
+function assetPoint(asset){
+  const v = latest?.worlds?.guarded?.assets?.[asset];
+  return v && Number.isFinite(Number(v.lat)) ? {lat:Number(v.lat), lon:Number(v.lon)} : null;
+}
+function pointCamera(at, zoom = 16.2, pitch = 58){
+  return at ? {center:[at.lon, at.lat], zoom, pitch, bearing:currentBearing()} : null;
+}
+function spanCamera(points, pitch = 55, minZoom = 13.6, margin = 1.8){
+  const valid = (points || []).filter(p => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lon)));
+  if (!valid.length) return null;
+  // 가운데는 양 끝의 한가운데입니다(평균이 아님) — 한쪽에 점이 몰려 있어도 먼 점이 화면 밖으로 안 나갑니다.
+  const lats = valid.map(p => Number(p.lat)), lons = valid.map(p => Number(p.lon));
+  const lat = (Math.min(...lats) + Math.max(...lats)) / 2, lon = (Math.min(...lons) + Math.max(...lons)) / 2;
+  const scale = Math.cos(lat * Math.PI / 180) || 1;
+  let span = 0;
+  for (const a of valid) for (const b of valid)
+    span = Math.max(span, Math.hypot((a.lon - b.lon) * scale, a.lat - b.lat) * 111320);
+  return {center:[lon, lat], zoom:zoomForSpan(Math.max(360, span * margin), lat, 620, minZoom), pitch,
+          bearing:currentBearing()};
+}
+/** 이만큼(m)이 화면에 들어오는 줌. MapLibre 는 한 변 512 픽셀 타일입니다. 너무 멀면 3D 가 안 읽혀 minZoom 에서 멈춥니다. */
+function zoomForSpan(spanM, lat, px = 620, minZoom = 13.6){
+  const zoom = Math.log2(40075016.686 * (Math.cos(lat * Math.PI / 180) || 1) * px / (512 * spanM));
+  return Math.max(minZoom, Math.min(16.8, Math.round(zoom * 100) / 100));
+}
+function ringPoints(polygon){
+  return (polygon || []).map(p => ({lat:p[0], lon:p[1]}));
+}
+function depotCamera(zoom = 16, pitch = 55){
+  const depot = latest?.worlds?.guarded?.depot_coords;
+  return depot ? {center:[depot.lon + 0.0006, depot.lat], zoom, pitch, bearing:currentBearing()}
+               : {...HOME_VIEW, bearing:currentBearing()};
+}
+
+// 장면 하나. id 는 한 번만 보여 주기 위한 이름이고, caption 은 언어가 바뀌면 다시 부릅니다.
+function refusalShot(entry){
+  const p = entry.proposal, params = p.params || {};
+  const from = params.legs?.[0] || assetPoint(p.asset_id);
+  const camera = params.blocked_at ? spanCamera([from, params.blocked_at]) : pointCamera(from);
+  return {id:`refusal:${entry.id}`, kind:"refusal", asset:p.asset_id, camera,
+          caption:() => refusalCaption(entry)};
+}
+function refusalCaption(entry){
+  const p = entry.proposal, params = p.params || {};
+  if (entry.decision?.code !== "airspace")
+    return t("cap_policy", p.asset_id, t(p.action), reasonText(entry));
+  const destination = latest?.worlds?.guarded?.assets?.[p.asset_id]?.job;
+  const filed = filedPhrase(params), blocked = blockPhrase(params);
+  return destination ? t("cap_refused", p.asset_id, filed, destination, blocked)
+                     : t("cap_refused_here", p.asset_id, filed, blocked);
+}
+/** 무엇을 냈는가. 신청서의 drafter 값 그대로입니다. */
+function filedPhrase(params){
+  const drafter = String(params?.drafter || "");
+  if (params?.route_choice?.chosen)
+    return t("cap_filed_choice", candidateLabel(params.route_choice.chosen, params.route_choice.candidates));
+  if (drafter === "straight" || (!drafter && (params?.legs || []).length === 2)) return t("cap_filed_straight");
+  if (drafter === "astar") return t("cap_filed_astar");
+  return drafter ? t("cap_filed_draft") : t("cap_filed_route");
+}
+/** 무엇이 막았는가. 판정이 값으로 남긴 것만 씁니다. */
+function blockPhrase(params){
+  const id = String(params.blocked_volume || ""), kind = params.blocked_kind;
+  const height = Math.round(Number(params.blocked_ceiling_m) || 0);
+  const brief = briefingFor(id);
+  if (kind === "traffic") return t("cap_blk_traffic", params.blocked_asset || "—");
+  if (kind === "landing") return t("cap_blk_landing", placePhrase(params, brief, height));
+  if (kind === "takeoff") return t("cap_blk_takeoff", placePhrase(params, brief, height));
+  if (brief?.kind === "crane")
+    return t("cap_blk_crane", height || Math.round(Number(brief.height_m) || 0) || "—",
+             sourceWord(brief.domain, brief.recorded));
+  if (id.startsWith("bldg-")) return t("cap_blk_building", height);
+  if (kind === "ceiling") return t("cap_blk_ceiling", height);
+  if (id.startsWith("uasfm-")) return t("cap_blk_grid");
+  if (ENDPOINTS.has(kind) || kind === "column") return blockedLabel(params);
+  return t("cap_blk_zone", brief?.place || params.blocked_name || noticeName(id) || t("blk_zone"));
+}
+function placePhrase(params, brief, height){
+  if (brief) return briefingLabel(brief, height, params);
+  const id = String(params.blocked_volume || "");
+  return id.startsWith("bldg-") ? t("blk_building", height)
+    : params.blocked_name || noticeName(id) || params.blocked_asset || id || "—";
+}
+function noticeName(id){
+  if (!id) return "";
+  const notice = (lastRuntime?.notices || []).find(n => n.id === id);
+  if (notice) return notice.name || notice.id;
+  const zone = latest?.worlds?.guarded?.zone;
+  return zone && zone.id === id ? zone.name || zone.id : "";
+}
+function recallShot(entry){
+  // 회수 줄의 detail.resource 는 기체 쪽이고, 규칙은 policy_hit·detail.policy 입니다(r_recalled 와 같은 뜻).
+  // 라이브에서 "(drone-01)" 로 나와 고쳤습니다.
+  const asset = entry.proposal.asset_id, detail = entry.decision.detail || {};
+  const rule = entry.decision.policy_hit || detail.policy || "";
+  return {id:`recall:${entry.id}`, kind:"recall", asset, camera:pointCamera(assetPoint(asset), 15.8, 55),
+          caption:() => t("cap_recall", asset, noticeName(rule) || rule || "—")};
+}
+function noticeShot(notice){
+  return {id:`notice:${notice.id}`, kind:"notice", camera:spanCamera(ringPoints(notice.polygon), 50)
+            || depotCamera(15.4, 50),
+          caption:() => t("cap_notice", notice.name || notice.id, notice.from_tick ?? "—",
+                          notice.until_tick ?? "∞", noticeSource(notice.source))};
+}
+function heldShot(notice){
+  return {id:`held:${notice.id}`, kind:"held",
+          camera:spanCamera(ringPoints(notice.polygon), 50) || depotCamera(15.4, 50),
+          caption:() => t("cap_notice_held", notice.name || notice.id, noticeSource(notice.source))};
+}
+function weatherShot(hold){
+  // 서 있는 기체는 창고에만 있지 않습니다 — 기상 대기는 배달지에 내려 있던 기체도 그 자리에 세웁니다(씨앗 7 의
+  // 틱 2624 에는 넷 다 배달지였음). 창고와 땅에 선 기체를 한 화면에 넣습니다.
+  const grounded = Object.values(latest?.worlds?.guarded?.assets || {})
+    .filter(v => !(Number(v.alt_m) > 1)).map(v => ({lat:Number(v.lat), lon:Number(v.lon)}));
+  const depot = latest?.worlds?.guarded?.depot_coords;
+  // 넓은 화면은 덜 기울입니다(35°) — 45° 에서는 가까운 쪽(창고)이 화면 아래로 잘렸습니다.
+  const camera = grounded.length ? spanCamera([depot, ...grounded], 35, 12.6, 2.2) : depotCamera(16, 55);
+  return {id:`weather:${hold.id}`, kind:"weather", camera,
+          caption:() => t("cap_weather", holdWhy(hold.reason), hold.until_tick ?? "—")};
+}
+function fireShot(incident){
+  const centre = incident.centre ? {lat:incident.centre[0], lon:incident.centre[1]} : null;
+  const radius = Math.round(Number(incident.radius_m) || 0);
+  const camera = centre
+    ? {center:[centre.lon, centre.lat], zoom:zoomForSpan(Math.max(400, radius * 5), centre.lat),
+       pitch:52, bearing:currentBearing()}
+    : depotCamera(15.4, 52);
+  return {id:`fire:${incident.id}`, kind:"fire", camera,
+          caption:() => t("cap_fire", incident.name || incident.place || incident.id, radius,
+                          incident.until_tick ?? "∞")};
+}
+function lostShot(asset, link){
+  return {id:`lost:${asset}:${link.since_tick ?? "—"}`, kind:"lost", asset,
+          camera:pointCamera(assetPoint(asset), 16.2, 58),
+          caption:() => t("cap_lost", asset, link.since_tick ?? link.last_seen_tick ?? "—")};
+}
+function restoredShot(asset, link){
+  return {id:`back:${asset}:${link?.since_tick ?? "—"}`, kind:"restored", asset,
+          camera:pointCamera(assetPoint(asset), 16, 55), caption:() => t("cap_restored", asset)};
+}
+function advisoryShot(advisory){
+  const chosen = (advisory.options || []).find(o => o.id === advisory.chosen) || {id:advisory.chosen};
+  return {id:`advisory:${advisory.ledger_id}`, kind:"advisory", asset:advisory.asset,
+          camera:pointCamera(assetPoint(advisory.asset), 16, 55),
+          caption:() => t("cap_advisory", (advisory.refusals || []).length, advisory.asset, optionLabel(chosen))};
+}
+function directiveShot(bulletin){
+  return {id:`directive:${bulletin.id}`, kind:"directive", camera:depotCamera(15.6, 52),
+          caption:() => t("cap_recall_ad", bulletin.applies_to?.model || bulletin.id,
+                          bulletin.published_tick ?? "—", bulletin.until_tick ?? "∞")};
+}
+/** 관제 브리핑이 건(또는 사람을 기다리는) 규칙 하나. 이름과 출처 도메인은 공지 기록 그대로입니다. */
+function briefingShot(notice){
+  if (!notice.applied && !notice.held) return null;
+  const centre = ringCentre(notice.polygon);
+  const key = notice.held ? "cap_briefing_held" : notice.kind === "closure" ? "cap_briefing_closed" : "cap_briefing";
+  const camera = notice.kind === "crane" || notice.kind === "closure"
+    ? pointCamera(centre, 16, 55) : spanCamera(ringPoints(notice.polygon), 50);
+  return {id:`briefing:${notice.id}:${notice.held ? "held" : "applied"}`, kind:"briefing", camera,
+          caption:() => t(key, notice.name || notice.id,
+                          sourceWord(notice.citation?.domain, notice.citation?.recorded))};
 }
 </script>
 </body>

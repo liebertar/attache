@@ -35,6 +35,8 @@
   .card{border:1px solid var(--warn);border-radius:8px;padding:10px 12px;margin-bottom:8px;
         background:rgba(232,176,58,.08)}
   .card .why{color:var(--dim);font-size:12px;margin:4px 0 8px}
+  .rec{display:inline-block;padding:0 6px;border-radius:4px;font-size:11px;font-weight:600;
+       background:rgba(232,176,58,.18);color:#ffd98a}
   button{font:inherit;padding:5px 12px;border-radius:6px;border:1px solid var(--line);
          background:#1d262c;color:var(--text);cursor:pointer;margin-right:6px}
   button.ok{background:var(--good);border-color:var(--goodline)}
@@ -147,12 +149,17 @@ function scoreTable(el, snap){
     `<tr><td>사람이 승인한 건</td><td class="idle">${s.human_approvals}</td></tr>`;
 }
 
+// 녹화본(손으로 쓴 브리핑 장면이나 전에 받아 둔 답)에서 온 공지. 오늘 검색한 공지처럼 보이면 사람이
+// 가짜 공지를 승인하게 됩니다 — 카드에 그렇다고 씁니다.
+const RECORDED_TAG = '<span class="rec">녹화본 · 지금 검색한 것 아님</span>';
+const recordedCard = p => Boolean(p.params?.notice?.citation?.recorded);
+
 function inbox(pending){
   const el = document.getElementById("inbox");
   if (!pending.length){ el.innerHTML = '<div class="empty">없음</div>'; return; }
   el.innerHTML = pending.map(p => `
     <div class="card">
-      <div><b>${safe(p.asset_id)}</b> · ${safe(ACTIONS[p.action] || p.action)} · $${Number(p.cost_usd || 0).toFixed(0)} · 영향 ${safe(p.blast_radius)}</div>
+      <div><b>${safe(p.asset_id)}</b> · ${safe(ACTIONS[p.action] || p.action)}${recordedCard(p) ? ` · ${RECORDED_TAG}` : ""} · $${Number(p.cost_usd || 0).toFixed(0)} · 영향 ${safe(p.blast_radius)}</div>
       <div class="why">${safe(p.rationale || "")}</div>
       <button class="ok" data-ok="${safe(p.id)}">승인</button>
       <button class="no" data-no="${safe(p.id)}">거부</button>

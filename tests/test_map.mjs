@@ -824,9 +824,9 @@ test('the keys card is three plain lines, and the keys it lists move the map', (
     ['keys_title', 'keys_mouse', 'keys_arrows', 'keys_letters'], '줄마다 낭독용 문장이 하나씩');
   // 세로 직사각형: 한 줄에 조작 하나(마우스 셋, 키보드 여섯).
   const grid = keys.match(/<div class="kgrid" aria-hidden="true">([\s\S]*?)\n  <\/div>/)[1];
-  assert.equal((grid.match(/class="kk"/g) || []).length, 9, '조작 아홉 줄');
+  assert.equal((grid.match(/class="kk"/g) || []).length, 10, '조작 열 줄');
   assert.equal((grid.match(/<svg class="mouse"/g) || []).length, 3, '마우스 왼쪽·휠·오른쪽');
-  assert.equal((grid.match(/class="kc"/g) || []).length, 10, 'Ctrl · 화살표 · Shift+화살표 · + − · N · H · 1–4');
+  assert.equal((grid.match(/class="kc"/g) || []).length, 11, 'Ctrl · 화살표 · Shift+화살표 · + − · N · H · 1–4 · L');
   assert.ok(!/<button|tabindex/.test(grid), '안내의 키 모양은 누를 수 없습니다');
   assert.doesNotMatch(keys, /⇧/, 'Mac 기호 대신 글자로');
   assert.match(grid, /class="kc">Shift</);
@@ -834,7 +834,7 @@ test('the keys card is three plain lines, and the keys it lists move the map', (
   const t = ui.get('t');
   assert.equal(t('keys_mouse'), 'drag pan · scroll zoom · right-drag or Ctrl+drag orbit');
   assert.equal(t('keys_arrows'), 'arrows pan · Shift+arrows rotate/tilt · +/- zoom');
-  assert.equal(t('keys_letters'), 'N north · H home · 1-4 focus drone');
+  assert.equal(t('keys_letters'), 'N north · H home · 1-4 focus drone · L tower lines');
   // MapLibre 의 키 처리는 끕니다 — 둘 다 살아 있으면 한 번에 두 번 움직입니다.
   assert.ok(ui.calls.some(c => c[0] === 'keyboard.disable'));
   ui.run('renderSnapshot', snapshot(), null);
@@ -859,6 +859,12 @@ test('the keys card is three plain lines, and the keys it lists move the map', (
   press('h'); assert.equal(ui.calls.at(-1)[0], 'flyTo');
   press('1'); assert.equal(ui.calls.at(-1)[0], 'flyTo');
   assert.equal(ui.calls.at(-1)[1].zoom, 16.4, '숫자 키는 그 기체로');
+  // L 은 관제 신호선을 껐다 켭니다. 카메라 키가 아니라 지도를 움직이지 않습니다.
+  const cameraCalls = ui.calls.length;
+  assert.equal(press('l'), true);
+  assert.equal(ui.calls.length, cameraCalls, 'L 은 카메라를 움직이지 않습니다');
+  assert.equal(ui.source('tower').features.length, 0, '끄면 탑도 사라집니다');
+  press('l');
   // 글을 쓰는 중이거나 조합키가 눌려 있으면 지도가 아닙니다.
   const before = ui.calls.length;
   assert.equal(press('ArrowRight', {target:{tagName:'INPUT'}}), false);
@@ -1013,7 +1019,8 @@ test('every panel minimizes and expands, the state persists, and a blocked stora
   assert.equal(ui.run('isMinimized', 'keys'), true, '저장된 상태로 시작합니다');
   ui.run('applyLanguage');
   assert.equal(ui.element('keys').min, true);
-  for (const id of ['head', 'keys', 'legend', 'score', 'acts', 'banner', 'denial', 'advisory', 'lostlink']){
+  for (const id of ['head', 'keys', 'legend', 'score', 'acts', 'briefing', 'banner', 'denial', 'advisory',
+                    'lostlink']){
     ui.run('setMinimized', id, true);
     assert.equal(ui.run('isMinimized', id), true, id);
     ui.run('setMinimized', id, false);
@@ -1049,3 +1056,483 @@ test('lines the runtime wrote itself name the tower, not an internal id', () => 
   assert.doesNotMatch(feed, /<b>intake<\/b>/);
 });
 
+
+// ── 관제 브리핑. 실제 모양 그대로: /state.briefing 항목(status 가 처지, trust 는 출처 도메인의 공식 여부)과
+//    규칙마다 공지 책에 걸리는 BriefingNotice(id = rule_id, polygon, ceiling_m, citation). ─────────────────
+function briefing(extra = {}) {
+  return {enabled:true, source:'live', mode:'live', runs:1, last_run_tick:120, credits_used:3, budget:20,
+    summary:'Two crane permits and one park closure near today’s landing areas.',
+    items:[
+      {id:'brief-c1', kind:'crane', place:'110th Street Manhattan', summary:'Tower crane permit, 95 m, active all week',
+       url:'https://www1.nyc.gov/permit/123', domain:'nyc.gov', trust:'official', status:'applied',
+       rule_id:'brief-c1', until_tick:5000},
+      {id:'brief-p1', kind:'closure', place:'Morningside Park', summary:'Park closed for a film shoot until 18:00',
+       url:'https://www.nycgovparks.org/closure', domain:'nycgovparks.org', trust:'official', status:'applied',
+       rule_id:'brief-p1'},
+      {id:'brief-e1', kind:'event', place:'Yankee Stadium', summary:'Game tonight, crowds from 18:00',
+       url:'https://untrusted.example/news', domain:'untrusted.example', trust:'unofficial', status:'held',
+       rule_id:'brief-e1'},
+      {id:'brief-i1', kind:'info', place:'East Side', summary:'UN General Assembly week', url:'javascript:alert(1)',
+       domain:'example.org', trust:'unofficial', status:'info', rule_id:null},
+    ], ...extra};
+}
+function briefingNotices({eventApplied = false} = {}) {
+  const circle = (lat, lon, r) => [[lat + r, lon], [lat, lon + r], [lat - r, lon], [lat, lon - r]];
+  const cite = domain => ({source_url:`https://${domain}/x`, title:'t', domain, fetched_at:0, read_by:'grammar',
+                           trust:'official', query:'', recorded:false});
+  return [
+    {id:'brief-c1', name:'CRANE · 110th Street Manhattan · 95 m', kind:'crane', applied:true, held:false,
+     source:'grammar', polygon:circle(40.7995, -73.9535, 0.0002), floor_m:0, ceiling_m:95, citation:cite('nyc.gov')},
+    {id:'brief-p1', name:'CLOSED · Morningside Park', kind:'closure', applied:true, held:false, source:'grammar',
+     polygon:circle(40.805, -73.959, 0.0005), floor_m:0, ceiling_m:-1, citation:cite('nycgovparks.org')},
+    {id:'brief-e1', name:'EVENT · Yankee Stadium', kind:'event', applied:eventApplied, held:!eventApplied,
+     source:eventApplied ? 'human' : 'grammar', polygon:circle(40.8296, -73.9262, 0.003), floor_m:0,
+     ceiling_m:null, citation:cite('untrusted.example')},
+  ];
+}
+
+test('the tower briefing panel lists what the tower read, its source and how far it applies', () => {
+  const ui = scene();
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:briefingNotices(), briefing:briefing()});
+  const card = ui.element('briefing');
+  assert.equal(card.hidden, false);
+  assert.match(card.innerHTML, /tower briefing/, '제목은 다른 카드와 같은 줄에');
+  assert.match(card.innerHTML, /data-min="briefing"/, '접기 단추도 같은 것');
+  assert.match(card.innerHTML, /data-kind="crane"[\s\S]*110th Street Manhattan/);
+  assert.match(card.innerHTML,
+    /<a href="https:\/\/www1\.nyc\.gov\/permit\/123" target="_blank" rel="noopener noreferrer">nyc\.gov<\/a>/);
+  assert.equal((card.innerHTML.match(/>APPLIED</g) || []).length, 2, '적용은 status 가 말합니다(trust 가 아니라)');
+  assert.match(card.innerHTML, />WAITING FOR A PERSON</);
+  assert.match(card.innerHTML, />INFO ONLY</);
+  assert.doesNotMatch(card.innerHTML, /javascript:/, '검색이 준 주소는 http(s) 만 링크가 됩니다');
+  assert.match(card.innerHTML, /briefed at tick 120 · 3 of 20 searches/);
+  assert.equal(ui.element('banner').hidden, true, '브리핑 공지는 배너가 아니라 브리핑 카드가 말합니다');
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[], briefing:briefing({source:'recorded'})});
+  assert.match(ui.element('briefing').innerHTML, /RECORDED/, '녹화본은 녹화본이라고 말합니다');
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[], briefing:{enabled:true, source:'recorded', runs:0,
+    summary:'아직 브리핑하지 않았습니다.', items:[]}});
+  assert.equal(ui.element('briefing').hidden, true, '한 번도 안 돌았으면 카드가 없습니다');
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[]});
+  assert.equal(ui.element('briefing').hidden, true, '브리핑이 없으면 카드도 없습니다');
+});
+
+test('a briefing crane stands on the map, an applied event is painted with its name, a closed landing area goes grey', () => {
+  const ui = scene();
+  const snap = snapshot();
+  snap.worlds.guarded.landing_areas = [{id:'la-morningside', name:'Morningside Park', lat:40.805, lon:-73.959},
+                                       {id:'la-pier', name:'Pier 17', lat:40.706, lon:-74.002}];
+  ui.run('renderSnapshot', snap, {ledger:[], notices:briefingNotices(), briefing:briefing()});
+  const crane = ui.source('brief-crane').features;
+  assert.ok(crane.length >= 2, '가는 기둥과 꼭대기 팔');
+  assert.ok(crane.some(f => Math.abs(f.properties.height - 95) < 0.01), '높이는 규칙의 천장 그대로');
+  assert.equal(ui.source('brief-crane-label').features[0].properties.label, 'CRANE 95 m · nyc.gov');
+  assert.equal(ui.source('zone').features.length, 0,
+               '크레인·폐쇄는 붉은 원이 아니고, 사람을 기다리는 행사는 아무것도 안 막습니다');
+  const [closed, open] = ui.source('landing').features.map(f => f.properties);
+  assert.equal(closed.closed, true);
+  assert.equal(closed.tag, 'CLOSED · nycgovparks.org');
+  assert.equal(open.closed, false, '원 밖의 착륙장은 그대로');
+  assert.equal(ui.source('landing-disc').features[0].properties.closed, true);
+  ui.run('renderSnapshot', snap, {ledger:[], notices:briefingNotices({eventApplied:true}), briefing:briefing()});
+  const zone = ui.source('zone').features;
+  assert.equal(zone.length, 1, '사람이 확인한 행사는 구역처럼 칠합니다');
+  assert.equal(zone[0].properties.name, 'EVENT · Yankee Stadium');
+  assert.match(ui.element('legend').innerHTML, /Crane \(briefing\)[\s\S]*Closed landing area/);
+});
+
+test('a refusal caused by a briefing rule names the rule and its source', () => {
+  const ui = scene();
+  const crane = denial('c1', {proposal:{asset_id:'drone-01', action:'fly_route',
+    params:{legs:[start, ...route], blocked_kind:'forbidden', blocked_volume:'brief-c1', blocked_leg:1,
+            blocked_ceiling_m:95, blocked_at:{lat:route[0].lat, lon:route[0].lon},
+            blocked_polygon:[[40.7995, -73.9535], [40.7996, -73.9535], [40.7996, -73.9534]]}},
+    decision:{verdict:'denied', reason:'크레인', code:'airspace'}});
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:briefingNotices(), briefing:briefing()});
+  ui.run('renderDenials', {ledger:[crane]}, 0);
+  assert.equal(ui.element('denial-why').textContent, 'leg 1 enters CRANE 95 m (nyc.gov)');
+  ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
+  assert.match(ui.source('stage-label').features[0].properties.label, /^REJECTED · CRANE 95 m \(nyc\.gov\)/);
+  assert.equal(ui.source('blocker').features[0].properties.height, 95, '크레인은 건물처럼 세웁니다');
+  // 항목 목록에서 빠져도(최근 몇 개만 실림) 공지 책의 출처로 이름을 붙입니다.
+  const later = scene();
+  later.run('renderSnapshot', snapshot(), {ledger:[], notices:briefingNotices(), briefing:briefing({items:[]})});
+  later.run('renderDenials', {ledger:[crane]}, 0);
+  assert.equal(later.element('denial-why').textContent, 'leg 1 enters CRANE 95 m (nyc.gov)');
+  // 연출 자막도 크레인과 출처를 말합니다.
+  const demo = demoShot({notices:briefingNotices().slice(0, 1)});
+  assert.equal(demo.caption, 'Tower briefing — CRANE · 110th Street Manhattan · 95 m, from nyc.gov. '
+    + 'It applies now: routes through it are refused.');
+  assert.ok(Math.abs(demo.fly[1].center[1] - 40.7995) < 1e-9, '크레인 자리로');
+});
+
+// ── 모델이 한 일 (hover card). params.model_trace 만 씁니다. ──────────────────────
+const AGENTS = {'drone-01':{model:'nemotron-3-nano:4b', host:'ollama', world:'guarded', last_seen_tick:1,
+                            display:'Nemotron Nano 4B', model_ok:true}};
+function traced(trace, params = {}) {
+  return approval('tr1', {proposal:{asset_id:'drone-01', action:'fly_route', author:'nemotron-3-nano:4b',
+    params:{legs:[start, ...route], drafter:'astar', model_trace:trace, ...params}},
+    decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}});
+}
+
+test('the hover card tells the model’s part in plain words, from the aircraft and from a ledger line', () => {
+  const ui = scene();
+  const trace = {form:{model:'nemotron-3-nano:4b', action:'fly_route', latency_ms:1820, used:true,
+      concern:'has a delivery to Morningside Park and no cleared route',
+      rationale:'Battery is full and the park is open.', fallback_reason:''},
+    route:{source:'choice', draft:null,
+      choice:{candidates:[{id:'a', label:'low route'}, {id:'b', label:'high route'}, {id:'c', label:'river route'}],
+              chosen:'a', reason:'weather hold expected'}}};
+  ui.run('renderSnapshot', snapshot(), {ledger:[traced(trace)], agents:AGENTS, locks:{}});
+  assert.equal(ui.run('showTraceFor', 'drone-01'), true);
+  const card = ui.element('trace');
+  assert.equal(card.hidden, false);
+  assert.match(card.innerHTML, /<b>Nemotron Nano 4B<\/b>/);
+  assert.match(card.innerHTML, /1\.8 s/);
+  assert.match(card.innerHTML,
+    /<dt>Asked<\/dt><dd>has a delivery to Morningside Park and no cleared route<\/dd>/);
+  assert.match(card.innerHTML,
+    /<dt>Answered<\/dt><dd>delivery route — “Battery is full and the park is open\.”<\/dd>/);
+  assert.match(card.innerHTML, /<dt>Code<\/dt><dd>accepted<\/dd>/);
+  assert.match(card.innerHTML,
+    /<dt>Route<\/dt><dd>the model chose the low route among 3 candidates — “weather hold expected”<\/dd>/);
+  assert.match(card.innerHTML, /<dt>Runtime<\/dt><dd>APPROVED — within limits<\/dd>/);
+  assert.doesNotMatch(card.innerHTML, /model_trace|[{}]/, '원문 JSON 은 안 보여 줍니다');
+  // 기록 줄에 올려도 같은 카드가 그 줄의 신청서로 뜹니다.
+  ui.run('hideTrace');
+  ui.run('showTraceForRow', {dataset:{entry:'tr1'}});
+  assert.equal(ui.element('trace').hidden, false);
+  assert.match(ui.element('trace').innerHTML, /<b>Nemotron Nano 4B<\/b>/);
+  ui.run('hideTrace', 'feed');
+  assert.equal(ui.element('trace').hidden, true, '마우스가 떠나면 카드도 사라집니다');
+});
+
+test('the hover card says when rules wrote the form, and when the model draft failed', () => {
+  const rules = scene();
+  const noModel = {form:{model:'', concern:'battery at 18% and no charger booked', action:'fly_route',
+      rationale:'', latency_ms:null, used:false, fallback_reason:'no model'},
+    route:{source:'straight', choice:null, draft:null}};
+  rules.run('renderSnapshot', snapshot(), {ledger:[traced(noModel)], locks:{}});
+  rules.run('showTraceFor', 'drone-01');
+  const plain = rules.element('trace').innerHTML;
+  assert.match(plain, /<b>rules<\/b>/);
+  assert.match(plain, /<dt>Answered<\/dt><dd>no model answer<\/dd>/);
+  assert.match(plain, /<dt>Code<\/dt><dd>rules wrote it — no model<\/dd>/);
+  assert.match(plain, /<dt>Route<\/dt><dd>straight line<\/dd>/);
+  // 모델이 있었지만 제때 답하지 않은 것은 다른 일입니다 — 이름은 그 모델, 코드는 규칙이 대신 씀.
+  const late = scene();
+  const timeout = {form:{model:'', concern:'needs a route', action:'fly_route', rationale:'', latency_ms:9000,
+      used:false, fallback_reason:'timeout'}, route:{source:'astar', choice:null, draft:null}};
+  late.run('renderSnapshot', snapshot(), {ledger:[traced(timeout)], agents:AGENTS, locks:{}});
+  late.run('showTraceFor', 'drone-01');
+  assert.match(late.element('trace').innerHTML, /<b>Nemotron Nano 4B<\/b>/);
+  assert.match(late.element('trace').innerHTML, /<dt>Code<\/dt><dd>rules wrote it — no answer in time<\/dd>/);
+  assert.match(late.element('trace').innerHTML, /<dt>Route<\/dt><dd>A\* \(rules\)<\/dd>/);
+  // 규칙이 후보 중에 고른 경우 — 둘째 스택의 실제 원장 모양 그대로(source 는 astar, choice 가 같이 옴).
+  const picked = scene();
+  const rulesChoice = {form:{model:'', concern:'has a delivery to Sara D. Roosevelt Park, no cleared route',
+      action:'fly_route', rationale:'배달지 Sara D. Roosevelt Park, 배터리 55%', latency_ms:0, used:false,
+      fallback_reason:'no model'},
+    route:{source:'astar', draft:null, choice:{candidates:[{id:'a', label:'shortest', length_m:2739, max_alt_m:70},
+      {id:'b', label:'lowest altitude', length_m:2736, max_alt_m:70}], chosen:'b',
+      reason:'rules: the previous candidate was refused (airspace)'}}};
+  picked.run('renderSnapshot', snapshot(), {ledger:[traced(rulesChoice, {route_choice:{chosen:'b', path:'rules',
+    model:'', reason:'rules: the previous candidate was refused (airspace)', candidates:[]}})], locks:{}});
+  picked.run('showTraceFor', 'drone-01');
+  const chosen = picked.element('trace').innerHTML;
+  assert.match(chosen, /<dt>Route<\/dt><dd>rules chose the lowest altitude among 2 candidates<\/dd>/);
+  assert.doesNotMatch(chosen, /0\.0 s/, '규칙이 쓴 신청서에는 걸린 시간을 붙이지 않습니다');
+  // 모델 초안이 건물을 지나 버려서 A* 가 그린 경우.
+  const drafted = scene();
+  const failed = {form:{model:'nemotron-3-nano:4b', concern:'refused once, needs a new route', action:'fly_route',
+      rationale:'Go around the block to the west.', latency_ms:900, used:true, fallback_reason:''},
+    route:{source:'astar', choice:null,
+      draft:{asked:true, latency_ms:4200, breach:'crossed bldg-t02452, roof 114 m', used:false}}};
+  drafted.run('renderSnapshot', snapshot(), {ledger:[traced(failed)], agents:AGENTS, locks:{}});
+  drafted.run('showTraceFor', 'drone-01');
+  assert.match(drafted.element('trace').innerHTML,
+    /<dt>Route<\/dt><dd>model draft failed — it crossed a 114 m building; A\* drew it<\/dd>/);
+});
+
+test('an older line without a trace shows only who wrote and who drew it, in either language', () => {
+  const ui = scene({localStorage:{getItem:key => key === 'holdshort-lang' ? 'ko' : null, setItem(){}}});
+  ui.run('renderSnapshot', snapshot(), {ledger:[approval('old1', {proposal:{asset_id:'drone-01',
+    action:'fly_route', author:'rules', params:{legs:[start, ...route], drafter:'astar'}},
+    decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}})], locks:{}});
+  ui.run('showTraceFor', 'drone-01');
+  const card = ui.element('trace').innerHTML;
+  assert.match(card, /<dt>신청서 작성<\/dt><dd>규칙<\/dd>/);
+  assert.match(card, /<dt>경로 작성<\/dt><dd>A\*<\/dd>/);
+  assert.doesNotMatch(card, /물음/, '흔적이 없으면 물음·답은 없습니다');
+});
+
+test('the hover card stands beside the aircraft, never on top of it', () => {
+  const ui = scene();
+  const size = {w:300, h:190};
+  const wide = {w:1500, h:940, reserveRight:302};
+  assert.equal(ui.run('placeTrace', {x:400, y:300}, size, wide).left, 456, '기체 오른쪽으로 비켜 섭니다');
+  assert.equal(ui.run('placeTrace', {x:1100, y:300}, size, wide).left, 744, '오른쪽이 좁으면 왼쪽으로');
+  for (const [anchor, view] of [[{x:400, y:300}, wide], [{x:1100, y:300}, wide],
+                                [{x:700, y:60}, {w:760, h:400, reserveRight:0}]]){
+    const at = ui.run('placeTrace', anchor, size, view);
+    const covers = anchor.x >= at.left && anchor.x <= at.left + size.w
+                && anchor.y >= at.top && anchor.y <= at.top + size.h;
+    assert.ok(!covers, `기체를 가립니다 ${JSON.stringify(at)}`);
+    assert.ok(at.left >= 12 && at.top >= 12, JSON.stringify(at));
+  }
+});
+
+// ── 경로 선택. 후보는 코드가 그리고 모델은 고르기만 합니다. ───────────────────────
+test('a route the model chose says who chose it and why, on the corridor and in the ledger line', () => {
+  const ui = scene();
+  const choice = {candidates:[
+      {id:'a', label:'low route', legs_count:4, length_m:2310, max_alt_m:75, min_alt_m:60, reason_tags:['low']},
+      {id:'b', label:'high route', legs_count:3, length_m:2100, max_alt_m:120, min_alt_m:110, reason_tags:['fast']}],
+    chosen:'a', reason:'weather hold expected', model:'nemotron-3-nano:4b', path:'tools'};
+  const entry = approval('rc1', {proposal:{asset_id:'drone-01', action:'fly_route', author:'nemotron-3-nano:4b',
+    params:{legs:[start, ...route], drafter:'choice:nemotron-3-nano:4b', route_choice:choice}},
+    decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}});
+  ui.run('renderSnapshot', snapshot(), {ledger:[entry], agents:AGENTS, locks:{}});
+  const feed = ui.element('feed').innerHTML;
+  assert.match(feed, /delivery route · model choice/);
+  assert.match(feed, /Nemotron Nano 4B chose the low route — weather hold expected/);
+  ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
+  assert.equal(ui.source('stage-label').features[0].properties.label,
+    'APPROVED · Nemotron Nano 4B chose the low route — weather hold expected');
+  const card = ui.run('assetCard', 'guarded',
+    {id:'drone-01', state:'ready', battery:80, alt_m:0, route:[], delivered:0});
+  assert.match(card, /<li class="chosen">low route · 4 legs · 2\.3 km · 60–75 m<\/li>/);
+  assert.match(card, /<li class="">high route · 3 legs · 2\.1 km · 110–120 m<\/li>/);
+  // 후보가 없는 신청서는 예전 그대로입니다.
+  const plain = scene();
+  plain.run('renderSnapshot', snapshot(), {ledger:[approval('p1', {decision:{verdict:'auto', reason:'한도 안',
+    code:'within_limits'}})], locks:{}});
+  plain.time(GROW_MS + CHECK_MS + 10); plain.run('draw');
+  assert.equal(plain.source('stage-label').features[0].properties.label, 'APPROVED · within limits');
+});
+
+// ── 관제탑과 신호선. 파란 기체에는 선이 있고 직결에는 없습니다. ────────────────────
+test('a guarded aircraft has a dotted line to the tower, a direct one has none, a lost link is grey and broken', () => {
+  const ui = scene({localStorage:{getItem:key => key === 'holdshort-show' ? 'both' : null, setItem(){}}});
+  const snap = snapshot(2, 1, route, {lon:-73.97, lat:40.705, alt_m:110, state:'delivering'});
+  snap.worlds.direct.assets = {'drone-09':{...snap.worlds.guarded.assets['drone-01'], id:'drone-09'}};
+  ui.run('renderSnapshot', snap, {ledger:[], notices:[]});
+  ui.time(700); ui.run('draw');
+  const lines = ui.source('signal-line').features;
+  assert.ok(lines.length > 3, '점선은 토막 여럿');
+  assert.ok(lines.every(f => f.properties.asset === 'drone-01' && f.properties.kind === 'line'),
+            '직결 기체(주황)에는 선이 없습니다');
+  assert.ok(lines.every(f => f.properties.height > f.properties.base));
+  const tower = ui.source('tower').features;
+  assert.ok(tower.length >= 1 && tower.some(f => f.properties.height >= 250), '탑은 창고 위 250 m');
+  ui.run('renderSnapshot', snapshot(3, 1, route, {lon:-73.97, lat:40.706, alt_m:110, state:'delivering'}),
+    {ledger:[], notices:[], links:{'drone-01':{status:'lost', since_tick:400, last_seen_tick:399}}});
+  ui.time(1000); ui.run('draw');
+  const broken = ui.source('signal-line').features;
+  assert.ok(broken.length && broken.every(f => f.properties.kind === 'lost'), '끊긴 링크는 회색 선');
+  assert.ok(broken.length < lines.length, '가운데가 비어 토막이 줄어듭니다');
+  assert.match(ui.element('legend').innerHTML, /HOLDSHORT TOWER[\s\S]*lost link/);
+  assert.match(ui.element('legend').innerHTML, /symbolic position/);
+});
+
+test('a filing travels up the line and the verdict comes back down, a recall comes down red', () => {
+  const ui = scene();
+  ui.run('renderSnapshot', snapshot(), {ledger:[denial('sig-1')], notices:[]});
+  ui.time(600); ui.run('draw');
+  const filing = ui.source('signal-dot').features;
+  assert.equal(filing.length, 1, '신청 하나 = 올라가는 점 하나');
+  assert.equal(filing[0].properties.colour, '#ffd23f');
+  assert.equal(filing[0].properties.kind, 'dot');
+  ui.time(GROW_MS + CHECK_MS - 100); ui.run('draw');
+  const verdict = ui.source('signal-dot').features;
+  assert.equal(verdict.length, 1, '판정은 내려오는 점 하나');
+  assert.equal(verdict[0].properties.colour, '#ff3b30', '거절은 빨강');
+  // 회수는 관제가 내려보내는 것입니다.
+  const recall = {id:'rc9', at:Date.now() / 1000, outcome:'done',
+    proposal:{asset_id:'drone-01', action:'divert_ground', author:'runtime', params:{volume:'nofly-1'}},
+    decision:{verdict:'auto', reason:'회수', code:'recalled', policy_hit:'nofly-1',
+              detail:{resource:'nofly-1', policy:'nofly-1'}}};
+  ui.run('renderSnapshot', snapshot(), {ledger:[recall, denial('sig-1')], notices:[]});
+  ui.time(GROW_MS + CHECK_MS + 400); ui.run('draw');
+  const down = ui.source('signal-dot').features;
+  assert.ok(down.some(f => f.properties.colour === '#ff3b30'), '회수는 빨갛게 내려옵니다');
+});
+
+// ── 시연 연출 (?demo=1) ──────────────────────────────────────────────────────────
+function demoScene(overrides = {}) {
+  return scene({location:{hostname:'localhost', search:'?demo=1'}, URLSearchParams, ...overrides});
+}
+function demoShot(runtime, snap = snapshot()) {
+  const ui = demoScene();
+  ui.run('renderSnapshot', snap, {ledger:[], notices:[], ...runtime});
+  ui.time(50); ui.run('draw');
+  return {ui, fly:ui.calls.filter(c => c[0] === 'flyTo').at(-1), caption:ui.element('caption-text').textContent};
+}
+
+test('the demo director only runs with ?demo=1', () => {
+  const ui = scene();
+  ui.run('renderSnapshot', snapshot(), {ledger:[denial('off-1')], notices:[]});
+  ui.time(200); ui.run('draw');
+  assert.equal(ui.calls.filter(c => c[0] === 'flyTo').length, 0,
+               '평소 화면에서 카메라는 저 혼자 움직이지 않습니다');
+  assert.equal(ui.element('caption').hidden, true);
+});
+
+test('a refusal flies the camera to the aircraft and the building, with a caption built from ledger values', () => {
+  const ui = demoScene();
+  const blocked = {lat:40.7075, lon:-73.9695};
+  const refused = denial('cap-1', {proposal:{asset_id:'drone-01', action:'fly_route',
+    params:{legs:[start, ...route], drafter:'straight', blocked_kind:'forbidden', blocked_volume:'bldg-t1',
+            blocked_leg:1, blocked_ceiling_m:114, blocked_at:blocked}},
+    decision:{verdict:'denied', reason:'건물', code:'airspace'}});
+  const snap = snapshot();
+  snap.worlds.guarded.assets['drone-01'].job = 'Harlem';
+  ui.run('renderSnapshot', snap, {ledger:[refused], notices:[]});
+  ui.time(100); ui.run('draw');
+  const fly = ui.calls.filter(c => c[0] === 'flyTo').at(-1);
+  assert.ok(fly, '카메라가 갑니다');
+  assert.ok(Math.abs(fly[1].center[1] - (start.lat + blocked.lat) / 2) < 1e-6, '기체와 막은 건물 사이');
+  assert.ok(fly[1].zoom > 14 && fly[1].zoom <= 16.8, `줌 ${fly[1].zoom}`);
+  assert.equal(ui.element('caption-text').textContent,
+    'drone-01 filed a straight line to Harlem — it clips a 114 m building. Refused.');
+  assert.equal(ui.element('caption').hidden, false);
+  // 읽을 시간이 지나면 넓은 화면으로 돌아오고 자막이 내려갑니다.
+  ui.time(7300); ui.run('draw');
+  assert.equal(ui.calls.at(-1)[1].zoom, 14.5, '넓은 화면으로');
+  assert.equal(ui.element('caption-text').textContent, '');
+});
+
+test('scheduled scenes take the camera to the zone, the warehouse, the fire circle and the dark aircraft', () => {
+  const ring = [[40.81, -73.94], [40.81, -73.93], [40.82, -73.93]];
+  const notam = demoShot({notices:[{id:'n1', name:'Harlem TFR', applied:true, held:false, source:'grammar',
+    from_tick:525, until_tick:900, polygon:ring}]});
+  assert.ok(Math.abs(notam.fly[1].center[1] - 40.815) < 1e-9, '구역 한가운데로(양 끝의 가운데)');
+  assert.match(notam.caption, /^NOTAM · Harlem TFR, tick 525–900 — read by the rule grammar\./);
+
+  const weather = demoShot({weather:{hold:{id:'wx1', reason:'WEATHER HOLD · gusts 14 m/s > 12',
+    until_tick:2700, since_tick:2200, source:'grammar'}, held:[]}});
+  assert.ok(Math.abs(weather.fly[1].center[1] - start.lat) < 1e-6, '창고가 화면 가운데');
+  assert.equal(weather.caption, 'WEATHER HOLD · gusts 14 m/s > 12 — takeoffs held until tick 2700. '
+    + 'Aircraft already in the air continue to land.');
+
+  const fire = demoShot({incidents:[{id:'f1', name:'FIRE · 4705 Center Boulevard', kind:'fire',
+    centre:[40.745618, -73.956797], radius_m:150, until_tick:3600, applied:true, held:false}]});
+  assert.deepEqual(fire.fly[1].center, [-73.956797, 40.745618]);
+  assert.match(fire.caption, /^FIRE · 4705 Center Boulevard — 150 m keep-out until tick 3600\./);
+
+  const lost = demoShot({links:{'drone-01':{status:'lost', since_tick:3800, last_seen_tick:3799}}});
+  assert.deepEqual(lost.fly[1].center, [start.lon, start.lat]);
+  assert.equal(lost.fly[1].zoom, 16.2);
+  assert.equal(lost.caption, 'drone-01 lost its link at tick 3800. The runtime keeps its filed space '
+    + 'reserved — nobody else may enter it.');
+
+  const advised = demoShot({advisories:[advisory({asset:'drone-01', ledger_id:'adv-9'})]});
+  assert.deepEqual(advised.fly[1].center, [start.lon, start.lat]);
+  assert.equal(advised.caption, 'After 3 refusals in a row the tower suggests to drone-01: '
+    + 'hold on the ground until tick 700. Information only — the operator decides.');
+});
+
+test('a drag pauses the director for 20 s, and the scene it missed plays when the pause ends', () => {
+  const ui = demoScene();
+  ui.run('userMoved', {originalEvent:{}});
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[], weather:{hold:{id:'wx1',
+    reason:'WEATHER HOLD · gusts 14 m/s > 12', until_tick:2700, since_tick:2200, source:'grammar'}, held:[]}});
+  ui.time(1000); ui.run('draw');
+  assert.equal(ui.calls.filter(c => c[0] === 'flyTo').length, 0, '사람이 지도를 잡고 있는 동안은 가만히');
+  assert.match(ui.element('caption-meta').textContent, /director paused/);
+  ui.time(21000); ui.run('draw');
+  assert.equal(ui.calls.filter(c => c[0] === 'flyTo').length, 1, '쉬고 나면 그 장면부터');
+  assert.match(ui.element('caption-text').textContent, /^WEATHER HOLD/);
+});
+
+// ── PX4 SITL 거울 ────────────────────────────────────────────────────────────────
+test('a PX4 mirror draws a ghost with its mode and mission step; without the field nothing is drawn', () => {
+  const ui = scene();
+  const pilot = {lat:40.705, lon:-73.968, alt_m:60, armed:true, mode:'AUTO.MISSION', mission_seq:3,
+                 endpoint:'udp://127.0.0.1:14540', last_heartbeat_s:0.4};
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[], autopilots:{'drone-01':pilot}});
+  ui.time(100); ui.run('draw');
+  assert.equal(ui.source('px4').features.length, 5, '몸통 하나와 로터 넷');
+  assert.ok(ui.source('px4').features.every(f => f.properties.height > f.properties.base));
+  assert.equal(ui.source('px4-label').features[0].properties.label,
+               'PX4 SITL · drone-01\nAUTO.MISSION · step 3 · armed');
+  assert.match(ui.element('legend').innerHTML, /PX4 SITL mirror/);
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[]});
+  ui.time(200); ui.run('draw');
+  assert.equal(ui.source('px4').features.length, 0, '없는 필드는 아무것도 그리지 않습니다');
+  assert.equal(ui.source('px4-label').features.length, 0);
+});
+
+// 화면 말은 두 언어가 같은 자리(%s)를 가져야 합니다 — 자막·카드는 값을 순서대로 끼웁니다.
+test('every screen text key exists in both languages with the same number of placeholders', () => {
+  const html = readFileSync(new URL('../ui/map.html', import.meta.url), 'utf8');
+  const TEXT = vm.runInNewContext(`(${html.match(/const TEXT = (\{[\s\S]*?\n\});/)[1]})`);
+  const holes = text => (String(text).match(/%s/g) || []).length;
+  const missing = Object.keys(TEXT.en).filter(key => !(key in TEXT.ko));
+  assert.deepEqual(missing, [], `한국어가 없는 말: ${missing.join(', ')}`);
+  const uneven = Object.keys(TEXT.en).filter(key => holes(TEXT.en[key]) !== holes(TEXT.ko[key]));
+  assert.deepEqual(uneven, [], `자리 수가 다른 말: ${uneven.join(', ')}`);
+});
+
+test('captions speak Korean with the language toggle', () => {
+  const ui = demoScene({localStorage:{getItem:key => key === 'holdshort-lang' ? 'ko' : null, setItem(){}}});
+  ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[],
+    links:{'drone-01':{status:'lost', since_tick:3800, last_seen_tick:3799}}});
+  ui.time(50); ui.run('draw');
+  assert.equal(ui.element('caption-text').textContent,
+    'drone-01 링크 두절 (틱 3800). 런타임은 그 기체가 낸 공간을 그대로 잡아 둡니다 — 아무도 못 들어갑니다.');
+});
+
+test('a recall caption names the rule that pulled the route, not the aircraft', () => {
+  const ui = demoScene();
+  // 확인만 되고 아직 안 걸린 공지 — 장면은 없지만 이름은 공지 책에서 찾습니다.
+  const tfr = {id:'nofly-1', name:'Harlem TFR', applied:false, held:false, source:'human', from_tick:1350,
+               until_tick:2100, polygon:[[40.81, -73.94], [40.81, -73.93], [40.82, -73.93]]};
+  const recall = {id:'rc-live', at:Date.now() / 1000, outcome:'done',
+    proposal:{asset_id:'drone-01', action:'divert_ground', author:'runtime', params:{volume:'nofly-1'}},
+    decision:{verdict:'auto', reason:'회수', code:'recalled', policy_hit:'nofly-1',
+              detail:{resource:'drone-01', policy:'nofly-1'}}};
+  ui.run('renderSnapshot', snapshot(), {ledger:[recall], notices:[tfr]});
+  ui.time(50); ui.run('draw');
+  assert.equal(ui.element('caption-text').textContent,
+    'A rule arrived — drone-01’s approved route was pulled back (Harlem TFR). It holds until a new one is approved.'
+      .replace('’', "'"));
+});
+
+// 녹화본(손으로 쓴 장면·전에 받아 둔 답)은 브리핑 카드에만이 아니라 지도·"무엇이 막았나"·자막에서도
+// 녹화본이라고 말합니다. 빠지면 가짜 공지가 오늘 검색한 공지와 같은 말로 화면에 섭니다.
+test('recorded briefing material says so on the map, in what-blocked-it and in the demo caption', () => {
+  const recordedNotices = briefingNotices().map(n => ({...n, citation:{...n.citation, recorded:true}}));
+  const recorded = briefing({source:'recorded'});
+  recorded.items = recorded.items.map(item => ({...item, recorded:true}));
+  const ui = scene();
+  const snap = snapshot();
+  snap.worlds.guarded.landing_areas = [{id:'la-morningside', name:'Morningside Park', lat:40.805, lon:-73.959}];
+  ui.run('renderSnapshot', snap, {ledger:[], notices:recordedNotices, briefing:recorded});
+  assert.equal(ui.source('brief-crane-label').features[0].properties.label, 'CRANE 95 m · nyc.gov · recorded');
+  assert.equal(ui.source('landing').features[0].properties.tag, 'CLOSED · nycgovparks.org · recorded');
+  const blocked = {blocked_volume:'brief-c1', blocked_kind:'forbidden', blocked_ceiling_m:95};
+  assert.equal(ui.run('blockedLabel', blocked), 'CRANE 95 m (nyc.gov · recorded)');
+  assert.equal(ui.run('blockPhrase', blocked), 'it clips a 95 m crane (nyc.gov · recorded)');
+  assert.match(ui.run('briefingShot', recordedNotices[0]).caption(), /, from nyc\.gov · recorded\. It applies now/);
+  // 항목 목록에서 빠져도(공지 책에만 남아도) 녹화본은 녹화본입니다.
+  ui.run('renderSnapshot', snap, {ledger:[], notices:recordedNotices, briefing:{...recorded, items:[]}});
+  assert.equal(ui.run('blockedLabel', blocked), 'CRANE 95 m (nyc.gov · recorded)');
+  // 라이브 출처는 도메인만.
+  ui.run('renderSnapshot', snap, {ledger:[], notices:briefingNotices(), briefing:briefing()});
+  assert.equal(ui.source('brief-crane-label').features[0].properties.label, 'CRANE 95 m · nyc.gov');
+  assert.equal(ui.run('blockedLabel', blocked), 'CRANE 95 m (nyc.gov)');
+});
+
+test('the approval screen says when a held notice comes from a recorded briefing, not a live search', async () => {
+  const world = {assets:{}, pads:{}, scoreboard:{spend_usd:0, human_approvals:0}, fleet_limit:450, events:[]};
+  const compare = {tick:10, recall_tick:null, worlds:{guarded:world, direct:structuredClone(world)}};
+  const card = isRecorded => ({id:`n-${isRecorded}`, asset_id:'airspace', action:'publish_notice', cost_usd:0,
+    blast_radius:'none', rationale:'EVENT · Union Square — march',
+    params:{notice:{id:'brief-rec-1', citation:{domain:'eastvillage-bulletin.example', recorded:isRecorded}}}});
+  const state = {llm:{enabled:false, models:{}}, ledger:[], incidents:[], weather:{}, links:{},
+                 awaiting_human:[card(true)]};
+  const ui = await tower(state, compare);
+  assert.match(ui.element('inbox').innerHTML, /공역 공지[^<]*· <span class="rec">녹화본 · 지금 검색한 것 아님<\/span>/);
+  const live = await tower({...state, awaiting_human:[card(false)]}, compare);
+  assert.doesNotMatch(live.element('inbox').innerHTML, /녹화본/);
+});
