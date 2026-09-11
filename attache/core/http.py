@@ -2,6 +2,7 @@
 
 import json
 import re
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -14,6 +15,16 @@ Route = tuple[str, re.Pattern, callable]
 def route(method: str, pattern: str) -> tuple:
     regex = re.compile("^" + re.sub(r"\{(\w+)\}", r"(?P<\1>[^/]+)", pattern) + "$")
     return method.upper(), regex
+
+
+class _QuietServer(ThreadingHTTPServer):
+    """브라우저가 요청 도중 연결을 끊으면(새로고침·탭 닫기) 받을 상대가 없을 뿐 오류가 아닙니다.
+    그 경우만 조용히 넘기고, 나머지 오류는 표준 처리(트레이스백)대로 둡니다."""
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
 
 
 class JsonServer:
@@ -91,7 +102,7 @@ class JsonServer:
             def do_POST(self):
                 self._respond("POST")
 
-        ThreadingHTTPServer(("0.0.0.0", self.port), Handler).serve_forever()
+        _QuietServer(("0.0.0.0", self.port), Handler).serve_forever()
 
     def start_background(self) -> threading.Thread:
         thread = threading.Thread(target=self.serve_forever, daemon=True)
