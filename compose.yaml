@@ -57,6 +57,9 @@ services:
       SEED: ${SEED:-7}
       FLEET_LIMIT_USD: 720
       TICK_SECONDS: ${TICK_SECONDS:-0.2}
+      # 직결 세계 에이전트의 모델 id. 그 에이전트들은 world 망에만 있어 런타임에 등록할 수 없어서
+      # 시뮬레이터가 기체마다 싣습니다(agent_model). DIRECT_LLM_URL 을 줬으면 같이 주세요(비면 규칙).
+      DIRECT_MODEL: ${DIRECT_MODEL:-}
     ports: ["8100:8100"]
     networks: [world]
 
@@ -72,6 +75,14 @@ services:
       SIM_URL: http://sim:8100
       LEDGER_PATH: /data/ledger.jsonl
       ARBITRATION_WINDOW_S: ${ARBITRATION_WINDOW_S:-1.5}
+      # 정보 수집. 들어온 것의 기록은 원장과 같은 볼륨에 — 재시작해도 읽은 검색 결과를 다시 읽지 않습니다.
+      INTAKE_DB: /data/intake.sqlite
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      INTAKE_PERIOD_S: ${INTAKE_PERIOD_S:-300}
+      # METAR 는 키 없이 aviationweather.gov 에서. 끄려면 METAR=off. 관측소는 비우면 configs/fleet.yaml.
+      METAR: ${METAR:-on}
+      METAR_STATIONS: ${METAR_STATIONS:-}
+      METAR_PERIOD_S: ${METAR_PERIOD_S:-300}
     ports: ["8000:8000"]
     volumes: [ledger:/data]
     # 양쪽 망에 다 있는 유일한 서비스입니다
