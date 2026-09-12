@@ -95,7 +95,7 @@ def _agent(drafter, redraw_s: float) -> GuardedAgent:
 
 def _proposal() -> Proposal:
     return Proposal(asset_id="drone-t", action="fly_route", cost_usd=12.0,
-                    blast_radius="schedule", rationale="시험", params={})
+                    blast_radius="schedule", rationale="test", params={})
 
 
 TELEMETRY = {"lat": HERE[0], "lon": HERE[1], "alt_m": 0.0, "job_lat": GOAL[0],

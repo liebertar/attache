@@ -336,7 +336,7 @@ class WeatherHoldTest(unittest.TestCase):
         self.assertEqual(cards[0]["asset_id"], "fleet")
         self.assertEqual(self.runtime._decisions[cards[0]["id"]].code, "human_lift")
         # Refused: the card comes down and the hold stays.
-        denied = self.runtime.approve(cards[0]["id"], "관제사", allow=False)
+        denied = self.runtime.approve(cards[0]["id"], "controller", allow=False)
         self.assertEqual((denied.verdict, denied.code), (Verdict.DENIED, "lift_refused"))
         self.assertIsNotNone(self.runtime.snapshot()["weather"]["hold"])
         self.assertEqual(pending(self.runtime, "lift_weather_hold"), [])
@@ -345,9 +345,9 @@ class WeatherHoldTest(unittest.TestCase):
         self.runtime.absorb([{"id": "wx-calm", "kind": "weather",
                               "text": "KNYC 0933Z WIND 240 AT 8 KT VIS 10SM"}])
         card = pending(self.runtime, "lift_weather_hold")[0]
-        lifted = self.runtime.approve(card["id"], "관제사", allow=True)
+        lifted = self.runtime.approve(card["id"], "controller", allow=True)
         self.assertEqual((lifted.verdict, lifted.code, lifted.approved_by),
-                         (Verdict.AUTO, "weather_hold_lifted", "관제사"))
+                         (Verdict.AUTO, "weather_hold_lifted", "controller"))
         snap = self.runtime.snapshot()
         self.assertIsNone(snap["weather"]["hold"])
         self.assertEqual(snap["policies"], [])
@@ -386,7 +386,7 @@ class WeatherHoldTest(unittest.TestCase):
                                            {"lat": 40.7200, "lon": -73.9855, "alt_m": 60}]})
         self.assertIs(self.runtime.file(public.to_dict()).verdict, Verdict.HUMAN)
         self.open_hold()
-        decision = self.runtime.approve(public.id, "관제사", allow=True)
+        decision = self.runtime.approve(public.id, "controller", allow=True)
         self.assertEqual((decision.verdict, decision.code), (Verdict.DENIED, "policy"))
         self.assertIn("WEATHER HOLD", decision.reason)
         self.assertNotIn(("drone-01", "fly_route"), [s[:2] for s in self.adapter.sent])
@@ -519,9 +519,9 @@ class IncidentTest(unittest.TestCase):
         card = pending(self.runtime, "publish_notice")[0]
         self.assertEqual(card["author"], "grammar")
         self.assertIn("manual", self.runtime._decisions[card["id"]].reason)
-        self.runtime.approve(card["id"], "관제사", allow=True)
+        self.runtime.approve(card["id"], "controller", allow=True)
         self.assertIsNotNone(self.runtime.airspace.get(body["id"]))
-        self.assertEqual(self.runtime.snapshot()["incidents"][0]["confirmed_by"], "관제사")
+        self.assertEqual(self.runtime.snapshot()["incidents"][0]["confirmed_by"], "controller")
         self.assertEqual(self.runtime.submit_intake({"text": "   "})[0], 400)
 
 
@@ -564,7 +564,7 @@ class ModelPathTest(unittest.TestCase):
         self.assertEqual(self.runtime._decisions[card["id"]].code, "human_weather")
         self.assertIs(self.runtime.file(route("drone-01", [HERE, (40.7200, -73.9855)])).verdict,
                       Verdict.AUTO)
-        decision = self.runtime.approve(card["id"], "관제사", allow=True)
+        decision = self.runtime.approve(card["id"], "controller", allow=True)
         self.assertEqual((decision.verdict, decision.code), (Verdict.AUTO, "weather_confirmed"))
         snap = self.runtime.snapshot()
         self.assertEqual((snap["weather"]["hold"]["source"], snap["weather"]["hold"]["reason"]),
@@ -586,7 +586,7 @@ class ModelPathTest(unittest.TestCase):
     def test_a_person_can_refuse_it_and_it_lapses_unseen(self):
         self.runtime.absorb([{"id": "news-1", "kind": "weather", "text": GUSTY}])
         card = pending(self.runtime, "publish_weather")[0]
-        decision = self.runtime.approve(card["id"], "관제사", allow=False)
+        decision = self.runtime.approve(card["id"], "controller", allow=False)
         self.assertEqual((decision.verdict, decision.code), (Verdict.DENIED, "weather_refused"))
         self.assertIsNone(self.runtime.snapshot()["weather"]["hold"])
         self.assertEqual(self.runtime.snapshot()["weather"]["held"], [])
@@ -614,11 +614,11 @@ class ModelPathTest(unittest.TestCase):
         self.assertIsNone(self.runtime.airspace.get("news-4"))
         card = pending(self.runtime, "publish_notice")[0]
         self.assertEqual(card["params"]["notice"]["kind"], "incident")
-        decision = self.runtime.approve(card["id"], "관제사", allow=True)
+        decision = self.runtime.approve(card["id"], "controller", allow=True)
         self.assertEqual((decision.verdict, decision.code), (Verdict.AUTO, "notice_published"))
         incident = self.runtime.snapshot()["incidents"][0]
         self.assertEqual((incident["applied"], incident["held"], incident["source"],
-                          incident["confirmed_by"]), (True, False, "human", "관제사"))
+                          incident["confirmed_by"]), (True, False, "human", "controller"))
         self.assertIsNotNone(self.runtime.airspace.get("news-4"))
         self.assertEqual([e["decision"]["code"] for e in ledger_lines(self.runtime)][-2:],
                          ["notice_published", "incident_keepout"])
@@ -774,7 +774,7 @@ class TavilyTest(unittest.TestCase):
         runtime.absorb([])
         self.assertEqual(codes(runtime), first, "the same page is not ledgered again")
         self.assertEqual(poller.fetches, 2)
-        runtime.approve(card["id"], "관제사", allow=True)
+        runtime.approve(card["id"], "controller", allow=True)
         hold = runtime.snapshot()["weather"]["hold"]
         self.assertEqual((hold["source"], hold["until_tick"]), ("human", 2200 + 500))
 
@@ -960,20 +960,20 @@ class GrammarRangeTest(unittest.TestCase):
         self.runtime.absorb([{"id": "fire-9999", "kind": "incident", "text": text}])
         self.assertEqual(self.runtime.snapshot()["incidents"], [])
         self.assertEqual(self.adapter.sent, [])
-        self.assertIn("반경 9999 m", self.unreadable_why())
+        self.assertIn("radius 9999 m", self.unreadable_why())
         self.assertEqual(self.runtime.snapshot()["intake"]["items"][0]["read_by"], "grammar")
 
     def test_an_absurd_radius_hint_is_refused_too(self):
         self.runtime.absorb([{"id": "fire-hint", "kind": "incident", "radius_m": 50_000,
                               "text": "FDNY FIRE AT 10 WEST 46TH STREET"}])
         self.assertEqual(self.runtime.snapshot()["incidents"], [])
-        self.assertIn("반경 50000 m", self.unreadable_why())
+        self.assertIn("radius 50000 m", self.unreadable_why())
 
     def test_an_impossible_wind_is_refused_not_a_hold(self):
         self.runtime.absorb([{"id": "wx-900", "kind": "weather",
                               "text": "KNYC 0929Z WIND 240 AT 900 KT"}])
         self.assertIsNone(self.runtime.snapshot()["weather"]["hold"])
-        self.assertIn("바람", self.unreadable_why())
+        self.assertIn("wind", self.unreadable_why())
 
     def test_the_simulators_two_sentences_still_pass_the_checks(self):
         self.runtime.tick = 2200
@@ -1093,7 +1093,7 @@ class ModelWindowTest(unittest.TestCase):
         card = pending(runtime, "publish_weather")[0]
         self.assertEqual(card["params"]["until_tick"], 2200 + 4 * 500)
         self.assertIn("until tick 4200", card["rationale"])
-        runtime.approve(card["id"], "관제사", allow=True)
+        runtime.approve(card["id"], "controller", allow=True)
         self.assertEqual(runtime.snapshot()["weather"]["hold"]["until_tick"], 4200)
 
 

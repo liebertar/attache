@@ -179,7 +179,7 @@ def _agent(llm: TieredLlm, planner: OperatorPlanner | None = None, drafter=None)
 
 def _proposal() -> Proposal:
     return Proposal(asset_id="drone-t", action="fly_route", cost_usd=12.0,
-                    blast_radius="schedule", rationale="시험", params={})
+                    blast_radius="schedule", rationale="test", params={})
 
 
 def _file(agent: GuardedAgent, runtime: FakeRuntime, state: dict | None = None,
@@ -681,7 +681,7 @@ class FormTraceTest(unittest.TestCase):
         self.assertEqual((trace["model"], trace["fallback_reason"]), ("", "timeout"))
 
     def test_the_trace_stays_under_one_kilobyte_and_keeps_its_keys(self):
-        form = form_part("m", "concern " * 200, "fly_route", "여기서 " * 400, 1, True, None)
+        form = form_part("m", "concern " * 200, "fly_route", "from here " * 400, 1, True, None)
         route = route_part("choice", choice_part(_candidates(), "c", "because " * 100),
                            {"asked": True, "latency_ms": 1, "breach": "x" * 900, "used": False})
         trace = model_trace(form, route)
