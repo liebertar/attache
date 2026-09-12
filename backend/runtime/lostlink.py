@@ -6,6 +6,7 @@ the one-writer rule for the card triple.
 """
 
 from backend.runtime.intents import Intent, LinkEvent
+from shared.config import plural
 from shared.models import Decision, Proposal, Verdict
 
 
@@ -66,7 +67,7 @@ class LostLinkMixin:
                  else "outside the cleared volume" if conforming is False
                  else "nothing was held")
         reason = (f"telemetry from {event.asset} is back at tick {event.tick} "
-                  f"({detail['dark_ticks']} ticks dark) — {where}")
+                  f"({plural(detail['dark_ticks'], 'tick')} dark) — {where}")
         self._ledger_link("link_restored", event.asset, reason, detail, intent)
         if conforming is False:
             self._ledger_link_nonconformance(event, intent, at)

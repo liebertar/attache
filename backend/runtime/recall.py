@@ -40,8 +40,8 @@ class RecallMixin:
                                          f"off is pulled back",
                                params={"hold": hold.id})
             decision = Decision(retreat.id, Verdict.AUTO,
-                                f"{hold.reason} — the route {asset_id} has not taken off "
-                                f"on is pulled back",
+                                f"{hold.reason} — {asset_id}'s cleared route is pulled back; "
+                                f"it has not taken off",
                                 policy_hit=HOLD_POLICY_PREFIX, code="recalled",
                                 detail={"resource": asset_id, "policy": HOLD_POLICY_PREFIX,
                                         "until_tick": hold.until_tick})

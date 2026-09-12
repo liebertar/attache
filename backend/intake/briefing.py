@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 import yaml
 
 from backend.intake.notices import NoticeRecord
+from shared.config import plural
 from shared.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, Volume
 from shared.intake import (
     BRIEFING_SYSTEM,
@@ -703,13 +704,8 @@ def _template_summary(result: RunResult, rules: list) -> str:
     made = ", ".join(f"{kind} {count}" for kind, count in sorted(kinds.items())) or "none"
     where = ", ".join(result.domains[:4]) or "no source"
     return (f"Briefing for {', '.join(result.plan.places[:4]) or 'the fleet'}: "
-            f"{pages_read(len(result.findings))} read, rules {made}. "
+            f"{plural(len(result.findings), 'page')} read, rules {made}. "
             f"Drawn from {where} ({result.source}).")
-
-
-def pages_read(count: int) -> str:
-    """"1 page" or "N pages". The count reaches a person in the ledger and on the map."""
-    return f"{count} page" if count == 1 else f"{count} pages"
 
 
 def _now() -> float:
@@ -1341,7 +1337,7 @@ class BriefingDesk:
                 continue
             if record is None:
                 why = self.tower.notices.unreadable.get(reading.item_id, "")
-                if "refused" in why:
+                if reading.item_id in self.tower.notices.refused:
                     reading.status = "refused"
                     self._store(reading)
                 elif why:
@@ -1418,7 +1414,8 @@ class BriefingDesk:
         ok = result.status is None or result.status.ok
         self._ledger("briefing_run", "briefing_run",
                      f"briefing ({plan.trigger}, {result.source}) · "
-                     f"{pages_read(len(result.findings))} · {result.credits:.0f} credits",
+                     f"{plural(len(result.findings), 'page')} · "
+                     f"{plural(round(result.credits), 'credit')}",
                      detail, "noted" if ok else "failed",
                      Verdict.AUTO if ok else Verdict.DENIED, result.summary)
 

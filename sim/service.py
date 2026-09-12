@@ -122,15 +122,19 @@ def main() -> None:
         return 200, out
 
     def scoreboard_rows(body, query):
+        # The words the approval screen uses (frontend/approvals.html), counter for counter, so the
+        # endpoint and the screen cannot drift apart unseen. The last two have no twin there.
         labels = [
-            ("pad_conflicts", "landing pad conflicts"),
-            ("post_recall_violations", "forbidden actions after the recall"),
-            ("unapproved_passenger_actions", "unapproved actions affecting passengers"),
-            ("unrecorded_actions", "unrecorded actions"),
-            ("batteries_dead", "stopped on a flat battery"),
-            ("spend_usd", "fleet spend ($)"),
-            ("over_fleet_limit_usd", "over the fleet limit ($)"),
-            ("human_approvals", "human approvals"),
+            ("pad_conflicts", "Landing pad collisions"),
+            ("post_recall_violations", "Banned acts after a recall"),
+            ("weather_hold_takeoffs", "Takeoffs during a weather hold"),
+            ("incident_incursions", "Flights into an incident scene"),
+            ("unapproved_passenger_actions", "Unapproved passenger acts"),
+            ("unrecorded_actions", "Acts with no record"),
+            ("batteries_dead", "Stopped on a dead battery"),
+            ("human_approvals", "Approved by a person"),
+            ("spend_usd", "Fleet spend ($)"),
+            ("over_fleet_limit_usd", "Over the fleet limit ($)"),
         ]
         guarded = simulation.worlds["guarded"].score.public()
         direct = simulation.worlds["direct"].score.public()
