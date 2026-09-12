@@ -24,9 +24,9 @@ export function makeCurve(position, route, steps = 16) {
     const b = points[i], c = points[i + 1];
     for (let j = 0; j < steps; j++) {
       const t = j / steps;
-      // 승인된 구간을 곧은 선으로 그대로 잇습니다. 예전에는 Catmull-Rom 으로 부드럽게
-      // 굽혔는데, 건물 사이 50m 격자 우회로에서는 그 곡선이 모서리를 잘라 건물을
-      // 뚫고 지나가는 것처럼 보였습니다. 판정받은 선과 화면의 선은 같은 선이어야 합니다.
+      // Approved legs are joined with straight lines. A Catmull-Rom smoothing used to cut the
+      // corners of the 50 m grid detours between buildings, so the line seemed to go through
+      // them. The line on screen must be the line that was judged.
       coordinates.push(mix(b, c, t));
       progress.push(lengths[i] + (lengths[i + 1] - lengths[i]) * t);
     }
@@ -70,18 +70,19 @@ export function motionPoint(motion, now, duration) {
     : mix(motion.start, motion.end, t);
 }
 
-// 협상 애니메이션. 신청 → 거절 → 재작성 → 승인이 0.5초 폴링 사이에 다 끝나서,
-// 그대로 두면 화면에는 결과만 남습니다. 실제로 오간 경로를 느리게 되짚어 보여줍니다.
-// 그리는 좌표는 전부 원장/시뮬레이터가 준 것이고, 여기서 새 경로를 만들지 않습니다.
-// 절반으로 줄였습니다(3.6/1.0/2.6/1.6/2.2). 상자를 다 싣고도 15초를 서 있는 것은 길었습니다.
-// 바꾸면 sim/world.py CLEARANCE_TICKS 와 drone/agent/loop.py REDRAW_DELAY_S 도 같이 바꿀 것.
-export const GROW_MS = 2400;    // 산출 중인 경로가 앞으로 뻗어 나가는 시간
-export const CHECK_MS = 600;    // 다 그린 뒤 판정을 기다리는 순간
-export const HOLD_MS = 1600;    // 무엇이 막았는지 읽을 시간
-export const FADE_MS = 1000;    // 거절된 선이 사라지는 시간
-export const APPROVED_HOLD_MS = 1400;   // 승인 표시가 남아 있는 시간
+// Negotiation replay. Filing → refusal → rewrite → approval all finish between two 0.5 s polls,
+// so left alone the screen would show only the outcome. This replays the routes that were
+// actually exchanged, slowly. Every coordinate comes from the ledger or the simulator; no new
+// route is made here. Timings were halved (from 3.6/1.0/2.6/1.6/2.2): standing 15 s with a full
+// load was too long. Change them together with CLEARANCE_TICKS in sim/world.py and
+// REDRAW_DELAY_S in drone/agent/loop.py.
+export const GROW_MS = 2400;    // the route being planned grows forward
+export const CHECK_MS = 600;    // the drawn route waits for its verdict
+export const HOLD_MS = 1600;    // time to read what blocked it
+export const FADE_MS = 1000;    // a refused route fades out
+export const APPROVED_HOLD_MS = 1400;   // the approval stays on screen
 
-/** 이 구간 하나가 화면에서 살아 있는 시간. 다음 구간을 언제 시작할지가 여기서 나옵니다. */
+/** How long one stage lives on screen. This decides when the next stage may start. */
 export function stageLife(kind) {
   return kind === "approved"
     ? GROW_MS + CHECK_MS + APPROVED_HOLD_MS
@@ -90,7 +91,7 @@ export function stageLife(kind) {
 
 const ease = t => 1 - (1 - t) ** 3;
 
-/** 곡선에서 두 진행값 사이만 잘라냅니다. 양 끝은 정확히 그 지점에 찍습니다. */
+/** Cut the curve between two progress values. Both ends land exactly on those points. */
 export function sliceCurve(curve, from, to) {
   const total = curve.progress.at(-1);
   const start = Math.max(0, Math.min(total, from));
@@ -103,9 +104,9 @@ export function sliceCurve(curve, from, to) {
 }
 
 /**
- * 한 구간이 지금 곡선의 어디까지 그려져 있는지. 끝났으면 null.
- * 승인은 뻗고 끝(그 뒤는 평소의 승인 경로 표시가 이어받습니다).
- * 거절은 뻗고 · 머물고 · 드론 쪽으로 되감깁니다.
+ * How much of the curve a stage has drawn so far, or null once it is over.
+ * An approval grows and ends (the usual approved-route display takes over from there).
+ * A refusal grows, holds, and fades.
  */
 export function stageWindow(kind, elapsed) {
   if (elapsed < 0) return null;
@@ -114,8 +115,8 @@ export function stageWindow(kind, elapsed) {
 }
 
 /**
- * 이 구간이 지금 얼마나 진하게 보이는가.
- * 선을 드론 쪽으로 되감으면 잡아채는 것처럼 보여서, 자리에 둔 채 흐려지게 합니다.
+ * How strongly the stage shows right now.
+ * Rewinding the line toward the drone looked like it was being snatched back, so it fades in place.
  */
 export function stageFade(kind, elapsed) {
   const after = elapsed - GROW_MS - CHECK_MS;
@@ -124,39 +125,41 @@ export function stageFade(kind, elapsed) {
   return after < HOLD_MS ? 1 : Math.max(0, 1 - (after - HOLD_MS) / FADE_MS);
 }
 
-/** 이 구간이 지금 어느 단계인가. 화면에 뭐라고 쓸지가 여기서 갈립니다. */
+/** Which phase the stage is in. This decides what the screen says. */
 export function stagePhase(kind, elapsed) {
   if (elapsed < GROW_MS) return "drawing";
-  // 다 그린 다음 판정이 내려오는 순간. 이게 없으면 그리자마자 색이 바뀌어서
-  // 누가 무엇을 정했는지가 안 보입니다.
+  // The moment the verdict comes down after the route is drawn. Without it the colour changes
+  // as soon as drawing ends, and nobody can see who decided what.
   if (elapsed < GROW_MS + CHECK_MS) return "checking";
   return kind === "approved" ? "approved" : "refused";
 }
 
-/** 라벨을 붙일 자리. 선 끝을 따라다니면 글자가 계속 움직여서 읽기가 어렵습니다. */
+/** Where the label sits. Following the growing head keeps the text moving and hard to read. */
 export function labelAnchor(curve) {
   return curve.coordinates[0];
 }
 
-// 고도를 눈에 보이게 하는 기하. MapLibre 5 에는 공중에 뜨는 선이 없습니다
-// (line-z-offset 이 번들에 아예 없습니다). 대신 fill-extrusion 으로 얇은 리본을
-// 실제 고도에 세웁니다 — base 와 height 사이에 떠 있는 판이 곧 그 구간의 고도입니다.
+// Geometry that makes altitude visible. MapLibre 5 has no floating lines (line-z-offset is not
+// in the bundle at all). Instead a thin ribbon is raised to its real altitude with
+// fill-extrusion — the slab between base and height is that leg's altitude.
 const METRES_PER_DEG_LAT = 110_570;
-// 표시용 폭입니다(충돌 판정 폭이 아닙니다). 44m 로 그렸더니 골목보다 넓어서 건물 사이로
-// 어디로 가는지가 안 읽혔습니다. 18m 면 줌 14.5 에서 7픽셀 — 보이면서 길이 남습니다.
-const RIBBON_HALF_M = 9;      // 반폭 → 18m 회랑
-const RIBBON_THICK_M = 3;     // 리본 두께(위아래)
-// 회랑은 기체 바로 아래에 깔립니다. 고도에 정확히 맞춰 두꺼운 판을 세웠더니 기체가
-// 그 판 속에 파묻혀 반쯤 가려졌습니다. 몇 미터 아래는 화면에서 구분이 안 되고, 기체는 늘 보입니다.
-const RIBBON_DROP_M = 4.5;    // 리본 윗면이 기체 고도보다 이만큼 아래
-// 점선 한 토막과 간격. 토막이 폭보다 길어야 선으로 읽히고 진행 방향이 보입니다.
+// Display width, not the conflict-check width. At 44 m the ribbon was wider than the streets and
+// you could not tell where it went between buildings. 18 m is 7 px at zoom 14.5 — visible and
+// still reads as a path.
+const RIBBON_HALF_M = 9;      // half width → an 18 m corridor
+const RIBBON_THICK_M = 3;     // ribbon thickness (top to bottom)
+// The corridor sits just below the aircraft. A thick slab at exactly the aircraft's altitude
+// buried the aircraft half inside it. A few metres lower is invisible on screen and keeps the
+// aircraft in view.
+const RIBBON_DROP_M = 4.5;    // the ribbon's top is this far below the aircraft's altitude
+// One dash and one gap. A dash longer than the ribbon is wide reads as a line and shows direction.
 const DASH_M = 36;
 const GAP_M = 14;
 
 /**
- * 경로를 구간마다 하나씩 사각형으로 만듭니다. 구간마다 승인 고도가 다르므로
- * 판도 구간마다 따로 떠 있어야 합니다 — 한 덩어리로 만들면 그 차이가 사라집니다.
- * offsetM 은 중심선에서 옆으로 옮긴 거리(진행 방향 왼쪽이 +). 0 이면 중심선 위의 판입니다.
+ * One rectangle per leg. Each leg has its own approved altitude, so each slab floats on its
+ * own — one merged shape would hide the difference.
+ * offsetM moves the slab sideways from the centreline (left of travel is +); 0 is on the centreline.
  */
 export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_THICK_M, offsetM = 0) {
   const out = [];
@@ -166,7 +169,7 @@ export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_T
     const dLat = b.lat - a.lat, dLon = (b.lon - a.lon) * scale;
     const length = Math.hypot(dLat, dLon);
     if (!(length > 0)) continue;
-    // 진행 방향의 1 m 법선. 미터를 위도 도수로 바꿔서 폭을 잡습니다.
+    // A 1 m normal to the direction of travel, converted from metres to degrees of latitude.
     const unitLat = -dLon / length / METRES_PER_DEG_LAT, unitLon = dLat / length / METRES_PER_DEG_LAT / scale;
     const outer = offsetM + halfWidthM, inner = offsetM - halfWidthM;
     const altitude = Number(b.alt_m ?? a.alt_m ?? 0);
@@ -184,13 +187,15 @@ export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_T
   return out;
 }
 
-// 고도가 바뀌는 꼭짓점의 수직 구간. 기체는 꼭짓점에서 제자리로 오르내리므로(sim _advance)
-// 그 자리에 세로 점선을 세워야 두 판이 이어져 보입니다. 없으면 회랑이 끊긴 것처럼 읽혔습니다.
-// 모양은 회랑 점선을 그대로 세운 것입니다 — 폭 18 m·두께 3 m 판이 36 m 토막·14 m 간격으로
-// 위로 이어지고, 판의 폭은 회랑처럼 진행 방향에 직각입니다. 정육면체 토막은 딴 물건으로 읽혔습니다.
+// The vertical part at a vertex where the altitude changes. The aircraft climbs or descends in
+// place at a vertex (sim _advance), so a vertical dotted column stands there to join the two
+// slabs; without it the corridor looked broken. It is the corridor dash stood on end: 18 m wide,
+// 3 m thick slabs in 36 m dashes with 14 m gaps, the width across the direction of travel like
+// the corridor. Cube-shaped dashes read as a different object.
 
-/** 한 꼭짓점에서 고도 a → b 로 옮기는 세로 점선. 회랑 윗면과 같은 기준(기체 고도 − DROP)입니다.
- * headingLonLat 은 그 꼭짓점에서 나가는 구간의 방향(도수 차이)입니다. */
+/** A vertical dotted column at one vertex, from altitude a to b. Same reference as the corridor
+ * top (aircraft altitude − DROP). headingLonLat is the direction (degree deltas) of the leg that
+ * leaves this vertex. */
 export function altitudeColumn(lat, lon, fromAltM, toAltM, headingLonLat = [0, 1]) {
   const low = Math.min(fromAltM, toAltM) - RIBBON_DROP_M;
   const high = Math.max(fromAltM, toAltM) - RIBBON_DROP_M;
@@ -199,8 +204,8 @@ export function altitudeColumn(lat, lon, fromAltM, toAltM, headingLonLat = [0, 1
   const len = Math.hypot(dLon, dLat) || 1;
   dLon /= len; dLat /= len;
   const half = RIBBON_HALF_M / METRES_PER_DEG_LAT, thin = RIBBON_THICK_M / 2 / METRES_PER_DEG_LAT;
-  const nLat = -dLon * half, nLon = dLat * half / scale;   // 폭 방향(진행 방향에 직각)
-  const tLat = dLat * thin, tLon = dLon * thin / scale;    // 두께 방향(진행 방향)
+  const nLat = -dLon * half, nLon = dLat * half / scale;   // across the direction of travel
+  const tLat = dLat * thin, tLon = dLon * thin / scale;    // along the direction of travel
   const polygon = [
     [lon + nLon + tLon, lat + nLat + tLat], [lon - nLon + tLon, lat - nLat + tLat],
     [lon - nLon - tLon, lat - nLat - tLat], [lon + nLon - tLon, lat + nLat - tLat],
@@ -215,8 +220,8 @@ export function altitudeColumn(lat, lon, fromAltM, toAltM, headingLonLat = [0, 1
   return out;
 }
 
-/** 같은 곡선을 공중 점선으로 표시합니다. 점선 간격은 출발점에 고정돼
- * 지나온 부분을 지워도 남은 도형이 밀리지 않습니다. 고도는 각 신청 구간을 따릅니다. */
+/** The same curve as a floating dotted ribbon. Dash positions are fixed from the start of the
+ * route, so erasing the flown part does not shift what remains. Altitude follows each filed leg. */
 export function curveRibbon(curve, from, to) {
   const dash = DASH_M / METRES_PER_DEG_LAT;
   const period = (DASH_M + GAP_M) / METRES_PER_DEG_LAT;
@@ -234,10 +239,11 @@ export function curveRibbon(curve, from, to) {
   return out;
 }
 
-/** 회랑의 테두리. 링크가 끊긴 기체의 회랑에 둘러 깜빡입니다 — 점선은 그대로 남고(공간은 예약된 채),
- * 회랑보다 padM 바깥의 네 모서리에 가는 막대(railM)가 이어집니다: 양옆 × 위아래.
- * 점선 자체를 깜빡이면 회랑이 사라졌다 나타나는 것으로 읽혀 예약 유지와 반대 뜻이 되고,
- * 회랑 전체를 반투명 판으로 덮었더니 초록 점선과 섞여 흙색 막대 하나로 보였습니다. */
+/** The corridor outline. It pulses around the corridor of an aircraft whose link is lost — the
+ * dashes stay (the space is still reserved) and thin rails (railM) run padM outside the corridor
+ * at its four edges: both sides × top and bottom. Blinking the dashes themselves read as the
+ * corridor disappearing, the opposite of "still reserved"; covering the corridor with a
+ * translucent slab mixed with the green dashes into one muddy bar. */
 export function curveShell(curve, from, to, padM = 5, railM = 1.6) {
   const out = [];
   const side = RIBBON_HALF_M + padM;
@@ -247,8 +253,8 @@ export function curveShell(curve, from, to, padM = 5, railM = 1.6) {
     if (end <= start) continue;
     const altitude = curve.altitudes[leg + 1];
     const at = alt => sliceCurve(curve, start, end).map(([lon, lat]) => ({lon, lat, alt_m:alt}));
-    // ribbon 의 윗면은 alt − DROP 입니다. 위 막대의 윗면 = 회랑 윗면 + padM,
-    // 아래 막대의 밑면 = 회랑 밑면 − padM 이 되게 고도를 줍니다.
+    // The ribbon's top is alt − DROP. Choose altitudes so the upper rail's top is the corridor
+    // top + padM and the lower rail's bottom is the corridor bottom − padM.
     const upper = at(altitude + padM), lower = at(altitude - RIBBON_THICK_M - padM + railM);
     for (const offset of [side, -side])
       out.push(...ribbon(upper, railM / 2, railM, offset), ...ribbon(lower, railM / 2, railM, offset));
@@ -256,9 +262,10 @@ export function curveShell(curve, from, to, padM = 5, railM = 1.6) {
   return out;
 }
 
-/** 회랑의 꼭짓점마다 고도가 바뀌면 세로 점선. 꼭짓점 v 의 앞 구간 고도는 altitudes[v],
- * 뒤 구간 고도는 altitudes[v+1] 입니다. 출발점(v=0)은 지상에서 첫 구간 고도로 오르는 이륙 기둥.
- * 지나온 꼭짓점(from 앞)과 아직 안 그린 꼭짓점(to 뒤)은 회랑과 같이 창 밖입니다. */
+/** A vertical dotted column at every corridor vertex where the altitude changes. Vertex v has the
+ * leg altitude altitudes[v] before it and altitudes[v+1] after it. The start (v=0) is the takeoff
+ * column from the ground to the first leg. Vertices already flown (before from) and not yet drawn
+ * (after to) are outside the window, like the corridor. */
 export function curveColumns(curve, from, to) {
   const out = [];
   for (let v = 0; v < curve.lengths.length - 1; v++) {
@@ -274,8 +281,8 @@ export function curveColumns(curve, from, to) {
 }
 
 /**
- * 고도에 뜬 정육각 덩어리. MapLibre 는 심볼을 띄우지 못하므로 기체도 짐도 이걸로 그립니다.
- * 지면에 붙은 아이콘으로는 '떠서 난다'가 안 읽힙니다.
+ * A hexagonal block at altitude. MapLibre cannot raise symbols, so aircraft and cargo are drawn
+ * with these; an icon stuck to the ground does not read as flying.
  */
 export function hex(lat, lon, radiusM, base, thicknessM) {
   const r = radiusM / METRES_PER_DEG_LAT;
@@ -289,11 +296,12 @@ export function hex(lat, lon, radiusM, base, thicknessM) {
 }
 
 /**
- * 쿼드콥터 한 대. 몸통 하나와 로터 넷을 고도에 띄웁니다.
- * 육각 한 덩어리로는 무엇인지 안 읽혀서 팔과 로터를 따로 세웁니다.
- * 실물(약 1m)보다 훨씬 큽니다 — 실물 크기면 줌 14.5 에서 한 픽셀도 안 됩니다.
+ * One quadcopter: a body and four rotors at altitude. A single hexagon did not read as anything,
+ * so the arms and rotors stand separately. Much larger than the real thing (about 1 m) — at real
+ * size it would be less than a pixel at zoom 14.5.
  */
-// scale 은 PX4 유령 기체용입니다 — 같은 자리를 나는 파란 기체와 겹쳐도 테두리처럼 한 둘레 크게 보이게.
+// scale is for the PX4 ghost: it flies the same spot as the blue aircraft and should show one
+// size larger, like an outline.
 export function droneBody(lat, lon, altitude, heading = 0, scale = 1) {
   const base = Math.max(0, altitude - 1);
   const parts = [hex(lat, lon, 5 * scale, base, 3.5 * scale)];
@@ -309,7 +317,8 @@ export function droneBody(lat, lon, altitude, heading = 0, scale = 1) {
   return parts;
 }
 
-/** 공사 크레인. 가는 기둥과 꼭대기의 긴 팔 — 건물 자료(OSM)에 없는 임시 장애물이라 건물과 다르게 보여야 합니다. */
+/** A construction crane: a thin mast with a long jib on top. It is a temporary obstacle missing
+ * from the building data (OSM), so it must look different from a building. */
 export function craneShape(lat, lon, heightM) {
   const scale = Math.cos(lat * Math.PI / 180) || 1;
   const east = m => m / METRES_PER_DEG_LAT / scale, north = m => m / METRES_PER_DEG_LAT;
@@ -319,7 +328,7 @@ export function craneShape(lat, lon, heightM) {
   return [hex(lat, lon, 2.2, 0, top), {polygon: jib, base: top - 3.2, height: top - 1}];
 }
 
-/** 네모 상자 하나. 짐은 상자로 보여야 짐입니다. */
+/** One square box. Cargo reads as cargo when it is a box. */
 export function box(lat, lon, halfM, base, thicknessM) {
   const r = halfM / METRES_PER_DEG_LAT;
   const rLon = r / (Math.cos(lat * Math.PI / 180) || 1);
@@ -328,8 +337,8 @@ export function box(lat, lon, halfM, base, thicknessM) {
           base: Math.max(0, base), height: Math.max(0.5, base + thicknessM)};
 }
 
-/** 땅에 그린 원. 화면을 향한 동그라미(circle 레이어)는 기울인 지도에서 입체감이 없어서,
- * 착륙장·이륙장은 실제 좌표의 다각형으로 그려 지도와 같이 기울어지게 합니다. */
+/** A circle drawn on the ground. A screen-facing circle layer has no depth on a tilted map, so
+ * landing and takeoff areas are real-coordinate polygons that tilt with the map. */
 export function groundDisc(lat, lon, radiusM, sides = 28) {
   const r = radiusM / METRES_PER_DEG_LAT;
   const rLon = r / (Math.cos(lat * Math.PI / 180) || 1);
@@ -341,30 +350,37 @@ export function groundDisc(lat, lon, radiusM, sides = 28) {
   return ring;
 }
 
-// 관제탑과 신호선. 런타임의 자리는 기호입니다 — 창고 위 공중에 띄운 가는 기둥이고, 실제 서버가
-// 거기 있다는 뜻이 아닙니다. 선은 회랑과 같은 3D 점선 토막이되 훨씬 가늘게(폭 3 m) — 회랑과 기체가
-// 늘 주인공이고 선은 배경입니다.
-export const TOWER_ALT_M = 250;
-// 폭 4.4 m. 3 m 로 그렸더니 줌 16 에서 2 픽셀 남짓이라 밝은 바탕에 묻혔습니다.
+// The runtime and its links. The sky-net runtime is drawn at a real address: 26 Federal Plaza
+// (the Jacob K. Javits Federal Building, federal government offices at Foley Square, Lower
+// Manhattan). It does not mean a server stands there. The building is about 240 m tall
+// (RUNTIME_ROOF_M), so a thin mast rises from its roof to the link altitude, 600 m, well clear of
+// the skyline. The links are the same 3D dashes as a corridor but much thinner — corridors and
+// aircraft stay the subject.
+export const RUNTIME_SITE = {name:"26 Federal Plaza", lat:40.71537, lon:-74.00421};
+export const RUNTIME_ROOF_M = 240;
+export const RUNTIME_ALT_M = 600;
+// 4.4 m wide. At 3 m a link was barely 2 px at zoom 16 and vanished on the light basemap.
 const SIGNAL_DASH_M = 20;
 const SIGNAL_GAP_M = 22;
 const SIGNAL_HALF_M = 2.2;
-// 끊긴 링크는 가운데가 비어 보여야 합니다. 선 길이의 이 구간에는 토막을 두지 않습니다.
+// A lost link must look empty in the middle. No dashes are placed in this part of the line.
 export const SIGNAL_BREAK = [0.36, 0.64];
 
-/** 창고 위에 뜬 관제탑 표지. 가는 기둥 하나와 얇은 머리판 — 탑이 아니라 기호로 읽히게. */
-export function towerColumn(lat, lon, altM = TOWER_ALT_M) {
-  return [hex(lat, lon, 4.5, altM - 26, 26), hex(lat, lon, 10, altM, 2.5)];
+/** The runtime mast: a thin column from the roof to the link altitude and a thin head plate on top. */
+export function runtimeMast(site = RUNTIME_SITE, altM = RUNTIME_ALT_M, roofM = RUNTIME_ROOF_M) {
+  const roof = Math.min(Number(roofM) || 0, altM - 26);
+  return [hex(site.lat, site.lon, 4.5, roof, altM - roof), hex(site.lat, site.lon, 10, altM, 2.5)];
 }
 
-/** 두 3D 점 사이 t(0~1) 지점. 고도도 같이 섞습니다. */
+/** The point t (0–1) of the way between two 3D points. Altitude is mixed too. */
 export function signalPoint(from, to, t) {
   return {lat: from.lat + (to.lat - from.lat) * t, lon: from.lon + (to.lon - from.lon) * t,
           alt_m: Number(from.alt_m) + (Number(to.alt_m) - Number(from.alt_m)) * t};
 }
 
-/** 한 토막의 발자국. 수평으로 긴 토막은 진행 방향으로 누운 가는 판, 거의 수직인 토막(옥상 바로 위 탑까지)은
- * 작은 정사각 — 가파른 줄을 수평 판으로 자르면 계단으로 보였습니다. */
+/** The footprint of one dash. A mostly horizontal dash is a thin slab lying along the line; a
+ * nearly vertical one (an aircraft close to the mast) is a small square — cutting a steep line
+ * into horizontal slabs looked like a staircase. */
 function dashFootprint(a, b, halfM) {
   const scale = Math.cos(a.lat * Math.PI / 180) || 1;
   const dLat = b.lat - a.lat, dLon = (b.lon - a.lon) * scale;
@@ -376,9 +392,10 @@ function dashFootprint(a, b, halfM) {
 }
 
 /**
- * 기체에서 관제탑까지의 점선. 토막은 3D 길이로 나눕니다 — 수평 길이로 나누면 옥상에서 250 m 위 탑으로
- * 거의 수직으로 오르는 줄이 토막 하나가 됩니다. 토막마다 자기 고도 구간을 base~height 로 가집니다.
- * broken 이면 가운데(SIGNAL_BREAK)를 비웁니다 — 링크 두절.
+ * The dotted link from an aircraft to the runtime. Dashes are cut by 3D length — cut by
+ * horizontal length, a line climbing almost straight up to the mast top would be a single dash.
+ * Each dash carries its own altitude band as base–height.
+ * broken leaves the middle (SIGNAL_BREAK) empty — a lost link.
  */
 export function signalDashes(from, to, broken = false, halfM = SIGNAL_HALF_M) {
   const scale = Math.cos(from.lat * Math.PI / 180) || 1;
@@ -398,30 +415,31 @@ export function signalDashes(from, to, broken = false, halfM = SIGNAL_HALF_M) {
   return out;
 }
 
-/** 선 위를 지나가는 사건 하나(신청·판정·회수·텔레메트리). 고도에 뜬 작은 육각 덩어리입니다. */
+/** One event travelling along a link (filing, verdict, recall, telemetry): a small hexagonal block at altitude. */
 export function signalDot(from, to, t, radiusM = 7) {
   const p = signalPoint(from, to, Math.max(0, Math.min(1, t)));
   return hex(p.lat, p.lon, radiusM, p.alt_m - radiusM, radiusM * 2);
 }
 
-/** 지면 한 점 위 altM 이 화면에서 몇 픽셀 위로 떠 보이는가(근사). 공중 표지의 이름표를 거기 붙입니다.
- * MapLibre 는 한 변 512 픽셀 타일이라 줌 z 의 1 픽셀은 둘레 / (512·2^z) 미터입니다. 원근 왜곡은 무시합니다. */
-export function towerLift(zoom, pitchDeg, lat, altM) {
+/** How many pixels above its ground point an altitude appears on screen (approximate). Labels of
+ * raised markers are placed there. MapLibre tiles are 512 px, so one pixel at zoom z is
+ * circumference / (512·2^z) metres. Perspective is ignored. */
+export function altitudeLift(zoom, pitchDeg, lat, altM) {
   return altM / metresPerPixel(zoom, lat) * Math.sin(pitchDeg * Math.PI / 180);
 }
 
-/** 화면 한 픽셀이 땅에서 몇 미터인가(화면 가운데 기준). */
+/** Metres on the ground per screen pixel (at the centre of the screen). */
 export function metresPerPixel(zoom, lat) {
   return 40075016.686 * (Math.cos(lat * Math.PI / 180) || 1) / (512 * 2 ** zoom);
 }
 
-/** 신호선의 반폭(m). 미터로 고정하면 줌 14 아래에서 한 픽셀도 안 돼 사라지고, 가까이 가면 굵어집니다.
- * 화면에서 늘 2.4 픽셀쯤 되게 하되, 가까이서는 SIGNAL_HALF_M 보다 가늘어지지 않습니다. */
+/** Half width (m) of a link. Fixed in metres it disappears below zoom 14 and thickens up close.
+ * It stays about 2.4 px on screen, and never thinner than SIGNAL_HALF_M up close. */
 export function signalHalfWidth(zoom, lat) {
   return Math.max(SIGNAL_HALF_M, metresPerPixel(zoom, lat) * 1.2);
 }
 
-/** 실은 짐. 기체 위로 개수만큼 쌓입니다. 싣는 중이면 늘고 내리는 중이면 줄어듭니다. */
+/** The load on board, stacked on the aircraft one box per item. It grows while loading and shrinks while unloading. */
 export const CARGO_MAX = 6;
 export function cargoStack(lat, lon, altitude, count, halfM = 3.5) {
   const boxes = [];
