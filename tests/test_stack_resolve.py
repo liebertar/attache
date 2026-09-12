@@ -139,13 +139,13 @@ class ResolveTest(unittest.TestCase):
         status = subprocess.run(["bash", "scripts/ollama_fleet.sh", "status", "4"], env=env,
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(status.returncode, 0, status.stderr)
-        self.assertIn(f":{self.base + 6} (관제) 떠 있음", status.stdout)
-        self.assertIn(f":{self.base + 1} 꺼짐", status.stdout)
+        self.assertIn(f":{self.base + 6} (runtime) up", status.stdout)
+        self.assertIn(f":{self.base + 1} down", status.stdout)
         overlap = subprocess.run(["bash", "scripts/ollama_fleet.sh", "status", "4"],
                                  env={**env, "OLLAMA_TOWER_PORT": str(self.base + 2)},
                                  capture_output=True, text=True, timeout=30)
         self.assertNotEqual(overlap.returncode, 0)
-        self.assertIn("겹칩니다", overlap.stderr)
+        self.assertIn("overlaps the runtime server", overlap.stderr)
 
     def test_intake_follows_the_key_and_the_network(self):
         self.serve(self.base + 5)

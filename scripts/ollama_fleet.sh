@@ -43,7 +43,7 @@ KEEP_ALIVE="${OLLAMA_FLEET_KEEP_ALIVE:-2h}"
 TOWER="${OLLAMA_FLEET_TOWER:-1}"
 TOWER_PORT="${OLLAMA_TOWER_PORT:-11439}"
 if [ "$TOWER" = 1 ] && [ "$((BASE_PORT + SIZE))" -ge "$TOWER_PORT" ]; then
-  echo "함대(:$((BASE_PORT + 1))..:$((BASE_PORT + SIZE)))가 관제 서버 :$TOWER_PORT 와 겹칩니다 — OLLAMA_TOWER_PORT 를 옮기세요" >&2
+  echo "the fleet (:$((BASE_PORT + 1))..:$((BASE_PORT + SIZE))) overlaps the runtime server :$TOWER_PORT — move OLLAMA_TOWER_PORT" >&2
   exit 2
 fi
 
@@ -137,12 +137,12 @@ PY
 
 status_one() {
   local port=$1 loaded role=""
-  if [ "$port" = "$TOWER_PORT" ]; then role=" (관제)"; fi
+  if [ "$port" = "$TOWER_PORT" ]; then role=" (runtime)"; fi
   if is_up "$port"; then
     loaded=$(curl -s --max-time 2 "http://127.0.0.1:$port/api/ps" | python3 -c "$PS_SUMMARY" 2>/dev/null || echo "?")
-    echo "  :$port$role 떠 있음 — $loaded"
+    echo "  :$port$role up — $loaded"
   else
-    echo "  :$port$role 꺼짐"
+    echo "  :$port$role down"
   fi
 }
 
