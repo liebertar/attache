@@ -472,7 +472,7 @@ class IncidentTest(unittest.TestCase):
         landed = ledger_lines(self.runtime)[-1]["proposal"]["params"]
         self.assertEqual((landed["blocked_kind"], landed["blocked_name"]),
                          ("landing", "FIRE · 4705 Center Boulevard"))
-        self.assertIn("내려앉을 수 없습니다", landing.reason)
+        self.assertIn("cannot touch down", landing.reason)
         keepout = [e for e in ledger_lines(self.runtime)
                    if e["decision"]["code"] == "incident_keepout"]
         self.assertEqual(len(keepout), 1)

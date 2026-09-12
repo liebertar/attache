@@ -307,11 +307,11 @@ class JudgeTest(unittest.TestCase):
                                              rationale="", resource="pad:launch",
                                              params={"legs": astray}).to_dict())
             self.assertIs(decision.verdict, Verdict.DENIED)
-            self.assertIn("끝점", decision.reason)
+            self.assertIn("last point", decision.reason)
         params = advisories(runtime)[0]["proposal"]["params"]
         climb = next(o for o in params["options"] if o["id"] == "climb")
         self.assertFalse(climb["legal"], climb["why"])
-        self.assertIn("끝점", climb["why"])
+        self.assertIn("last point", climb["why"])
 
     def test_a_crossing_offers_holding_until_the_other_corridor_clears(self):
         runtime, adapter = make_runtime()

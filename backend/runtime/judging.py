@@ -44,7 +44,8 @@ class JudgingMixin:
             checks.append("airspace_loaded")
             return self._deny(proposal, Decision(
                 proposal.id, Verdict.DENIED,
-                "런타임이 아직 공역을 다 받지 못했습니다 — 판정할 수 없어 거절, 잠시 뒤 다시",
+                "the runtime has not received the whole airspace yet — nothing to judge with, "
+                "refused, file again shortly",
                 code="airspace_not_loaded",
                 detail={"airspace_revision": self.airspace.revision}))
 
@@ -54,8 +55,8 @@ class JudgingMixin:
             # The same filing arriving back to back goes out once; otherwise it is billed twice.
             # This is a judgement too, so it goes in the ledger — without it, "why did that
             # filing get no answer?" has no answer.
-            decision = Decision(proposal.id, Verdict.DENIED, "직전에 같은 신청이 실행됐습니다",
-                                code="duplicate")
+            decision = Decision(proposal.id, Verdict.DENIED,
+                                "the same filing was executed a moment ago", code="duplicate")
             return self._deny(proposal, decision)
 
         if self.links.lost(proposal.asset_id):
@@ -123,8 +124,8 @@ class JudgingMixin:
         """
         link = self.links.links[proposal.asset_id]
         return Decision(proposal.id, Verdict.DENIED,
-                        f"{proposal.asset_id} 의 링크가 틱 {link.since_tick} 부터 끊겨 있습니다 — "
-                        "기체가 명령을 들을 수 없습니다", code="lost_link_refused",
+                        f"{proposal.asset_id} has had no link since tick {link.since_tick} — "
+                        "the aircraft cannot hear commands", code="lost_link_refused",
                         detail={"resource": proposal.asset_id, "since_tick": link.since_tick,
                                 "last_seen_tick": link.last_seen_tick})
 
@@ -145,8 +146,8 @@ class JudgingMixin:
             return None
         known = ", ".join(config_module.KNOWN_LOST_LINK_BEHAVIOURS)
         return Decision(proposal.id, Verdict.DENIED,
-                        f"통신 두절 대비 행동 {lost_link.behaviour!r} 의 부피를 판정할 수 없습니다 "
-                        f"(아는 것: {known})", policy_hit="lost_link",
+                        f"the volume of lost-link behaviour {lost_link.behaviour!r} cannot be "
+                        f"judged (known: {known})", policy_hit="lost_link",
                         code="contingency_unknown",
                         detail={"behaviour": lost_link.behaviour,
                                 "known": list(config_module.KNOWN_LOST_LINK_BEHAVIOURS)})

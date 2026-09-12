@@ -26,7 +26,7 @@ from tests.fixture_llm import FixtureLlm
 HERE = (40.70178, -73.96920)
 GOAL = (40.70600, -73.98000)
 REFUSAL = {"verdict": "denied", "policy_hit": "airspace", "code": "airspace",
-           "reason": "1번 구간이 규정을 어깁니다", "forbids": "bldg-x", "detail": {}}
+           "reason": "leg 1 breaks the rules", "forbids": "bldg-x", "detail": {}}
 APPROVAL = {"verdict": "auto", "policy_hit": None, "reason": "", "detail": {}}
 DRAWN = [{"lat": HERE[0], "lon": HERE[1], "alt_m": 60.0},
          {"lat": 40.70400, "lon": -73.97500, "alt_m": 60.0},

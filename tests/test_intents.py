@@ -145,7 +145,7 @@ class VerticalColumnTest(unittest.TestCase):
         self.assertEqual(params["blocked_leg"], 1)
         self.assertAlmostEqual(params["blocked_at"]["lat"], LAT0, places=5)
         self.assertEqual(params["blocked_ceiling_m"], 60.0)
-        self.assertIn("이륙 기둥", decision.reason)
+        self.assertIn("takeoff column", decision.reason)
         self.assertEqual(self.adapter.sent, [])
 
     def test_a_vertex_climb_through_a_band_neither_leg_touches_is_refused(self):

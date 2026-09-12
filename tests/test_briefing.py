@@ -561,7 +561,7 @@ class RuleTest(FakeServerCase):
         self.assertEqual((volume.ceiling_m, volume.clearance_m), (round(230 * 0.3048, 3), 50.0))
         west, east = (CRANE_AT[0], CRANE_AT[1] - 0.008), (CRANE_AT[0], CRANE_AT[1] + 0.008)
         through = route("drone-09", [west, east], alt_m=100.0)
-        self.assertIn("구간이 규정을 어깁니다", runtime.check_route(through))
+        self.assertIn("breaks the rules", runtime.check_route(through))
         self.assertEqual(through.params["blocked_volume"], crane["id"])
         above = route("drone-09", [west, east], alt_m=121.0)   # above 70 m rooftop + 50 m margin
         self.assertIsNone(runtime.check_route(above))
@@ -573,7 +573,7 @@ class RuleTest(FakeServerCase):
         volume = runtime.airspace.get(closure["id"])
         self.assertEqual((volume.floor_m, volume.ceiling_m), (0.0, CLOSED_CEILING_M))
         landing = route("drone-09", [(40.80, -73.96), ST_NICHOLAS], alt_m=60.0)
-        self.assertIn("내려앉을 수 없습니다", runtime.check_route(landing))
+        self.assertIn("cannot touch down", runtime.check_route(landing))
         self.assertEqual(landing.params["blocked_kind"], "landing")
         takeoff = route("drone-09", [ST_NICHOLAS, (40.80, -73.96)], alt_m=60.0)
         self.assertIsNone(runtime.check_route(takeoff), "leaving a closed park is not blocked")
@@ -615,7 +615,7 @@ class RuleTest(FakeServerCase):
         event = items_by_kind(runtime)["event"]
         self.assertEqual(event["status"], "approved")
         refused = route("drone-09", [(40.7300, -73.9950), (40.7420, -73.9850)], alt_m=80.0)
-        self.assertIn("구간이 규정을 어깁니다", runtime.check_route(refused))
+        self.assertIn("breaks the rules", runtime.check_route(refused))
 
 
 # ---------- Recorded and live answers ----------

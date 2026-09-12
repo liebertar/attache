@@ -199,7 +199,7 @@ class AirspaceTest(unittest.TestCase):
         })
         self.assertIs(decision.verdict, Verdict.DENIED)
         self.assertEqual(decision.policy_hit, "airspace")
-        self.assertIn("구간이 규정을 어깁니다", decision.reason)
+        self.assertIn("breaks the rules", decision.reason)
 
 
 class RouterAgreesWithTheJudgeTest(unittest.TestCase):

@@ -345,13 +345,13 @@ class RouteFormTest(unittest.TestCase):
                 decision = self.file_route(self.through_building(alt_m))
                 self.assertIs(decision.verdict, Verdict.DENIED)
                 self.assertEqual(decision.code, "airspace")
-                self.assertIn("양식", decision.reason)
+                self.assertIn("not in valid form", decision.reason)
         self.assertEqual(self.adapter.routes, [])
         # The same path filed at 60m is stopped by judgement, not the form — the building
         # really is there.
         decision = self.file_route(self.through_building(60.0))
         self.assertIs(decision.verdict, Verdict.DENIED)
-        self.assertNotIn("양식", decision.reason)
+        self.assertNotIn("not in valid form", decision.reason)
 
     def test_the_judge_itself_treats_below_ground_as_ground(self):
         """Even when the form check is skipped (another entry point), judgement puts -1m
@@ -371,7 +371,7 @@ class RouteFormTest(unittest.TestCase):
         decision = self.file_route(legs)
         self.assertLess(time.monotonic() - started, 1.0)
         self.assertIs(decision.verdict, Verdict.DENIED)
-        self.assertIn("양식", decision.reason)
+        self.assertIn("not in valid form", decision.reason)
 
     def test_a_leg_longer_than_the_runtime_maximum_is_refused(self):
         from backend.runtime.form import MAX_LEG_M
@@ -380,7 +380,7 @@ class RouteFormTest(unittest.TestCase):
                 {"lat": 40.70 + (MAX_LEG_M + 1000) / 110_570.0, "lon": -73.97, "alt_m": 60}]
         decision = self.file_route(legs)
         self.assertIs(decision.verdict, Verdict.DENIED)
-        self.assertIn("너무 김", decision.reason)
+        self.assertIn("is too long", decision.reason)
 
     def test_the_index_refuses_to_walk_a_planet_sized_leg(self):
         """The last line of defence. Fed straight to the judge with no form check, it refuses

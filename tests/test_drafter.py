@@ -249,7 +249,7 @@ class DraftFlowTest(unittest.TestCase):
     def test_the_brief_reads_the_map_from_the_judge(self):
         drafter = self.drafter()
         goal = (40.7985, -73.955)
-        brief = drafter._brief(START, goal, self.bbox, {"reason": "1번 구간이 규정을 어깁니다",
+        brief = drafter._brief(START, goal, self.bbox, {"reason": "leg 1 breaks the rules",
                                                        "forbids": None})
         self.assertIn(f"origin {START[0]:.5f},{START[1]:.5f} -> goal 40.79850,-73.95500", brief)
         self.assertIn("no-fly cell", brief)          # the Midtown KLGA 0ft band

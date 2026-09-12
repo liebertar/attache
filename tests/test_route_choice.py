@@ -70,7 +70,7 @@ TELEMETRY = {"id": "drone-t", "model": "dv-x500", "lat": HERE[0], "lon": HERE[1]
              "job": "Morningside Park", "job_lat": GOAL[0], "job_lon": GOAL[1], "battery": 66.0,
              "stops_left": 2, "state": "loading"}
 REFUSAL = {"verdict": "denied", "policy_hit": "airspace", "code": "airspace",
-           "reason": "1번 구간이 규정을 어깁니다", "forbids": "bldg-x", "detail": {}}
+           "reason": "leg 1 breaks the rules", "forbids": "bldg-x", "detail": {}}
 APPROVAL = {"verdict": "auto", "policy_hit": None, "reason": "", "detail": {}}
 CANDIDATE_KEYS = ["id", "label", "legs", "length_m", "max_alt_m", "min_alt_m", "reason_tags"]
 

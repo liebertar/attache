@@ -31,26 +31,26 @@ def _form_problem(legs) -> str | None:
     finish.
     """
     if not isinstance(legs, list) or len(legs) < 2:
-        return "legs 는 둘 이상의 점 목록"
+        return "legs must be a list of two or more points"
     previous = None
     for index, leg in enumerate(legs, start=1):
         if not isinstance(leg, dict):
-            return f"{index}번 점이 객체가 아님"
+            return f"point {index} is not an object"
         try:
             lat, lon, alt = float(leg["lat"]), float(leg["lon"]), float(leg.get("alt_m", 0.0))
         except (KeyError, TypeError, ValueError):
-            return f"{index}번 점에 숫자 lat/lon/alt_m 가 없음"
+            return f"point {index} has no numeric lat/lon/alt_m"
         if not all(math.isfinite(value) for value in (lat, lon, alt)):
-            return f"{index}번 점이 유한한 수가 아님"
+            return f"point {index} is not a finite number"
         if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
-            return f"{index}번 점이 지구 위 좌표가 아님"
+            return f"point {index} is not a coordinate on Earth"
         if alt < 0.0:
-            return f"{index}번 점의 고도가 땅 밑 ({alt:.0f}m)"
+            return f"point {index} altitude is below ground ({alt:.0f} m)"
         if previous is not None:
             length = math.hypot((lat - previous[0]) * METRES_PER_DEG_LAT,
                                 (lon - previous[1]) * METRES_PER_DEG_LON)
             if length > MAX_LEG_M:
-                return (f"{index - 1}번 구간이 너무 김 "
+                return (f"leg {index - 1} is too long "
                         f"({length / 1000:.0f}km > {MAX_LEG_M / 1000:.0f}km)")
         previous = (lat, lon)
     return None
