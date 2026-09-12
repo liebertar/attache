@@ -416,7 +416,7 @@ class GrammarTest(unittest.TestCase):
     def test_code_refuses_numbers_places_and_windows_that_do_not_add_up(self):
         low = read_hazard("A tower crane at 2701 Broadway will reach a height of 5 feet. "
                           "September 22, 2026.", self.gazetteer, self.areas, DAY)
-        self.assertIn("크레인 높이가 10~400 m 밖", hazard_problems(low, BBOX))
+        self.assertIn("crane height outside 10~400 m", hazard_problems(low, BBOX))
         tall = read_hazard("A tower crane at 2701 Broadway will reach a height of 1500 feet.",
                            self.gazetteer, self.areas, DAY)
         self.assertTrue(hazard_problems(tall, BBOX))
@@ -433,7 +433,7 @@ class GrammarTest(unittest.TestCase):
         far = read_hazard("Temporary flight restriction: Radius: 1 nautical miles. Latitude: "
                           "41.2000, Longitude: -73.9000. September 22, 2026 at 0900 UTC to "
                           "September 22, 2026 at 1100 UTC", self.gazetteer, self.areas, DAY)
-        self.assertIn("서비스 영역 밖 자리", hazard_problems(far, BBOX))
+        self.assertIn("a place outside the service area", hazard_problems(far, BBOX))
 
     def test_new_york_time_follows_daylight_saving(self):
         self.assertEqual(eastern_offset_hours(DAY), -4)
@@ -609,7 +609,7 @@ class RuleTest(FakeServerCase):
         runtime.absorb([])
         self.assertEqual(adapter.sent, [], "nothing is blocked before a person has looked")
         card = pending(runtime)[0]
-        runtime.approve(card["id"], "관제사", allow=True)
+        runtime.approve(card["id"], "controller", allow=True)
         self.assertIn(("drone-02", "divert_ground"), [(a, action) for a, action, _ in adapter.sent])
         runtime.absorb([])
         event = items_by_kind(runtime)["event"]
@@ -750,7 +750,7 @@ class RestartTest(QuietEnv):
         cards = pending(second)
         self.assertEqual([c["params"]["notice_id"] for c in cards], [event_id],
                          "no card was lost, and only one came back")
-        second.approve(cards[0]["id"], "관제사", allow=True)
+        second.approve(cards[0]["id"], "controller", allow=True)
         second.absorb([])
         self.assertEqual(items_by_kind(second)["event"]["status"], "approved")
         third, _ = briefed_runtime(db=self.db, tick=2300)
