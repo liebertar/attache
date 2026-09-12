@@ -49,12 +49,12 @@ class Verdicts:
 
     def summary(self) -> dict:
         return {
-            "본 결정": self.considered,
-            "그대로": self.unchanged,
-            "새로 거부됨": len(self.newly_denied),
-            "새로 사람에게": len(self.newly_human),
-            "새로 허용됨": len(self.newly_allowed),
-            "막혔을 지출": self.blocked_cost,
+            "decisions seen": self.considered,
+            "unchanged": self.unchanged,
+            "newly denied": len(self.newly_denied),
+            "newly to a human": len(self.newly_human),
+            "newly allowed": len(self.newly_allowed),
+            "blocked spend": self.blocked_cost,
         }
 
 

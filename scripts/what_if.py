@@ -51,7 +51,7 @@ def main() -> int:
 
     print("What this rule would have done to the past record\n")
     for key, value in result.summary().items():
-        print(f"  {key:14} {value}")
+        print(f"  {key:17} {value}")
     for label, changes in (("newly denied", result.newly_denied),
                            ("newly to a human", result.newly_human),
                            ("newly allowed", result.newly_allowed)):
