@@ -30,6 +30,7 @@ from backend.runtime.arbiter import Arbiter
 from backend.runtime.authority import AuthorityCheck
 from backend.runtime.cards import CardsMixin
 from backend.runtime.commit import Committer
+from backend.runtime.commit_path import CommitPathMixin
 from backend.runtime.form import ROUTED
 from backend.runtime.intents import (
     ACCEPTED,
@@ -82,9 +83,9 @@ AGENT_STALE_TICKS = int(os.getenv("AGENT_STALE_TICKS") or "600")
 AGENT_FIELDS = ("model", "host", "world", "last_seen_tick", "display", "base_url_port", "model_ok")
 
 
-class Runtime(AdviceMixin, CardsMixin, LostLinkMixin, RouteCheckMixin, TrafficMixin,
-              IntakeDeskMixin, IntakeEntriesMixin, NoticeFlowMixin, RulesMixin,
-              SourcesMixin, WeatherMixin):
+class Runtime(AdviceMixin, CardsMixin, CommitPathMixin, LostLinkMixin, RouteCheckMixin,
+              TrafficMixin, IntakeDeskMixin, IntakeEntriesMixin, NoticeFlowMixin,
+              RulesMixin, SourcesMixin, WeatherMixin):
     def __init__(self, config_path: str, sim_url: str, ledger_path: str, window_s: float = 1.5,
                  intake_db: str | None = None, metar: bool = False,
                  await_airspace: bool = False, briefing: bool = False):
@@ -433,99 +434,6 @@ class Runtime(AdviceMixin, CardsMixin, LostLinkMixin, RouteCheckMixin, TrafficMi
         banned = self.policies.hit(proposal.action, proposal.resource,
                                    self.telemetry.get(proposal.asset_id, {}), self.tick)
         return AuthorityCheck.policy_denial(proposal, banned) if banned else None
-
-    def _queue_or_commit(self, proposal: Proposal, decision: Decision) -> Decision:
-        if not proposal.resource:
-            committed = self.committer.commit(proposal, decision, self._context(proposal))
-            if committed.committed:
-                self._recent_commits[(proposal.asset_id, proposal.action)] = self.tick
-            self._checks.pop(proposal.id, None)
-            return committed
-
-        with self._guard:
-            waiting = self._contended.setdefault(proposal.resource, [])
-            standing = next(
-                (d for p, d, _ in waiting if p.asset_id == proposal.asset_id), None
-            )
-            if standing is not None:
-                # Already queued. The same aircraft does not queue twice for the same resource.
-                return standing
-            waiting.append((proposal, decision, time.time()))
-
-        decision.verdict = Verdict.QUEUED
-        decision.reason = f"{proposal.resource} 배정을 기다리는 중"
-        return decision
-
-    # ---------- Resource arbitration ----------
-
-    def _settle_contended(self) -> None:
-        now = time.time()
-        with self._guard:
-            ready = [
-                resource
-                for resource, waiting in self._contended.items()
-                if waiting and now - waiting[0][2] >= self.window_s
-            ]
-            batches = {resource: self._contended.pop(resource) for resource in ready}
-
-        if batches:
-            with self._judging:
-                self._settle_batches(batches)
-
-    def _settle_batches(self, batches: dict) -> None:
-        """Grant queued resources.
-
-        This rejudges, executes and registers intents, so it holds the same lock as file()
-        (_judging).
-        """
-        for resource, waiting in batches.items():
-            # The airspace may have changed while queued. Blocked routes don't enter arbitration.
-            waiting = [item for item in waiting if self._rejudge(item[0], item[1]) is None]
-            if not waiting:
-                continue
-            held = self.locks.holder(resource)
-            candidates = [item[0] for item in waiting]
-            if held and held.asset_id not in {p.asset_id for p in candidates}:
-                for proposal, decision, _ in waiting:
-                    decision.verdict = Verdict.DENIED
-                    decision.reason = f"{resource} 는 {held.asset_id} 가 쓰는 중입니다"
-                    decision.code = "resource_held"
-                    decision.detail = {"resource": resource, "holder": held.asset_id}
-                    self.ledger.close_entry(
-                        self.ledger.open_entry(proposal, decision, self._context(proposal)),
-                        "denied")
-                    self._record_refusal(proposal, decision)
-                continue
-
-            choice = self.arbiter.pick(candidates, self.telemetry)
-            winner, how = choice.proposal, choice.how
-            # The model's reason for its pick goes on the record. What it picked is one number,
-            # and if that number is out of range the rule picked instead — the reason explains,
-            # it does not decide.
-            detail = {"resource": resource}
-            if choice.reason:
-                detail["arbiter_reason"] = choice.reason
-            for proposal, decision, _ in waiting:
-                if proposal.id == winner.id:
-                    decision.arbiter = how if len(candidates) > 1 else None
-                    decision.verdict = Verdict.AUTO
-                    decision.reason = f"{resource} 배정됨"
-                    decision.code = "resource_granted"
-                    decision.detail = dict(detail)
-                    self._checks.setdefault(proposal.id, []).append("arbiter")
-                    self.committer.commit(proposal, decision, self._context(proposal))
-                    if decision.committed:
-                        self._recent_commits[(proposal.asset_id, proposal.action)] = self.tick
-                    self._checks.pop(proposal.id, None)
-                else:
-                    decision.verdict = Verdict.DENIED
-                    decision.arbiter = how
-                    decision.reason = f"{winner.asset_id} 가 {resource} 를 받았습니다"
-                    decision.detail = dict(detail)
-                    self.ledger.close_entry(
-                        self.ledger.open_entry(proposal, decision, self._context(proposal)),
-                        "denied")
-                    self._record_refusal(proposal, decision)
 
     # ---------- News from outside ----------
 
