@@ -17,9 +17,6 @@ from backend.intake.book import (
 from backend.intake.briefing import BriefingDesk
 from backend.intake.desk import IntakeDeskMixin
 from backend.intake.entries import (
-    FLEET_ASSET,
-    INTAKE_ASSET,
-    INTAKE_CHECKS,
     IntakeEntriesMixin,
 )
 from backend.intake.notice_flow import NoticeFlowMixin
@@ -31,6 +28,7 @@ from backend.runtime.advice import AdviceMixin
 from backend.runtime.advisory import AdvisoryDesk
 from backend.runtime.arbiter import Arbiter
 from backend.runtime.authority import AuthorityCheck
+from backend.runtime.cards import CardsMixin
 from backend.runtime.commit import Committer
 from backend.runtime.form import ROUTED
 from backend.runtime.intents import (
@@ -84,7 +82,7 @@ AGENT_STALE_TICKS = int(os.getenv("AGENT_STALE_TICKS") or "600")
 AGENT_FIELDS = ("model", "host", "world", "last_seen_tick", "display", "base_url_port", "model_ok")
 
 
-class Runtime(AdviceMixin, LostLinkMixin, RouteCheckMixin, TrafficMixin,
+class Runtime(AdviceMixin, CardsMixin, LostLinkMixin, RouteCheckMixin, TrafficMixin,
               IntakeDeskMixin, IntakeEntriesMixin, NoticeFlowMixin, RulesMixin,
               SourcesMixin, WeatherMixin):
     def __init__(self, config_path: str, sim_url: str, ledger_path: str, window_s: float = 1.5,
@@ -302,42 +300,6 @@ class Runtime(AdviceMixin, LostLinkMixin, RouteCheckMixin, TrafficMixin,
             return self._park_for_human(proposal, decision)
         return self._queue_or_commit(proposal, decision)
 
-    def _park_for_human(self, proposal: Proposal, decision: Decision) -> Decision:
-        """Put up a human card. Its ledger entry stays open until the human's answer (or the
-        end of the round) closes it.
-
-        In a live run one aircraft went over its limit and got a 'human' answer 309 times with
-        not a single ledger line, and the card survived the round change. If the same card is
-        already up, its decision is returned as is (the approval screen doesn't stack duplicate
-        cards), but that is a judgement too, so one line is written (outcome waiting).
-        """
-        with self._guard:
-            existing = next((waiting for waiting in self._awaiting_human.values()
-                             if waiting.asset_id == proposal.asset_id
-                             and waiting.action == proposal.action), None)
-            if existing is None:
-                self._awaiting_human[proposal.id] = proposal
-        if existing is not None:
-            repeat = Decision(proposal.id, Verdict.HUMAN,
-                              f"같은 카드({existing.id})가 이미 승인 대기 중 — {decision.reason}",
-                              authority_hit=decision.authority_hit, code=decision.code,
-                              detail={**decision.detail, "waiting_on": existing.id})
-            self.ledger.close_entry(
-                self.ledger.open_entry(proposal, repeat, self._context(proposal)), "waiting")
-            self._checks.pop(proposal.id, None)
-            return self._decisions[existing.id]
-        self._open_cards[proposal.id] = self.ledger.open_entry(proposal, decision,
-                                                              self._context(proposal))
-        return decision
-
-    def _close_card(self, card, proposal: Proposal, decision: Decision, outcome: str,
-                    check: str = "human") -> None:
-        """Close an open card entry. If it is missing (it shouldn't be), write a fresh pair."""
-        if card is None:
-            card = self.ledger.open_entry(proposal, decision, self._context(proposal))
-        checks = list(card.context.get("checks_run") or []) + [check]
-        self.ledger.close_entry(card, outcome, decision, {"tick": self.tick, "checks_run": checks})
-
     def _deny(self, proposal: Proposal, decision: Decision) -> Decision:
         self._decisions[proposal.id] = decision
         self.ledger.close_entry(
@@ -494,43 +456,6 @@ class Runtime(AdviceMixin, LostLinkMixin, RouteCheckMixin, TrafficMixin,
         decision.reason = f"{proposal.resource} 배정을 기다리는 중"
         return decision
 
-    def approve(self, proposal_id: str, actor: str, allow: bool) -> Decision | None:
-        with self._guard:
-            proposal = self._awaiting_human.pop(proposal_id, None)
-        if proposal is None:
-            return None
-        # A human's answer queues on the judgement lock too — an approval leads to rejudge,
-        # execution and intent registration.
-        with self._judging:
-            return self._answer_card(proposal, proposal_id, actor, allow)
-
-    def _answer_card(self, proposal: Proposal, proposal_id: str, actor: str,
-                     allow: bool) -> Decision:
-        decision = self._decisions[proposal_id]
-        decision.approved_by = actor
-        card = self._open_cards.pop(proposal_id, None)
-        if proposal.action == "publish_notice":
-            return self._confirm_notice(proposal, decision, actor, allow, card)
-        if proposal.action == "publish_weather":
-            return self._confirm_weather(proposal, decision, actor, allow, card)
-        if proposal.action == "lift_weather_hold":
-            return self._confirm_lift(proposal, decision, actor, allow, card)
-        if proposal.action == "lost_link_notice":
-            return self._confirm_lost_link(proposal, decision, actor, allow, card)
-        if not allow:
-            decision.verdict = Verdict.DENIED
-            decision.reason = f"{actor} 가 거부했습니다"
-            self._close_card(card, proposal, decision, "denied")
-            return decision
-        decision.verdict = Verdict.AUTO
-        decision.reason = f"{actor} 가 승인했습니다"
-        # The card's line closes with the human's answer; the rejudge and execution that follow
-        # write their own lines.
-        self._close_card(card, proposal, decision, "approved")
-        if self._rejudge(proposal, decision):
-            return decision   # airspace changed while waiting; approval can't revive the old route
-        return self._queue_or_commit(proposal, decision)
-
     # ---------- Resource arbitration ----------
 
     def _settle_contended(self) -> None:
@@ -685,25 +610,6 @@ class Runtime(AdviceMixin, LostLinkMixin, RouteCheckMixin, TrafficMixin,
         with self._guard:
             self.advisor.clear()
 
-    def _expire_cards(self, why: str) -> None:
-        """When the round ends, human cards come down too: held notices as lapsed, the rest
-        because the round changed.
-
-        In a live run five cards from the previous round were still up after the change — no
-        one should approve a previous round's over-limit card for the new round's aircraft.
-        """
-        for record in [r for r in list(self.notices.records.values()) if r.held]:
-            self._lapse_held(record, why)
-        with self._guard:
-            cards = list(self._awaiting_human.items())
-            self._awaiting_human.clear()
-        for proposal_id, proposal in cards:
-            decision = self._decisions.get(proposal_id) or Decision(proposal_id, Verdict.HUMAN, "")
-            decision.verdict = Verdict.DENIED
-            decision.reason = f"사람이 보기 전에 {why} — 카드를 내림"
-            decision.code = "card_lapsed"
-            self._close_card(self._open_cards.pop(proposal_id, None), proposal, decision, "lapsed")
-
     def service_bbox(self) -> tuple[float, float, float, float] | None:
         """Box around landing sites and pads + margin. Model-structured notices must lie inside."""
         points = [(a["lat"], a["lon"]) for a in self.landing_areas] + list(self.pad_coords.values())
@@ -713,47 +619,6 @@ class Runtime(AdviceMixin, LostLinkMixin, RouteCheckMixin, TrafficMixin,
         lons = [p[1] for p in points]
         return (min(lats) - SERVICE_MARGIN_DEG, min(lons) - SERVICE_MARGIN_DEG,
                 max(lats) + SERVICE_MARGIN_DEG, max(lons) + SERVICE_MARGIN_DEG)
-
-    def _lapse_held(self, record, why: str) -> None:
-        """A held notice lapsed unapproved. It never applied, so only the record is closed."""
-        self.notices.forget(record.id, f"확인 전에 {why}")
-        self._rule_close(record.id, "lapsed")
-        with self._guard:
-            waiting = next((pid for pid, p in self._awaiting_human.items()
-                            if p.action == "publish_notice"
-                            and p.params.get("notice_id") == record.id), None)
-            if waiting is not None:
-                self._awaiting_human.pop(waiting)
-        entry = self._open_cards.pop(waiting, None) if waiting is not None else None
-        if entry is None:
-            return
-        decision = self._decisions[waiting]
-        decision.verdict = Verdict.DENIED
-        decision.reason = f"사람이 확인하기 전에 {why} — 걸린 적 없음"
-        decision.code = "notice_lapsed"
-        self.ledger.close_entry(entry, "lapsed", decision, {"tick": self.tick})
-
-    def _hold_notice(self, item: dict, record, why: str | None = None) -> None:
-        """Post a held notice to the approval screen; it blocks nothing until a human approves.
-
-        Notices the model structured, and notices from outside the runtime's feed (search, manual
-        input), come here. A held notice is shaped like a filing (action publish_notice), so the
-        existing approval screen shows it as is."""
-        held = Proposal(
-            asset_id="airspace", action="publish_notice", cost_usd=0.0, blast_radius="none",
-            rationale=f"{record.name} — {record.text}"[:180], author=record.source,
-            params={"notice_id": record.id, "text": record.text, "notice": record.to_dict(),
-                    "source": record.source},
-        )
-        decision = Decision(held.id, Verdict.HUMAN,
-                            why or "모델이 읽은 공지는 사람이 확인해야 걸립니다",
-                            authority_hit="model_notice", code="human_notice",
-                            detail={"notice": record.id, "source": record.source})
-        self._decisions[held.id] = decision
-        with self._guard:
-            self._awaiting_human[held.id] = held
-        self._open_cards[held.id] = self.ledger.open_entry(
-            held, decision, self._context(None, ["notice:grammar", "notice:model"]))
 
     # ---------- Intake: weather, incidents, restrictions ----------
 
@@ -799,87 +664,6 @@ class Runtime(AdviceMixin, LostLinkMixin, RouteCheckMixin, TrafficMixin,
             self._end_intent(asset_id, "weather_hold")
             for action in ROUTED:
                 self._recent_commits.pop((asset_id, action), None)
-
-    def _raise_lift_card(self, hold: WeatherHold) -> None:
-        """The 'lift early?' card on the approval screen. Approval lifts the hold on the spot;
-        refusal keeps it until the window ends."""
-        card = Proposal(asset_id=FLEET_ASSET, action="lift_weather_hold", cost_usd=0.0,
-                        blast_radius="none", author="runtime",
-                        rationale=f"{hold.reason} · until tick {hold.until_tick}"[:180],
-                        params={"hold": hold.id, "reason": hold.reason,
-                                "until_tick": hold.until_tick, "report": hold.report})
-        decision = Decision(card.id, Verdict.HUMAN,
-                            "기상 대기를 창보다 일찍 푸는 것은 사람 몫입니다",
-                            authority_hit="weather_hold", code="human_lift",
-                            detail={"hold": hold.id, "until_tick": hold.until_tick})
-        self._decisions[card.id] = decision
-        with self._guard:
-            self._awaiting_human[card.id] = card
-        self._open_cards[card.id] = self.ledger.open_entry(card, decision,
-                                                           self._context(None, ["weather"]))
-        hold.lift_card = card.id
-
-    def _refresh_lift_card(self, hold: WeatherHold) -> None:
-        """The hold's circumstances changed (a within-limits report came later, the window was
-        extended). The hold doesn't lift itself; the card is made to state the current window
-        and that fact."""
-        later = hold.later_report
-        with self._guard:
-            standing = self._awaiting_human.get(hold.lift_card or "")
-        if standing is None:
-            self._raise_lift_card(hold)
-            with self._guard:
-                standing = self._awaiting_human.get(hold.lift_card or "")
-        if standing is None:
-            return
-        standing.params = {**standing.params, "until_tick": hold.until_tick,
-                           "later_report": later or {}}
-        rationale = f"{hold.reason} · until tick {hold.until_tick}"
-        if later:
-            rationale += f" · later report within limits ({later.get('text', '')})"
-        standing.rationale = rationale[:180]
-
-    def _hold_weather(self, record, report, breaches: list[str], until_tick: int,
-                      read_by: str) -> None:
-        """Weather over limits, but not a grammar read of the runtime's feed (model, search,
-        manual). Nothing is held until a human approves; the card states the window the hold
-        would cover (until tick)."""
-        held = Proposal(asset_id=INTAKE_ASSET, action="publish_weather", cost_usd=0.0,
-                        blast_radius="none", author=read_by,
-                        rationale=(f"WEATHER · {' · '.join(breaches)} · until tick {until_tick} "
-                                   f"— {record.text}")[:180],
-                        params={"item": record.id, "report": report.to_dict(),
-                                "breaches": list(breaches), "until_tick": until_tick,
-                                "source": read_by, "origin": record.source,
-                                "text": record.text[:400]})
-        decision = Decision(held.id, Verdict.HUMAN, self.intake.held_why(record, read_by),
-                            authority_hit="model_weather", code="human_weather",
-                            detail={"item": record.id, "source": read_by,
-                                    "origin": record.source, "breaches": list(breaches),
-                                    "until_tick": until_tick})
-        self._decisions[held.id] = decision
-        with self._guard:
-            self._awaiting_human[held.id] = held
-        self._open_cards[held.id] = self.ledger.open_entry(held, decision,
-                                                           self._context(None, INTAKE_CHECKS))
-        self.intake.held_weather[record.id] = {
-            "id": record.id, "report": report.to_dict(), "breaches": list(breaches),
-            "until_tick": until_tick, "source": read_by, "card": held.id,
-            "text": record.text[:180]}
-        self._rule_open(record.id, "weather_hold", self.tick, until_tick, applied=False)
-
-    def _drop_card(self, proposal_id: str | None, code: str, why: str) -> None:
-        """Take down one standing card (lapsed). No-op if a human already answered."""
-        with self._guard:
-            proposal = self._awaiting_human.pop(proposal_id or "", None)
-        if proposal is None:
-            return
-        decision = self._decisions.get(proposal.id) or Decision(proposal.id, Verdict.HUMAN, "")
-        decision.verdict = Verdict.DENIED
-        decision.reason = why
-        decision.code = code
-        self._close_card(self._open_cards.pop(proposal.id, None), proposal, decision, "lapsed",
-                         "weather:window")
 
     def background(self) -> None:
         """Pulls the world in. Never on the arbitration thread (see settle_forever below)."""
@@ -1049,47 +833,6 @@ class Runtime(AdviceMixin, LostLinkMixin, RouteCheckMixin, TrafficMixin,
                 del self.agents[asset]
             return {asset: {key: row.get(key) for key in AGENT_FIELDS}
                     for asset, row in self.agents.items()}
-
-    # ---------- Lost link ----------
-
-    def _raise_link_card(self, asset: str, detail: dict, intent: Intent | None) -> None:
-        """Lost-link notice on the approval screen. Approval releases the held space now;
-        refusal keeps it until telemetry returns. When telemetry returns, the card comes down
-        by itself."""
-        until = detail.get("reserved_until_tick")
-        card = Proposal(asset_id=asset, action="lost_link_notice", cost_usd=0.0,
-                        blast_radius="schedule", author="runtime",
-                        rationale=(f"no telemetry since tick {detail['since_tick']} · "
-                                   f"{detail['behaviour']} · "
-                                   + (f"space reserved until tick {until}" if until is not None
-                                      else "nothing filed to reserve"))[:180],
-                        params=dict(detail))
-        decision = Decision(card.id, Verdict.HUMAN,
-                            "링크가 끊긴 기체의 공간을 일찍 푸는 것은 사람 몫입니다 — 승인하면 "
-                            "지금 풀고, 거부하면 텔레메트리가 돌아올 때까지 잡아 둡니다",
-                            authority_hit="lost_link", code="human_lost_link", detail=dict(detail))
-        self._decisions[card.id] = decision
-        with self._guard:
-            self._awaiting_human[card.id] = card
-        self._open_cards[card.id] = self.ledger.open_entry(
-            card, decision, self._context(None, ["link"], intent.id if intent else None))
-        self._link_cards[asset] = card.id
-
-    def _drop_link_card(self, asset: str, detail: dict) -> None:
-        """Telemetry is back; take the lost-link card down (lapsed). No-op if a human already
-        answered."""
-        card_id = self._link_cards.pop(asset, None)
-        with self._guard:
-            proposal = self._awaiting_human.pop(card_id or "", None)
-        if proposal is None:
-            return
-        decision = self._decisions.get(proposal.id) or Decision(proposal.id, Verdict.HUMAN, "")
-        decision.verdict = Verdict.AUTO
-        decision.reason = "텔레메트리가 돌아와 카드를 내림"
-        decision.code = "link_restored"
-        decision.detail = {**decision.detail, **detail}
-        self._close_card(self._open_cards.pop(proposal.id, None), proposal, decision, "lapsed",
-                         "link")
 
     # ---------- What the screen shows ----------
 
