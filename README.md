@@ -8,6 +8,10 @@
 - Drone agents (Nemotron or rules) only file requests. The runtime judges, logs and commands.
 - No model in the verdict. Tightening rules apply at once; loosening waits for a person.
 
+![A drone files a straight line, the runtime refuses it by name, and a NOTAM pulls a cleared route back](docs/demo.webp)
+
+*Seed 7, rules only, no keys: a straight line clipped a 114 m building and was refused; at tick 525 a NOTAM closed the East Village medevac corridor and the routes through it were pulled back.*
+
 ```mermaid
 flowchart LR
     subgraph fleet [Drone agents · one process per aircraft]
