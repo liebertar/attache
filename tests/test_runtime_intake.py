@@ -496,7 +496,7 @@ class IncidentTest(unittest.TestCase):
         from shared.geo import Volume
 
         self.runtime.airspace.add(Volume.from_dict({
-            "id": "bldg-t777", "name": "건물 60m", "ceiling_m": 60.0,
+            "id": "bldg-t777", "name": "BUILDING 60 m", "ceiling_m": 60.0,
             "polygon": [[40.7500, -73.9900], [40.7500, -73.9890], [40.7508, -73.9890],
                         [40.7508, -73.9900]]}))
         status, body = self.runtime.submit_intake(
