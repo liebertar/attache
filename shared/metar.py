@@ -166,7 +166,7 @@ class MetarClient:
         except (TimeoutError, json.JSONDecodeError, OSError, ValueError) as error:
             self._fail(f"{type(error).__name__}: {error}")
         if not isinstance(body, list):
-            self._fail("답이 관측 목록이 아님")
+            self._fail("reply is not a list of observations")
         items = []
         for raw in body:
             observation = parse_observation(raw)

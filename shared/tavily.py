@@ -315,7 +315,7 @@ class TavilyClient:
         request_id = str(body.get("request_id") or "")
         if not request_id:
             self.credits.book("research", RESEARCH_RESERVE, ok=False, estimated=True)
-            self._fail("research: 답에 request_id 가 없음")
+            self._fail("research: no request_id in the reply")
         deadline = time.monotonic() + float(deadline_s or self.research_timeout_s)
         while time.monotonic() < deadline:
             time.sleep(max(0.05, poll_s))
@@ -343,7 +343,7 @@ class TavilyClient:
         """
         if not self.credits.allow(estimate):
             self.credits.block(op)
-            raise BudgetExhausted(f"{op}: 이 판의 크레딧 {self.credits.budget:.0f} 를 다 썼습니다")
+            raise BudgetExhausted(f"{op}: this round's {self.credits.budget:.0f} credits are spent")
         with self._books:
             self.calls += 1
         try:
