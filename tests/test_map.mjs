@@ -720,7 +720,7 @@ test('intake and weather ledger lines read as words, and opening a hold raises n
     line('w2', 'weather_hold', 'weather_hold_expired', {until_tick:2700}, {asset_id:'fleet'}),
     line('k1', 'incident_keepout', 'incident_keepout', {name:'FIRE · 1 Bowling Green', radius_m:200, until_tick:3600}, {asset_id:'fleet'}),
     {...line('l1', 'lift_weather_hold', 'weather_hold_lifted', {}, {asset_id:'fleet'}), outcome:'done',
-     decision:{verdict:'auto', reason:'x', code:'weather_hold_lifted', approved_by:'관제사'}},
+     decision:{verdict:'auto', reason:'x', code:'weather_hold_lifted', approved_by:'controller'}},
   ];
   ui.run('renderSnapshot', snapshot(), {ledger:entries, llm:{enabled:false, models:{}}, locks:{}, notices:[], intake:{items:[]}, weather:{hold:null, held:[]}});
   const feed = ui.element('feed').innerHTML;
@@ -730,7 +730,7 @@ test('intake and weather ledger lines read as words, and opening a hold raises n
   assert.match(feed, /runtime<\/b> weather hold[\s\S]*WEATHER HOLD · gusts 14 m\/s > 12 · takeoffs held until tick 2700/);
   assert.match(feed, /weather hold expired at tick 2700/);
   assert.match(feed, /incident keep-out[\s\S]*FIRE · 1 Bowling Green · 200 m keep-out until tick 3600/);
-  assert.match(feed, /lift the weather hold[\s\S]*weather hold lifted by a person · 관제사/);
+  assert.match(feed, /lift the weather hold[\s\S]*weather hold lifted by a person · controller/);
   assert.doesNotMatch(feed, /r_intake|r_weather/);
   ui.run('renderDenials', {ledger:entries}, 0);
   assert.equal(ui.element('denial').hidden, true, 'opening a hold is not a recall card');
