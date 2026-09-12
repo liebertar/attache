@@ -217,8 +217,6 @@ class Runtime(AdviceMixin, AgentsMixin, CardsMixin, CommitPathMixin, JudgingMixi
         return {"tick": self.tick, "airspace_revision": self.airspace.revision,
                 "policies": active, "intent_id": intent_id, "checks_run": list(checks)}
 
-    # ---------- News from outside ----------
-
 
 def _load_addresses(path: str) -> list[dict]:
     """Addresses from the gazetteer. No file means an empty list, and incidents that give an

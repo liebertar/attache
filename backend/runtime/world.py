@@ -1,8 +1,9 @@
 """The world thread: pulling telemetry in, loading the airspace, following the round.
 
 Sole writer of tick, telemetry, airspace_loaded, pad_coords and landing_areas, and of the
-round reset. THE ONLY backend module that may import get_json: it is the patch target in
-tests/test_locks_and_arbiter.py, and a second importer would make that patch silently miss.
+round reset. The only module on the world-pull path that imports get_json: it is the patch
+target in tests/test_locks_and_arbiter.py, and a second importer here would make that patch
+silently miss.
 """
 
 import threading
