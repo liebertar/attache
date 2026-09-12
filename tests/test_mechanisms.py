@@ -374,7 +374,7 @@ class RouteFormTest(unittest.TestCase):
         self.assertIn("양식", decision.reason)
 
     def test_a_leg_longer_than_the_runtime_maximum_is_refused(self):
-        from backend.service import MAX_LEG_M
+        from backend.runtime.form import MAX_LEG_M
 
         legs = [{"lat": 40.70, "lon": -73.97, "alt_m": 60},
                 {"lat": 40.70 + (MAX_LEG_M + 1000) / 110_570.0, "lon": -73.97, "alt_m": 60}]
