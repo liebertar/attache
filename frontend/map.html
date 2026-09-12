@@ -458,7 +458,7 @@ const TEXT = {
     src_recorded:"%s · recorded",
     // Briefing ledger rows are runtime events, not filings: one neutral line, never a verdict.
     briefing_run:"briefing", briefing_item:"briefing page", briefing_rule:"briefing rule",
-    r_briefing_run:"%s · %s pages%s", r_briefing_failed:"%s · search failed%s", bf_recorded_note:" (recorded)",
+    r_briefing_run:"%s · %s%s", r_briefing_failed:"%s · search failed%s", bf_recorded_note:" (recorded)",
     r_briefing_item:"%s · %s", r_briefing_unread:"%s — not read (%s)",
     r_briefing_rule:"%s — applied", r_briefing_rule_held:"%s — waiting for a person",
     // Runtime rows carry a neutral tag; verdict tags belong to filings.
@@ -1962,6 +1962,11 @@ function reasonText(entry){
   }
 }
 
+/** "1 page" or "N pages" in English; Korean has no plural, so the dictionary keeps its own shape. */
+function pageCount(pages){
+  return lang === "ko" ? String(pages) : `${pages} page${pages === 1 ? "" : "s"}`;
+}
+
 /** One neutral line for a briefing run: where, how many pages, recorded or live. A failed run says
  * so without ever reading as a refusal. */
 function briefingRunText(entry){
@@ -1970,7 +1975,7 @@ function briefingRunText(entry){
   const recorded = x.source === "recorded" ? t("bf_recorded_note") : "";
   const failed = entry.outcome === "failed" || entry.decision.verdict === "denied";
   return failed ? t("r_briefing_failed", safe(places), recorded)
-                : t("r_briefing_run", safe(places), Number(x.pages) || 0, recorded);
+                : t("r_briefing_run", safe(places), pageCount(Number(x.pages) || 0), recorded);
 }
 
 /** What blocked it, in screen words. The runtime sends only values; the wording is made here. */

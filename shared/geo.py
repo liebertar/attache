@@ -141,7 +141,9 @@ class Volume:
             if self.top_m is None or self.floor_m <= alt_m <= self.top_m:
                 band = self.band()
                 if self.clearance_m and self.ceiling_m is not None and alt_m > self.ceiling_m:
-                    return (f"{self.name} {alt_m - self.ceiling_m:.0f} m above the roof "
+                    # The name ends in a height ("BUILDING 88 m"), so a verb keeps the two
+                    # numbers apart — same shape as the near-miss line ("approached to 34 m").
+                    return (f"{self.name} crossed {alt_m - self.ceiling_m:.0f} m above the roof "
                             f"(needs {self.clearance_m:.0f} m clearance)")
                 return f"{self.name} no entry ({band})"
             return None

@@ -703,8 +703,13 @@ def _template_summary(result: RunResult, rules: list) -> str:
     made = ", ".join(f"{kind} {count}" for kind, count in sorted(kinds.items())) or "none"
     where = ", ".join(result.domains[:4]) or "no source"
     return (f"Briefing for {', '.join(result.plan.places[:4]) or 'the fleet'}: "
-            f"{len(result.findings)} pages read, rules {made}. "
+            f"{pages_read(len(result.findings))} read, rules {made}. "
             f"Drawn from {where} ({result.source}).")
+
+
+def pages_read(count: int) -> str:
+    """"1 page" or "N pages". The count reaches a person in the ledger and on the map."""
+    return f"{count} page" if count == 1 else f"{count} pages"
 
 
 def _now() -> float:
@@ -1412,8 +1417,8 @@ class BriefingDesk:
                   "summary_by": result.summary_by, "day": plan.day.isoformat()}
         ok = result.status is None or result.status.ok
         self._ledger("briefing_run", "briefing_run",
-                     f"briefing ({plan.trigger}, {result.source}) · {len(result.findings)} pages · "
-                     f"{result.credits:.0f} credits",
+                     f"briefing ({plan.trigger}, {result.source}) · "
+                     f"{pages_read(len(result.findings))} · {result.credits:.0f} credits",
                      detail, "noted" if ok else "failed",
                      Verdict.AUTO if ok else Verdict.DENIED, result.summary)
 
