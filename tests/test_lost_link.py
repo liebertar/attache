@@ -13,7 +13,7 @@ import json
 import tempfile
 import unittest
 
-from backend.intents import (
+from backend.runtime.intents import (
     ACTIVATED,
     ENDED,
     LOST_LINK_MARGIN_TICKS,

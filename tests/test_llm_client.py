@@ -285,7 +285,7 @@ class RecordedFormsTest(unittest.TestCase):
         self.assertEqual(by_rules.author, "rules")
 
     def test_the_arbiter_uses_the_recorded_choice_and_keeps_the_reason(self):
-        from backend.arbiter import Arbiter
+        from backend.runtime.arbiter import Arbiter
         from shared.models import Proposal
 
         def candidate(asset_id, blast, why):

@@ -8,8 +8,8 @@ for reasons that have nothing to do with the code being wrong.
 import tempfile
 import unittest
 
-from backend.authority import AuthorityCheck
-from backend.policy import PolicyBook
+from backend.runtime.authority import AuthorityCheck
+from backend.runtime.policy import PolicyBook
 from backend.service import Runtime
 from shared.config import Authority, Policy
 from shared.models import Proposal, Verdict
@@ -204,7 +204,7 @@ class PadContentionTest(unittest.TestCase):
         self.assertGreater(world.score.pad_conflicts, 0)
 
     def test_a_lock_table_hands_the_pad_to_one_of_them(self):
-        from backend.locks import LockTable
+        from backend.runtime.locks import LockTable
 
         locks = LockTable(["pad:launch", "pad:launch"])
         self.assertTrue(locks.acquire("pad:launch", "drone-01", "p1"))

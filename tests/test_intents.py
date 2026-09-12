@@ -10,7 +10,7 @@ import math
 import tempfile
 import unittest
 
-from backend.intents import (
+from backend.runtime.intents import (
     ACCEPTED,
     ACTIVATED,
     CONTINGENCY,
@@ -580,7 +580,7 @@ class ResolutionLadderTest(unittest.TestCase):
         """When neither altitude nor delay works, the candidates are filed in turn (the same
         ladder for each), and if none of those works, this turn is given up. At most one ladder
         for the straight line plus one per candidate (loop.py _file_candidates)."""
-        from backend.intents import Volume4D
+        from backend.runtime.intents import Volume4D
         from drone.agent.loop import MAX_DELAY_TRIES
         from shared.route import CANDIDATE_LABELS
 

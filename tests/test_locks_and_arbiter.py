@@ -4,8 +4,8 @@ import unittest
 from unittest import mock
 
 from backend import service as service_module
-from backend.arbiter import SYSTEM, Arbiter, by_rule, parse_verdict
-from backend.locks import LockTable
+from backend.runtime.arbiter import SYSTEM, Arbiter, by_rule, parse_verdict
+from backend.runtime.locks import LockTable
 from backend.service import Runtime
 from shared.llm.client import LlmReply, TieredLlm
 from shared.models import Proposal, Verdict

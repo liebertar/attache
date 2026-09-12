@@ -9,7 +9,7 @@ import json
 import tempfile
 import unittest
 
-from backend.advisory import (
+from backend.runtime.advisory import (
     ADVISORY_AFTER,
     CLIMB_M,
     AdvisoryDesk,

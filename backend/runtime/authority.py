@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 
-from backend.policy import PolicyBook
+from backend.runtime.policy import PolicyBook
 from shared.config import Authority, Policy
 from shared.models import Decision, Proposal, Verdict
 
