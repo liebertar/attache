@@ -89,13 +89,14 @@ class WorldMixin:
         with self._guard:
             for row in self.agents.values():
                 row["last_seen_tick"] = min(int(row["last_seen_tick"]), self.tick)
-        self._expire_cards("판이 바뀜")
+        self._expire_cards("the round changed")
         self.notices.clear()
         # An open weather hold gets a closing line. Without one, the report lists that hold as
         # "open" forever.
         if self.intake.hold is not None:
             self._ledger_hold_end(self.intake.hold, "weather_hold_closed",
-                                  f"판이 바뀌어 닫힘 (창은 틱 {self.intake.hold.until_tick} 까지)")
+                                  f"closed by the round change (window ran to tick "
+                                  f"{self.intake.hold.until_tick})")
         self._close_rules("round")
         self.intake.clear()
         # METAR is the observation in force now. A new round does not stop the gusts, so the

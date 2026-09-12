@@ -102,12 +102,15 @@ class NoticeFlowMixin:
         # Notices whose window closed (or that dropped off the list) while waiting for a human:
         # take down the card and banner, and leave a ledger line.
         for record in self.notices.stale_held(self.tick, feed):
-            self._lapse_held(record, "창이 닫힘" if record.id in feed else "공지가 내려감")
+            self._lapse_held(record, "the window closed" if record.id in feed
+                             else "the notice was taken down")
         # Approved by a human but lapsed before it applied. Left alone, it would stay in
         # /state.notices until the round ends.
         for record in self.notices.stale_confirmed(self.tick, feed):
-            self.notices.forget(record.id, "확인 뒤 걸리기 전에 "
-                                + ("창이 닫힘" if record.id in feed else "공지가 내려감"))
+            self.notices.forget(record.id,
+                                ("the window closed" if record.id in feed
+                                 else "the notice was taken down")
+                                + " after confirmation, before it applied")
 
     def _confirm_notice(self, proposal: Proposal, decision: Decision, actor: str,
                         allow: bool, card=None) -> Decision:

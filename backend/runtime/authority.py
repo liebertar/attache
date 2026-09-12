@@ -65,7 +65,7 @@ class AuthorityCheck:
             return Decision(
                 proposal.id,
                 Verdict.HUMAN,
-                f"'{proposal.action}' 은 사람이 봐야 하는 행동입니다",
+                f"'{proposal.action}' is an action a human must look at",
                 authority_hit="human_required_actions",
                 code="human_action", detail={"action": proposal.action},
             )
@@ -74,7 +74,7 @@ class AuthorityCheck:
             return Decision(
                 proposal.id,
                 Verdict.HUMAN,
-                f"영향 범위가 '{proposal.blast_radius}' 입니다",
+                f"blast radius is '{proposal.blast_radius}'",
                 authority_hit="human_required_blast",
                 code="human_blast", detail={"blast": proposal.blast_radius},
             )
@@ -87,7 +87,8 @@ class AuthorityCheck:
             return Decision(
                 proposal.id,
                 Verdict.HUMAN,
-                f"기체 한도 초과: ${asset_after:.0f} > ${self.authority.per_asset_usd:.0f}",
+                f"over the aircraft limit: ${asset_after:.0f} > "
+                f"${self.authority.per_asset_usd:.0f}",
                 authority_hit="per_asset_usd",
                 code="over_asset",
                 detail={"spent": round(asset_after), "cap": round(self.authority.per_asset_usd)},
@@ -98,10 +99,10 @@ class AuthorityCheck:
             return Decision(
                 proposal.id,
                 Verdict.HUMAN,
-                f"기단 한도 초과: ${fleet_after:.0f} > ${self.authority.fleet_usd:.0f}",
+                f"over the fleet limit: ${fleet_after:.0f} > ${self.authority.fleet_usd:.0f}",
                 authority_hit="fleet_usd",
                 code="over_fleet",
                 detail={"spent": round(fleet_after), "cap": round(self.authority.fleet_usd)},
             )
 
-        return Decision(proposal.id, Verdict.AUTO, "한도 안", code="within_limits")
+        return Decision(proposal.id, Verdict.AUTO, "within limits", code="within_limits")

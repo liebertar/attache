@@ -599,7 +599,7 @@ class HeldNoticeTest(unittest.TestCase):
         self.assertEqual(self.runtime.snapshot()["awaiting_human"], [])
         self.assertEqual([e["decision"]["reason"] for e in ledger_lines(self.runtime)
                           if e["outcome"] == "lapsed"],
-                         ["사람이 확인하기 전에 공지가 내려감 — 걸린 적 없음"])
+                         ["the notice was taken down before a human confirmed — never applied"])
 
     def test_the_local_stand_in_answer_is_held_and_a_person_can_refuse_it(self):
         """A real answer from the 30B stand-in on Ollama. It passes the form and the checks, but

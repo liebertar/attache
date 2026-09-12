@@ -29,7 +29,8 @@ class CardsMixin:
                 self._awaiting_human[proposal.id] = proposal
         if existing is not None:
             repeat = Decision(proposal.id, Verdict.HUMAN,
-                              f"같은 카드({existing.id})가 이미 승인 대기 중 — {decision.reason}",
+                              f"the same card ({existing.id}) is already awaiting approval "
+                              f"— {decision.reason}",
                               authority_hit=decision.authority_hit, code=decision.code,
                               detail={**decision.detail, "waiting_on": existing.id})
             self.ledger.close_entry(
@@ -73,11 +74,11 @@ class CardsMixin:
             return self._confirm_lost_link(proposal, decision, actor, allow, card)
         if not allow:
             decision.verdict = Verdict.DENIED
-            decision.reason = f"{actor} 가 거부했습니다"
+            decision.reason = f"{actor} refused"
             self._close_card(card, proposal, decision, "denied")
             return decision
         decision.verdict = Verdict.AUTO
-        decision.reason = f"{actor} 가 승인했습니다"
+        decision.reason = f"{actor} approved"
         # The card's line closes with the human's answer; the rejudge and execution that follow
         # write their own lines.
         self._close_card(card, proposal, decision, "approved")
@@ -100,13 +101,13 @@ class CardsMixin:
         for proposal_id, proposal in cards:
             decision = self._decisions.get(proposal_id) or Decision(proposal_id, Verdict.HUMAN, "")
             decision.verdict = Verdict.DENIED
-            decision.reason = f"사람이 보기 전에 {why} — 카드를 내림"
+            decision.reason = f"{why} before a human saw it — card taken down"
             decision.code = "card_lapsed"
             self._close_card(self._open_cards.pop(proposal_id, None), proposal, decision, "lapsed")
 
     def _lapse_held(self, record, why: str) -> None:
         """A held notice lapsed unapproved. It never applied, so only the record is closed."""
-        self.notices.forget(record.id, f"확인 전에 {why}")
+        self.notices.forget(record.id, f"{why} before confirmation")
         self._rule_close(record.id, "lapsed")
         with self._guard:
             waiting = next((pid for pid, p in self._awaiting_human.items()
@@ -119,7 +120,7 @@ class CardsMixin:
             return
         decision = self._decisions[waiting]
         decision.verdict = Verdict.DENIED
-        decision.reason = f"사람이 확인하기 전에 {why} — 걸린 적 없음"
+        decision.reason = f"{why} before a human confirmed — never applied"
         decision.code = "notice_lapsed"
         self.ledger.close_entry(entry, "lapsed", decision, {"tick": self.tick})
 
@@ -136,7 +137,7 @@ class CardsMixin:
                     "source": record.source},
         )
         decision = Decision(held.id, Verdict.HUMAN,
-                            why or "모델이 읽은 공지는 사람이 확인해야 걸립니다",
+                            why or "a notice a model read applies only once a human confirms it",
                             authority_hit="model_notice", code="human_notice",
                             detail={"notice": record.id, "source": record.source})
         self._decisions[held.id] = decision
@@ -154,7 +155,7 @@ class CardsMixin:
                         params={"hold": hold.id, "reason": hold.reason,
                                 "until_tick": hold.until_tick, "report": hold.report})
         decision = Decision(card.id, Verdict.HUMAN,
-                            "기상 대기를 창보다 일찍 푸는 것은 사람 몫입니다",
+                            "lifting a weather hold before its window closes is a human's call",
                             authority_hit="weather_hold", code="human_lift",
                             detail={"hold": hold.id, "until_tick": hold.until_tick})
         self._decisions[card.id] = decision
@@ -239,8 +240,9 @@ class CardsMixin:
                                       else "nothing filed to reserve"))[:180],
                         params=dict(detail))
         decision = Decision(card.id, Verdict.HUMAN,
-                            "링크가 끊긴 기체의 공간을 일찍 푸는 것은 사람 몫입니다 — 승인하면 "
-                            "지금 풀고, 거부하면 텔레메트리가 돌아올 때까지 잡아 둡니다",
+                            "releasing the space of an aircraft with a lost link early is "
+                            "a human's call — approve and it goes now, refuse and it is "
+                            "held until telemetry returns",
                             authority_hit="lost_link", code="human_lost_link", detail=dict(detail))
         self._decisions[card.id] = decision
         with self._guard:
@@ -259,7 +261,7 @@ class CardsMixin:
             return
         decision = self._decisions.get(proposal.id) or Decision(proposal.id, Verdict.HUMAN, "")
         decision.verdict = Verdict.AUTO
-        decision.reason = "텔레메트리가 돌아와 카드를 내림"
+        decision.reason = "telemetry is back — card taken down"
         decision.code = "link_restored"
         decision.detail = {**decision.detail, **detail}
         self._close_card(self._open_cards.pop(proposal.id, None), proposal, decision, "lapsed",

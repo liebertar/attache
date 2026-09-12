@@ -24,17 +24,17 @@ class AgentsMixin:
         except ValueError as error:
             return 400, {"error": str(error)}
         if identity.world != "guarded":
-            return 400, {"error": "직결 세계는 런타임에 신청하지 않습니다 — 그 모델은 시뮬레이터가 "
-                                  "기체마다 싣습니다(DIRECT_MODEL)"}
+            return 400, {"error": "the direct world does not file with the runtime — the "
+                                  "simulator loads that model per aircraft (DIRECT_MODEL)"}
         # The world (telemetry) knows the fleet roster. Accepting a name off the roster turns the
         # screen's 'drones · … ×4' into ×5. Before the world has arrived, 503: the aircraft
         # registers again a few seconds later.
         fleet = set(self.telemetry)
         if not fleet:
-            return 503, {"error": "아직 세계를 받지 못했습니다 — 곧 다시 알려 주세요",
+            return 503, {"error": "no world received yet — say so again shortly",
                          "retry": True}
         if identity.asset_id not in fleet:
-            return 404, {"error": f"{identity.asset_id} 는 이 편대에 없습니다"}
+            return 404, {"error": f"{identity.asset_id} is not in this fleet"}
         with self._guard:
             self.agents[identity.asset_id] = {**identity.to_dict(), "last_seen_tick": self.tick}
         return 200, {"ok": True, "display": identity.display, "tick": self.tick}

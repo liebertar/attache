@@ -207,9 +207,10 @@ def default_band(volumes: list[dict]) -> dict | None:
                           [lat0 + GRID_CELL_DEG, lon0]])
     if not rings:
         return None
-    return {"id": "band-default-121", "name": "Part 107 기본 상한 (격자 밖)", "polygon": rings[0],
-            "rings": rings, "floor_m": 0.0, "ceiling_m": DEFAULT_CEILING_M, "reference": "AGL",
-            "rule": "ceiling", "reason": "시설 지도 격자가 없는 곳. 14 CFR 107.51 기본 상한 400ft",
+    return {"id": "band-default-121", "name": "Part 107 default ceiling (outside the grid)",
+            "polygon": rings[0], "rings": rings, "floor_m": 0.0,
+            "ceiling_m": DEFAULT_CEILING_M, "reference": "AGL", "rule": "ceiling",
+            "reason": "outside the facility map grid. 14 CFR 107.51 default ceiling 400 ft",
             "source": "14 CFR 107.51"}
 
 
@@ -349,14 +350,14 @@ ZONE_UNTIL = ZONE_NOTICE.until_tick   # only while the medevac flies; zones expi
 ZONE = {
     "id": "nofly-2026-09-hospital",
     "kind": "notam",
-    "reason": "응급헬기 이착륙. 상공 비행금지",
-    "name": "이스트빌리지 응급헬기 회랑",
+    "reason": "medevac landing and departure. no flight overhead",
+    "name": "East Village medevac corridor",
     "text": ZONE_TEXT,
     # The values below are for the simulator's own scoring and ground painting on screen. They
     # are not in the notice (bulletins picks only text).
     "polygon": [[lat, lon] for lat, lon in ZONE_NOTICE.polygon],
     "floor_m": ZONE_NOTICE.floor_m, "ceiling_m": ZONE_NOTICE.ceiling_m, "reference": "AGL",
-    "rule": "forbidden", "source": "예시 데이터",
+    "rule": "forbidden", "source": "sample data",
 }
 # The zone is this one polygon. The scoreboard used to keep its own circle (centre, radius);
 # when the polygon moved to Brooklyn the circle did not, and it was counting the middle of the
@@ -378,8 +379,8 @@ MEDEVAC_UNTIL = CLOCK.tick_of("0928")
 MEDEVAC = {
     "id": "nofly-2026-09-medevac",
     "kind": "notam",
-    "reason": "응급헬기 진입. 병원 헬리패드 주변 비행금지",
-    "name": "할렘 병원 응급헬기",
+    "reason": "medevac inbound. no flight around the hospital helipad",
+    "name": "Harlem Hospital medevac",
     "text": MEDEVAC_TEXT,
 }
 # A regulator's directive grounding one aircraft model. Not the operator's business like
@@ -390,7 +391,7 @@ RECALL = {
     "kind": "recall",
     "forbid_action": "fly_route",
     "applies_to": {"model": "dv-x500"},
-    "reason": "감항성 지시 — dv-x500 운항 정지",
+    "reason": "airworthiness directive — dv-x500 grounded",
 }
 RECALL_UNTIL = 1350
 
@@ -406,8 +407,8 @@ WEATHER_UNTIL = CLOCK.tick_of("0936")
 WEATHER = {
     "id": "wx-2026-09-knyc-0929",
     "kind": "weather",
-    "name": "KNYC 관측 0929Z",
-    "reason": "돌풍 28 kt — 소형 멀티로터 이륙 한도 밖",
+    "name": "KNYC observation 0929Z",
+    "reason": "gust 28 kt — outside the small multirotor takeoff limit",
     "text": WEATHER_TEXT,
 }
 # Incident. It arrives as a real address (configs/airspace/nyc_addresses.json) — the runtime
@@ -428,8 +429,8 @@ INCIDENT_UNTIL = 3600
 INCIDENT = {
     "id": "fdny-2026-09-center-blvd",
     "kind": "incident",
-    "name": "센터 불러바드 화재",
-    "reason": "FDNY 3-alarm fire — 상공 접근 금지",
+    "name": "Center Boulevard fire",
+    "reason": "FDNY 3-alarm fire — no flight overhead",
     "text": INCIDENT_TEXT,
     "address": INCIDENT_ADDRESS,
     "radius_m": INCIDENT_RADIUS_M,
@@ -713,7 +714,7 @@ class World:
 
         if self.require_receipt and not ledger_id:
             self.score.refused_without_receipt += 1
-            return {"ok": False, "error": "승인 영수증(ledger id) 없이는 실행하지 않습니다"}
+            return {"ok": False, "error": "nothing runs without an approval receipt (ledger id)"}
 
         refusal = self._refuse(vehicle, action, params)
         if refusal:
@@ -732,7 +733,7 @@ class World:
             and vehicle.model == RECALL["applies_to"]["model"]
         ):
             self.score.post_recall_violations += 1
-            self._log(tick, "지시 위반", f"{asset} 가 운항 정지 지시 이후 비행")
+            self._log(tick, "directive breached", f"{asset} flew after the grounding directive")
 
         cost = COSTS[action]
         vehicle.spend += cost
@@ -748,7 +749,7 @@ class World:
             # the aircraft flew to the old destination and went on to the new order without
             # clearance — it really did.
             self.score.declined += 1
-            self._log(tick, "배달 불가", f"{vehicle.job_label} — 규정상 경로 없음")
+            self._log(tick, "delivery declined", f"{vehicle.job_label} — no legal route")
             vehicle.waypoints = []
             vehicle.depart_after, vehicle.holding_for = 0, None
             if vehicle.state not in GROUND_WORK:
@@ -903,7 +904,7 @@ class World:
         if tick >= LINK_LOSS_UNTIL and self.dark:
             for vid in list(self.dark):
                 self.vehicles[vid].link_lost = False
-                self._log(tick, "링크 복구", f"{vid} 텔레메트리가 다시 들어옴")
+                self._log(tick, "link restored", f"{vid} telemetry is coming in again")
             self.dark.clear()
         if self._link_scene_done or not (
                 LINK_LOSS_TICK <= tick < LINK_LOSS_TICK + LINK_LOSS_PICK_TICKS):
@@ -918,7 +919,8 @@ class World:
                                 "record": {**flying.public(), "telemetry_tick": tick - 1}}
         flying.link_lost = True
         self._link_scene_done = True
-        self._log(tick, "링크 두절", f"{flying.id} 텔레메트리 끊김 — 승인 경로대로 날아 내림")
+        self._log(tick, "lost link",
+                  f"{flying.id} telemetry stopped — flying the cleared route down")
 
     @staticmethod
     def _remaining_corridor(vehicle: Vehicle) -> tuple[list, tuple]:
@@ -969,7 +971,7 @@ class World:
                     inside.add(frozenset((vid, other.id)))
         for pair in inside - self._dark_close:
             self.score.link_lost_incursions += 1
-            self._log(tick, "두절 기체 회랑 침범", f"{' · '.join(sorted(pair))}")
+            self._log(tick, "dark aircraft in a corridor", f"{' · '.join(sorted(pair))}")
         self._dark_close = inside
 
     def _published(self, vehicle: Vehicle, tick: int) -> dict:
@@ -1108,7 +1110,7 @@ class World:
         for the next load (depart) or the charger.
         """
         if vehicle.job_label == "Warehouse" or vehicle.stops_left <= 0:
-            self._log(tick, "창고 도착", f"{vehicle.id} 가져온 상자 {vehicle.load}개")
+            self._log(tick, "at the warehouse", f"{vehicle.id} brought back {vehicle.load} box(es)")
             vehicle.job_x = vehicle.job_y = None
             vehicle.job_label = ""
             vehicle.pickup = 0
@@ -1121,7 +1123,7 @@ class World:
         vehicle.delivered += 1
         vehicle.stops_left -= 1
         self.score.deliveries += 1
-        self._log(tick, "배달 완료", f"{vehicle.id} → {vehicle.job_label}")
+        self._log(tick, "delivered", f"{vehicle.id} → {vehicle.job_label}")
         vehicle.state = "dropping"
         vehicle.work_ticks = min(vehicle.load, PARCELS_PER_STOP) * BOX_TICKS
         vehicle.pickup = PICKUP_PER_STOP
@@ -1223,7 +1225,7 @@ class World:
         for pad, riders in occupants.items():
             if len(riders) > 1:
                 self.score.pad_conflicts += 1
-                self._log(tick, "패드 충돌", f"{pad} 에 {', '.join(riders)} 가 동시에")
+                self._log(tick, "pad conflict", f"{', '.join(riders)} on {pad} at once")
 
     def _detect_zone_incursions(self, tick: int) -> None:
         """Counts aircraft inside the zone — by position, not by filing.
@@ -1250,7 +1252,7 @@ class World:
                 self.score.zone_dwell_ticks += 1
             if inside and not vehicle.in_zone:
                 self.score.zone_incursions += 1
-                self._log(tick, "비행금지 구역 침범", f"{vehicle.id} 가 병원 상공에 들어감")
+                self._log(tick, "zone incursion", f"{vehicle.id} flew over the hospital")
             vehicle.in_zone = inside
 
     def _detect_ceiling_breaches(self, tick: int) -> None:
@@ -1268,11 +1270,11 @@ class World:
             if not vehicle.over_ceiling:
                 if breach.rule == "forbidden":
                     self.score.airspace_violations += 1
-                    self._log(tick, "금지 공역 진입",
+                    self._log(tick, "forbidden airspace",
                               f"{vehicle.id}: {breach.breach(latitude, longitude, vehicle.alt)}")
                 else:
                     self.score.ceiling_breaches += 1
-                    self._log(tick, "허용 고도 초과",
+                    self._log(tick, "above the ceiling",
                               f"{vehicle.id}: {breach.breach(latitude, longitude, vehicle.alt)}")
             vehicle.over_ceiling = True
 
@@ -1309,10 +1311,11 @@ class World:
                     site_now.add(frozenset((first.id, second.id)))
         for pair in close_now - self._too_close:
             self.score.separation_losses += 1
-            self._log(tick, "분리 상실", f"{' · '.join(sorted(pair))} 가 30m 안에서 교차")
+            self._log(tick, "separation lost", f"{' · '.join(sorted(pair))} crossed within 30 m")
         for pair in site_now - self._site_close:
             self.score.site_conflicts += 1
-            self._log(tick, "착륙장 충돌", f"{' · '.join(sorted(pair))} — 서 있는 기체 위로 내려옴")
+            self._log(tick, "landing area conflict",
+                      f"{' · '.join(sorted(pair))} — came down on a parked aircraft")
         self._too_close = close_now
         self._site_close = site_now
 
@@ -1327,7 +1330,8 @@ class World:
             airborne = vehicle.alt > 1.0
             if airborne and not vehicle.airborne and WEATHER_TICK < tick <= WEATHER_UNTIL:
                 self.score.weather_hold_takeoffs += 1
-                self._log(tick, "기상 대기 중 이륙", f"{vehicle.id} 가 돌풍 경보 중에 뜸")
+                self._log(tick, "takeoff in a weather hold",
+                          f"{vehicle.id} lifted off in a gust warning")
             vehicle.airborne = airborne
 
     def _detect_incident_incursions(self, tick: int) -> None:
@@ -1345,8 +1349,8 @@ class World:
                 continue
             if inside and not vehicle.in_incident:
                 self.score.incident_incursions += 1
-                self._log(tick, "사고 현장 진입",
-                          f"{vehicle.id} 가 화재 현장 {INCIDENT_RADIUS_M:.0f}m 안으로")
+                self._log(tick, "incident site entered",
+                          f"{vehicle.id} came within {INCIDENT_RADIUS_M:.0f} m of the fire")
             vehicle.in_incident = inside
 
     def _log(self, tick: int, kind: str, text: str) -> None:
