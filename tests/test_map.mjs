@@ -107,13 +107,13 @@ function snapshot(tick=1, round=1, remaining=route, position=start) {
 function denial(id='denied-1', extra={}) {
   return {id,at:Date.now()/1000,outcome:'denied',
     proposal:{asset_id:'drone-01',action:'fly_route',params:{legs:[start,...route]}},
-    decision:{verdict:'denied',reason:'금지 공역 <test>'},...extra};
+    decision:{verdict:'denied',reason:'no-fly zone <test>'},...extra};
 }
 
 function approval(id='approved-1', extra={}) {
   return {id,at:Date.now()/1000,outcome:'executed',
     proposal:{asset_id:'drone-01',action:'fly_route',params:{legs:[start,...route]}},
-    decision:{verdict:'auto',reason:'한도 안'},...extra};
+    decision:{verdict:'auto',reason:'within limits'},...extra};
 }
 
 test('a partial draw keeps the curve endpoints and stays inside the route', () => {
@@ -283,9 +283,9 @@ test('provenance: tier tag from the model id, drafter word, and the approved hea
   const ui = scene();
   const llm = {enabled:true, host:'ollama', models:{nano:'nemotron-3-nano', super:'', ultra:''}};
   const wrote = approval('w1', {proposal:{asset_id:'drone-01', action:'fly_route', author:'nemotron-3-nano',
-    params:{legs:[start,...route], drafter:'nano:nemotron-3-nano'}}, decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}});
+    params:{legs:[start,...route], drafter:'nano:nemotron-3-nano'}}, decision:{verdict:'auto', reason:'within limits', code:'within_limits'}});
   const byRules = approval('w2', {proposal:{asset_id:'drone-02', action:'fly_route', author:'rules',
-    params:{legs:[start,...route], drafter:'astar'}}, decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}});
+    params:{legs:[start,...route], drafter:'astar'}}, decision:{verdict:'auto', reason:'within limits', code:'within_limits'}});
   ui.run('renderSnapshot', snapshot(), {ledger:[wrote, byRules], llm, locks:{}});
   const feed = ui.element('feed').innerHTML;
   assert.match(feed, /drone-01<\/b> <span class="tier">nano<\/span>/, 'a form the model wrote gets a one-word tier');
@@ -308,7 +308,7 @@ test('a traffic refusal names the other aircraft and blinks its corridor; a dela
   const crossing = denial('x1', {proposal:{asset_id:'drone-01', action:'fly_route',
     params:{legs:[start,...route], blocked_kind:'traffic', blocked_asset:'drone-03', blocked_leg:1,
             blocked_at:{lat:route[0].lat, lon:route[0].lon}}},
-    decision:{verdict:'denied', reason:'교차', code:'airspace'}});
+    decision:{verdict:'denied', reason:'it crosses a building', code:'airspace'}});
   ui.run('renderDenials',{ledger:[crossing]},0);
   ui.run('corridorAlpha','drone-03',1);
   ui.time(GROW_MS + CHECK_MS + HOLD_MS / 6); ui.run('draw');
@@ -317,7 +317,7 @@ test('a traffic refusal names the other aircraft and blinks its corridor; a dela
   assert.ok(ui.layer('flightpath:drone-03').paint['fill-extrusion-opacity'] < .85, 'the other corridor blinks');
   const later = approval('x2', {proposal:{asset_id:'drone-02', action:'fly_route',
     params:{legs:[start,...route], resolution:'delay', holding_for:'drone-03'}},
-    decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}});
+    decision:{verdict:'auto', reason:'within limits', code:'within_limits'}});
   ui.run('renderDenials',{ledger:[later]},0);
   ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
   const labels = ui.source('stage-label').features.map(f => f.properties.label);
@@ -338,7 +338,7 @@ test('a route approved while already in the air is not replayed from the old spo
 
 test('a queued decision has not travelled anywhere yet, so nothing is drawn', () => {
   const ui = scene();
-  ui.run('renderDenials',{ledger:[approval('q',{decision:{verdict:'queued',reason:'대기'}})]},0);
+  ui.run('renderDenials',{ledger:[approval('q',{decision:{verdict:'queued',reason:'waiting for another filing'}})]},0);
   ui.time(100); ui.run('draw');
   assert.equal(ui.path('rejected').length,0);
   assert.equal(ui.path('approved').length,0);
@@ -433,7 +433,7 @@ test('a vertex where the altitude changes carries a vertical dotted column shape
 
 test('a duplicate refusal is neither replayed as a route nor raised as a card', () => {
   const ui = scene();
-  ui.run('renderDenials',{ledger:[denial('dup',{decision:{verdict:'denied',reason:'같은 신청',code:'duplicate'}})]},0);
+  ui.run('renderDenials',{ledger:[denial('dup',{decision:{verdict:'denied',reason:'the same filing was executed a moment ago',code:'duplicate'}})]},0);
   assert.equal(ui.element('denial').hidden, true);
   ui.time(GROW_MS + CHECK_MS + 10); ui.run('draw');
   assert.equal(ui.path('rejected').length, 0);
@@ -444,7 +444,7 @@ test('an endpoint refusal names the gap, not a leg; a withdrawal is its own card
   const gap = denial('e1', {proposal:{asset_id:'drone-01', action:'fly_route',
     params:{legs:[start,...route], blocked_kind:'origin', blocked_leg:0, blocked_gap_m:240.4,
             blocked_at:{lat:start.lat, lon:start.lon}}},
-    decision:{verdict:'denied', reason:'출발점', code:'airspace'}});
+    decision:{verdict:'denied', reason:'the start point is inside a forbidden zone', code:'airspace'}});
   ui.run('renderDenials',{ledger:[gap]},0);
   assert.equal(ui.element('denial-why').textContent, 'START 240 m FROM THE AIRCRAFT');
   assert.equal(ui.element('denial-more').textContent, '', 'nothing blocked it, so no altitude band either');
@@ -453,7 +453,7 @@ test('an endpoint refusal names the gap, not a leg; a withdrawal is its own card
   const withdrawn = {id:'w1', at:Date.now()/1000, outcome:'done',
     proposal:{asset_id:'drone-03', action:'divert_ground', author:'runtime',
               params:{withdrawn_for:'drone-02', intent:'i1'}},
-    decision:{verdict:'auto', reason:'물림', policy_hit:'traffic', code:'withdrawn', detail:{for:'drone-02'}}};
+    decision:{verdict:'auto', reason:'overlaps the airborne re-filing of drone-02', policy_hit:'traffic', code:'withdrawn', detail:{for:'drone-02'}}};
   ui.run('renderDenials',{ledger:[withdrawn]},0);
   assert.equal(ui.element('#denial .tag').textContent, 'WITHDRAWN');
   assert.match(ui.element('denial-why').textContent, /drone-02/);
@@ -496,7 +496,7 @@ test('a ledger line that went to a person is not replayed as an approved corrido
   const ui = scene();
   ui.run('renderSnapshot', snapshot(), {ledger:[{id:'h1', at:Date.now()/1000, outcome:'waiting',
     proposal:{asset_id:'drone-01', action:'fly_route', params:{legs:[start, ...route]}},
-    decision:{verdict:'human', reason:'기체 한도 초과', code:'over_asset', detail:{spent:490, cap:320}}}]});
+    decision:{verdict:'human', reason:'over the aircraft limit: $490 > $320', code:'over_asset', detail:{spent:490, cap:320}}}]});
   assert.equal(ui.path('approved').length, 0);
   assert.equal(ui.path('pending').length, 0);
   assert.match(ui.element('feed').innerHTML, /HUMAN/);
@@ -510,7 +510,7 @@ function advisory(extra={}) {
               {tick:610, code:'airspace', blocked_kind:'traffic', blocked_asset:'drone-03', blocked_until_tick:700},
               {tick:620, code:'airspace', blocked_kind:'forbidden', blocked_volume:'bldg-1'}],
     options:[{id:'hold', label:'hold on the ground until tick 700', legal:true, why:'drone-03 clears that volume at tick 700', until_tick:700},
-             {id:'climb', label:'climb +30 m on the last filed legs', legal:false, why:'bldg-1 옥상 위 10m', shift_m:30},
+             {id:'climb', label:'climb +30 m on the last filed legs', legal:false, why:'bldg-1 10 m above the roof', shift_m:30},
              {id:'decline', label:'decline the job', legal:true, why:'no aircraft flies'},
              {id:'escalate', label:'escalate to a person', legal:true, why:'a controller looks'}],
     chosen:'hold', summary:'', model:'', source:'rules', ...extra};
@@ -528,7 +528,7 @@ test('a runtime advisory card names the aircraft, lists the checked options, and
     'drone-02 was refused 3 times in a row. The rules suggest: hold on the ground until tick 700.');
   const options = ui.element('advisory-options').innerHTML;
   assert.match(options, /<li class="ok chosen">hold on the ground until tick 700 · legal<\/li>/);
-  assert.match(options, /<li class="no">climb \+30 m on the filed legs · not legal — bldg-1 옥상 위 10m<\/li>/);
+  assert.match(options, /<li class="no">climb \+30 m on the filed legs · not legal — bldg-1 10 m above the roof<\/li>/);
   assert.match(options, /<li class="ok">decline the order · legal<\/li>/);
   assert.match(options, /<li class="ok">escalate to a person · legal<\/li>/);
   assert.match(ui.element('advisory-note').textContent, /information only/);
@@ -696,7 +696,7 @@ test('a takeoff refused by the weather hold says WEATHER HOLD; a landing refused
     params:{legs:[start, ...route], blocked_kind:'landing', blocked_volume:'fdny-1', blocked_name:'FIRE · 1 Bowling Green',
             blocked_leg:3, blocked_at:{lat:route.at(-1).lat, lon:route.at(-1).lon},
             blocked_polygon:[[40.705, -74.015], [40.705, -74.012], [40.703, -74.012]], blocked_floor_m:0, blocked_ceiling_m:null}},
-    decision:{verdict:'denied', reason:'착륙 지점 둘레에 FIRE · 1 Bowling Green', code:'airspace', policy_hit:'airspace', forbids:'fdny-1'}});
+    decision:{verdict:'denied', reason:'the landing area is ringed by FIRE · 1 Bowling Green', code:'airspace', policy_hit:'airspace', forbids:'fdny-1'}});
   ui.run('renderDenials', {ledger:[fire]}, 0);
   assert.equal(ui.element('denial-why').textContent, 'NO ROOM TO LAND · FIRE · 1 Bowling Green');
   const depart = denial('dep-deny', {proposal:{asset_id:'drone-03', action:'depart', params:{}},
@@ -988,7 +988,7 @@ test('a drone request is tagged with the drone\'s own model even when the runtim
   const ui = scene();
   const runtime = {ledger:[approval('m1', {proposal:{asset_id:'drone-01', action:'fly_route',
       author:'nemotron-3-nano:4b', params:{legs:[start,...route], drafter:'astar'}},
-      decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}})],
+      decision:{verdict:'auto', reason:'within limits', code:'within_limits'}})],
     llm:{enabled:true, host:'ollama', models:{nano:'', super:'nemotron-3-nano:4b', ultra:''}},
     agents:{'drone-01':{model:'nemotron-3-nano:4b', host:'ollama', world:'guarded', last_seen_tick:1,
       display:'Nemotron Nano 4B'}}, locks:{}};
@@ -1043,7 +1043,7 @@ test('a minimized refusal card opens again when a new refusal arrives', () => {
 test('lines the runtime wrote itself name the runtime, not an internal id', () => {
   const ui = scene();
   const entry = approval('i1', {proposal:{asset_id:'intake', action:'intake', author:'runtime', params:{}},
-    decision:{verdict:'auto', reason:'읽음', code:'intake_read', detail:{kind:'weather', read_by:'grammar'}}});
+    decision:{verdict:'auto', reason:'read', code:'intake_read', detail:{kind:'weather', read_by:'grammar'}}});
   ui.run('renderSnapshot', snapshot(), {ledger:[entry], locks:{}});
   const feed = ui.element('feed').innerHTML;
   assert.match(feed, /<b>runtime<\/b>/, feed);
@@ -1105,7 +1105,7 @@ test('the runtime briefing panel lists what the runtime read, its source and how
   ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[], briefing:briefing({source:'recorded'})});
   assert.match(ui.element('briefing').innerHTML, /RECORDED/, 'recorded material says it is recorded');
   ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[], briefing:{enabled:true, source:'recorded', runs:0,
-    summary:'아직 브리핑하지 않았습니다.', items:[]}});
+    summary:'no briefing yet.', items:[]}});
   assert.equal(ui.element('briefing').hidden, true, 'never run means no card');
   ui.run('renderSnapshot', snapshot(), {ledger:[], notices:[]});
   assert.equal(ui.element('briefing').hidden, true, 'no briefing, no card');
@@ -1141,7 +1141,7 @@ test('a refusal caused by a briefing rule names the rule and its source', () => 
     params:{legs:[start, ...route], blocked_kind:'forbidden', blocked_volume:'brief-c1', blocked_leg:1,
             blocked_ceiling_m:95, blocked_at:{lat:route[0].lat, lon:route[0].lon},
             blocked_polygon:[[40.7995, -73.9535], [40.7996, -73.9535], [40.7996, -73.9534]]}},
-    decision:{verdict:'denied', reason:'크레인', code:'airspace'}});
+    decision:{verdict:'denied', reason:'a crane is in the way', code:'airspace'}});
   ui.run('renderSnapshot', snapshot(), {ledger:[], notices:briefingNotices(), briefing:briefing()});
   ui.run('renderDenials', {ledger:[crane]}, 0);
   assert.equal(ui.element('denial-why').textContent, 'leg 1 enters CRANE 95 m (nyc.gov)');
@@ -1167,7 +1167,7 @@ const AGENTS = {'drone-01':{model:'nemotron-3-nano:4b', host:'ollama', world:'gu
 function traced(trace, params = {}) {
   return approval('tr1', {proposal:{asset_id:'drone-01', action:'fly_route', author:'nemotron-3-nano:4b',
     params:{legs:[start, ...route], drafter:'astar', model_trace:trace, ...params}},
-    decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}});
+    decision:{verdict:'auto', reason:'within limits', code:'within_limits'}});
 }
 
 test('the hover card tells the model’s part in plain words, from the aircraft and from a ledger line', () => {
@@ -1228,7 +1228,7 @@ test('the hover card says when rules wrote the form, and when the model draft fa
   // with choice alongside).
   const picked = scene();
   const rulesChoice = {form:{model:'', concern:'has a delivery to Sara D. Roosevelt Park, no cleared route',
-      action:'fly_route', rationale:'배달지 Sara D. Roosevelt Park, 배터리 55%', latency_ms:0, used:false,
+      action:'fly_route', rationale:'delivering to Sara D. Roosevelt Park, battery 55%', latency_ms:0, used:false,
       fallback_reason:'no model'},
     route:{source:'astar', draft:null, choice:{candidates:[{id:'a', label:'shortest', length_m:2739, max_alt_m:70},
       {id:'b', label:'lowest altitude', length_m:2736, max_alt_m:70}], chosen:'b',
@@ -1255,7 +1255,7 @@ test('an older line without a trace shows only who wrote and who drew it, in eit
   const ui = scene({localStorage:{getItem:key => key === 'skynet-lang' ? 'ko' : null, setItem(){}}});
   ui.run('renderSnapshot', snapshot(), {ledger:[approval('old1', {proposal:{asset_id:'drone-01',
     action:'fly_route', author:'rules', params:{legs:[start, ...route], drafter:'astar'}},
-    decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}})], locks:{}});
+    decision:{verdict:'auto', reason:'within limits', code:'within_limits'}})], locks:{}});
   ui.run('showTraceFor', 'drone-01');
   const card = ui.element('trace').innerHTML;
   assert.match(card, /<dt>신청서 작성<\/dt><dd>규칙<\/dd>/);
@@ -1288,7 +1288,7 @@ test('a route the model chose says who chose it and why, on the corridor and in 
     chosen:'a', reason:'weather hold expected', model:'nemotron-3-nano:4b', path:'tools'};
   const entry = approval('rc1', {proposal:{asset_id:'drone-01', action:'fly_route', author:'nemotron-3-nano:4b',
     params:{legs:[start, ...route], drafter:'choice:nemotron-3-nano:4b', route_choice:choice}},
-    decision:{verdict:'auto', reason:'한도 안', code:'within_limits'}});
+    decision:{verdict:'auto', reason:'within limits', code:'within_limits'}});
   ui.run('renderSnapshot', snapshot(), {ledger:[entry], agents:AGENTS, locks:{}});
   const feed = ui.element('feed').innerHTML;
   assert.match(feed, /delivery route · model choice/);
@@ -1302,7 +1302,7 @@ test('a route the model chose says who chose it and why, on the corridor and in 
   assert.match(card, /<li class="">high route · 3 legs · 2\.1 km · 110–120 m<\/li>/);
   // A form with no candidates is unchanged.
   const plain = scene();
-  plain.run('renderSnapshot', snapshot(), {ledger:[approval('p1', {decision:{verdict:'auto', reason:'한도 안',
+  plain.run('renderSnapshot', snapshot(), {ledger:[approval('p1', {decision:{verdict:'auto', reason:'within limits',
     code:'within_limits'}})], locks:{}});
   plain.time(GROW_MS + CHECK_MS + 10); plain.run('draw');
   assert.equal(plain.source('stage-label').features[0].properties.label, 'APPROVED · within limits');
@@ -1365,7 +1365,7 @@ test('a filing travels up the line and the verdict comes back down, a recall com
   // A recall is something the runtime sends down.
   const recall = {id:'rc9', at:Date.now() / 1000, outcome:'done',
     proposal:{asset_id:'drone-01', action:'divert_ground', author:'runtime', params:{volume:'nofly-1'}},
-    decision:{verdict:'auto', reason:'회수', code:'recalled', policy_hit:'nofly-1',
+    decision:{verdict:'auto', reason:'route in flight recalled by nofly-1', code:'recalled', policy_hit:'nofly-1',
               detail:{resource:'nofly-1', policy:'nofly-1'}}};
   ui.run('renderSnapshot', snapshot(), {ledger:[recall, denial('sig-1')], notices:[]});
   ui.time(GROW_MS + CHECK_MS + 400); ui.run('draw');
@@ -1399,7 +1399,7 @@ test('a refusal flies the camera to the aircraft and the building, with a captio
   const refused = denial('cap-1', {proposal:{asset_id:'drone-01', action:'fly_route',
     params:{legs:[start, ...route], drafter:'straight', blocked_kind:'forbidden', blocked_volume:'bldg-t1',
             blocked_leg:1, blocked_ceiling_m:114, blocked_at:blocked}},
-    decision:{verdict:'denied', reason:'건물', code:'airspace'}});
+    decision:{verdict:'denied', reason:'a building is in the way', code:'airspace'}});
   const snap = snapshot();
   snap.worlds.guarded.assets['drone-01'].job = 'Harlem';
   ui.run('renderSnapshot', snap, {ledger:[refused], notices:[]});
@@ -1505,7 +1505,7 @@ test('a recall caption names the rule that pulled the route, not the aircraft', 
                until_tick:2100, polygon:[[40.81, -73.94], [40.81, -73.93], [40.82, -73.93]]};
   const recall = {id:'rc-live', at:Date.now() / 1000, outcome:'done',
     proposal:{asset_id:'drone-01', action:'divert_ground', author:'runtime', params:{volume:'nofly-1'}},
-    decision:{verdict:'auto', reason:'회수', code:'recalled', policy_hit:'nofly-1',
+    decision:{verdict:'auto', reason:'route in flight recalled by nofly-1', code:'recalled', policy_hit:'nofly-1',
               detail:{resource:'drone-01', policy:'nofly-1'}}};
   ui.run('renderSnapshot', snapshot(), {ledger:[recall], notices:[tfr]});
   ui.time(50); ui.run('draw');

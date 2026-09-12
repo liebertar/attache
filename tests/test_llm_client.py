@@ -274,13 +274,13 @@ class RecordedFormsTest(unittest.TestCase):
                      "vibration": 0.1, "autonomy_health": 1.0, "passengers": 0, "cargo": 6}
         proposer = Proposer(self.llm)
         written = proposer.write(Concern(kind="needs_route", urgency="normal",
-                                         detail="배달지 Union Square, 배터리 88%"),
+                                         detail="delivering to Union Square, battery 88%"),
                                  telemetry, "pad:launch", frozenset(), ("pad:launch",))
         self.assertEqual(written.author, "nemotron-3-nano")
         self.assertEqual(written.action, "fly_route")
         self.assertIn(written.action, ALLOWED_ACTIONS)
         # A question missing from the recording is written by the rules
-        by_rules = proposer.write(Concern(kind="motor_fault", urgency="high", detail="진동"),
+        by_rules = proposer.write(Concern(kind="motor_fault", urgency="high", detail="vibration"),
                                   telemetry, "pad:launch", frozenset(), ("pad:launch",))
         self.assertEqual(by_rules.author, "rules")
 

@@ -27,7 +27,7 @@ class ScriptedLlm(TieredLlm):
 
 READY = {"id": "drone-02", "model": "dv-x500", "state": "ready", "battery": 56.0, "alt_m": 0.8,
          "vibration": 0.1, "autonomy_health": 1.0, "passengers": 0, "cargo": 0}
-RELOAD = Concern(kind="needs_reload", urgency="normal", detail="배터리 56%, 다음 짐을 싣습니다")
+RELOAD = Concern(kind="needs_reload", urgency="normal", detail="battery 56%, loading the next job")
 
 
 class ImpossibleFormTest(unittest.TestCase):
@@ -52,7 +52,7 @@ class ImpossibleFormTest(unittest.TestCase):
                           '"rationale": "Park now."}')
         written = Proposer(llm).write(RELOAD, READY, "pad:launch", frozenset(), ("pad:launch",))
         self.assertEqual((written.action, written.author), ("depart", "rules"))
-        fault = Concern(kind="motor_fault", urgency="high", detail="모터 진동 0.9")
+        fault = Concern(kind="motor_fault", urgency="high", detail="motor vibration 0.9")
         written = Proposer(llm).write(fault, READY, "pad:launch", frozenset(), ("pad:launch",))
         self.assertEqual((written.action, written.author), ("reserve_pad", "scripted-nano"))
 

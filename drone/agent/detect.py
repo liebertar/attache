@@ -20,12 +20,12 @@ def detect(telemetry: dict) -> Concern | None:
     if telemetry.get("autonomy_health", 1.0) <= AUTONOMY_ALERT:
         return Concern(
             "autonomy_fault", "high",
-            f"자율주행 상태 {telemetry.get('autonomy_health'):.2f}",
+            f"autonomy health {telemetry.get('autonomy_health'):.2f}",
         )
 
     if telemetry.get("vibration", 0.0) >= VIBRATION_ALERT and not telemetry.get("assigned_pad"):
         return Concern(
-            "motor_fault", "high", f"모터 진동 {telemetry.get('vibration'):.2f}"
+            "motor_fault", "high", f"motor vibration {telemetry.get('vibration'):.2f}"
         )
 
     battery = telemetry.get("battery", 100.0)
@@ -42,13 +42,13 @@ def detect(telemetry: dict) -> Concern | None:
         and idle
     ):
         return Concern("needs_route", "normal",
-                       f"배달지 {telemetry['job']}, 배터리 {battery:.0f}%")
+                       f"delivering to {telemetry['job']}, battery {battery:.0f}%")
 
     # In its own spot in the depot yard (nowhere to go, on the ground): load the next job right
     # there. The charger cycle was removed — battery management is the operator's business,
     # and the short hop from the yard to the pad read on screen as "what is that weird route?".
     if not telemetry.get("job") and state == "ready" and idle:
-        return Concern("needs_reload", "normal", f"배터리 {battery:.0f}%, 다음 짐을 싣습니다")
+        return Concern("needs_reload", "normal", f"battery {battery:.0f}%, loading the next job")
 
     # An aircraft down at a landing site (landed) unloads and files for its next route
     # (needs_route above). There is no charging filing.

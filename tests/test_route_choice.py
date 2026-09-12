@@ -636,7 +636,7 @@ class FiledChoiceTest(unittest.TestCase):
 
 
 class FormTraceTest(unittest.TestCase):
-    CONCERN = Concern("needs_route", "normal", "배달지 Morningside Park, 배터리 66%")
+    CONCERN = Concern("needs_route", "normal", "delivering to Morningside Park, battery 66%")
 
     def _write(self, llm) -> dict:
         proposer = Proposer(llm)
