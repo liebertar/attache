@@ -17,6 +17,12 @@ from backend.intake.book import (
     item_id,
 )
 from backend.intake.briefing import BriefingDesk
+from backend.intake.entries import (
+    FLEET_ASSET,
+    INTAKE_ASSET,
+    INTAKE_CHECKS,
+    IntakeEntriesMixin,
+)
 from backend.intake.notices import NoticeBook
 from backend.runtime.advisory import AdvisoryDesk, Refusal, build_options
 from backend.runtime.arbiter import Arbiter
@@ -76,10 +82,6 @@ SERVICE_MARGIN_DEG = 0.02
 ADDRESS_FILE = os.getenv(
     "ADDRESS_FILE", str(Path(__file__).resolve().parent.parent
                         / "configs/airspace/nyc_addresses.json"))
-# Asset names for intake cards and policies. This is fleet and runtime work, not an aircraft's.
-INTAKE_ASSET = "intake"
-FLEET_ASSET = "fleet"
-INTAKE_CHECKS = ["intake:grammar", "intake:model"]
 # How often (s) to fetch METAR. Observations come hourly (specials in between).
 METAR_PERIOD_S = float(os.getenv("METAR_PERIOD_S") or METAR_DEFAULT_PERIOD_S)
 # Drop an aircraft from /state.agents when its registration goes unrenewed for this many ticks.
@@ -90,13 +92,9 @@ AGENT_STALE_TICKS = int(os.getenv("AGENT_STALE_TICKS") or "600")
 SOURCE_NAMES = {"tavily": "검색", METAR_SOURCE: "METAR"}
 # Fields of one /state.agents row.
 AGENT_FIELDS = ("model", "host", "world", "last_seen_tick", "display", "base_url_port", "model_ok")
-# Structured values stored with an item (POST /intake hints, the address and radius of a
-# simulator incident notice). Re-reading after a restart from the text alone cannot place an
-# incident that arrived as an address.
-INTAKE_HINT_KEYS = ("name", "address", "building_id", "radius_m", "until_tick")
 
 
-class Runtime:
+class Runtime(IntakeEntriesMixin):
     def __init__(self, config_path: str, sim_url: str, ledger_path: str, window_s: float = 1.5,
                  intake_db: str | None = None, metar: bool = False,
                  await_airspace: bool = False, briefing: bool = False):
@@ -1955,34 +1953,6 @@ class Runtime:
         self.ledger.close_entry(
             self.ledger.open_entry(noted, decision, self._context(None, ["incident"])), "noted")
 
-    def _ledger_intake(self, record, item: dict, code: str, outcome: str, reason: str,
-                       detail: dict | None = None) -> None:
-        """One intake line. Everything received, read or unreadable must be in the ledger."""
-        noted = Proposal(asset_id=INTAKE_ASSET, action="intake", cost_usd=0.0,
-                         blast_radius="none", author="runtime", rationale=record.text[:180],
-                         params={"item": record.id, "source": record.source,
-                                 "url": record.url or None, "query": item.get("query"),
-                                 "title": item.get("title"), "kind_hint": item.get("kind")})
-        verdict = Verdict.DENIED if code == "intake_unreadable" else Verdict.AUTO
-        decision = Decision(noted.id, verdict, reason, code=code,
-                            detail={"item": record.id, "source": record.source,
-                                    "url": record.url or None, **(detail or {})})
-        self.ledger.close_entry(
-            self.ledger.open_entry(noted, decision, self._context(None, INTAKE_CHECKS)), outcome)
-        self._store_intake(record, item, code, detail or {})
-
-    def _store_intake(self, record, item: dict, code: str, detail: dict) -> None:
-        """The intake line in sqlite too: a row goes in on receipt and is updated with what it
-        became once read."""
-        if code == "intake_received":
-            self.store.put_item(record.id, record.source, record.text, self.tick, record.url,
-                                item.get("kind"), _hints_of(item))
-            return
-        outcome = ("unreadable" if code == "intake_unreadable"
-                   else "window_closed" if detail.get("window_closed")
-                   else "held" if detail.get("held") else "read")
-        self.store.settle_item(record.id, record.kind, record.read_by, outcome)
-
     # ---------- Rule records (sqlite) ----------
 
     def _rule_open(self, item_id: str, kind: str, from_tick, until_tick, applied: bool) -> None:
@@ -2444,10 +2414,6 @@ def _intake_hints(body: dict) -> tuple[dict, str]:
     except (TypeError, ValueError):
         return {}, "radius_m 과 until_tick 은 수여야 합니다"
     return hints, ""
-
-
-def _hints_of(item: dict) -> dict:
-    return {key: item[key] for key in INTAKE_HINT_KEYS if item.get(key) is not None}
 
 
 def _load_addresses(path: str) -> list[dict]:
