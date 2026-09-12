@@ -48,7 +48,7 @@ def leg(north_m: float, east_m: float, alt_m: float) -> dict:
 
 def route(asset: str, legs: list[dict], **params) -> dict:
     return Proposal(asset_id=asset, action="fly_route", cost_usd=12.0, blast_radius="schedule",
-                    rationale="시험", params={"legs": legs, **params}).to_dict()
+                    rationale="test", params={"legs": legs, **params}).to_dict()
 
 
 def ground(north_m: float, east_m: float, tick: int | None = None) -> dict:
@@ -305,7 +305,7 @@ class LostLinkRuntimeTest(unittest.TestCase):
         self._go_dark()
         self.runtime.telemetry["drone-01"] = {**self.runtime.telemetry["drone-01"],
                                               "route": [leg(3000, 0, 60)]}
-        closing = Volume("nofly-t", "닫힘", box(LAT0 + north(1800), LON0 - east(100),
+        closing = Volume("nofly-t", "closing", box(LAT0 + north(1800), LON0 - east(100),
                                                 LAT0 + north(2200), LON0 + east(100)))
         self.assertEqual(self.runtime.recall_flights(closing), [])
         self.assertEqual(len(self.adapter.sent), self.sent)
@@ -354,8 +354,9 @@ class LostLinkRuntimeTest(unittest.TestCase):
     def test_a_person_can_release_the_space_early(self):
         self._go_dark()
         card = cards(self.runtime, "lost_link_notice")[0]
-        decision = self.runtime.approve(card["id"], "관제사", allow=True)
-        self.assertEqual((decision.code, decision.approved_by), ("lost_link_released", "관제사"))
+        decision = self.runtime.approve(card["id"], "controller", allow=True)
+        self.assertEqual((decision.code, decision.approved_by),
+                         ("lost_link_released", "controller"))
         self.assertEqual((self.intent.state, self.intent.ended_reason), (ENDED, "released"))
         self.assertTrue(self.runtime.file(self._crossing(self.nominal_to + 10)).committed)
         self.assertEqual(self.runtime.snapshot()["links"]["drone-01"]["status"], "lost",
@@ -366,7 +367,7 @@ class LostLinkRuntimeTest(unittest.TestCase):
     def test_or_keep_it_until_telemetry_returns(self):
         self._go_dark()
         card = cards(self.runtime, "lost_link_notice")[0]
-        self.assertEqual(self.runtime.approve(card["id"], "관제사", allow=False).code,
+        self.assertEqual(self.runtime.approve(card["id"], "controller", allow=False).code,
                          "lost_link_kept")
         self.assertIs(self.runtime.file(self._crossing(self.nominal_to + 10)).verdict,
                       Verdict.DENIED)

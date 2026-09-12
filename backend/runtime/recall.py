@@ -36,10 +36,12 @@ class RecallMixin:
                 continue
             retreat = Proposal(asset_id=asset_id, action="divert_ground", cost_usd=0.0,
                                blast_radius="cargo", author="runtime",
-                               rationale=f"{hold.reason} — 아직 안 뜬 경로를 물림",
+                               rationale=f"{hold.reason} — the route that has not taken "
+                                         f"off is pulled back",
                                params={"hold": hold.id})
             decision = Decision(retreat.id, Verdict.AUTO,
-                                f"{hold.reason} — {asset_id} 의 아직 안 뜬 경로를 물림",
+                                f"{hold.reason} — the route {asset_id} has not taken off "
+                                f"on is pulled back",
                                 policy_hit=HOLD_POLICY_PREFIX, code="recalled",
                                 detail={"resource": asset_id, "policy": HOLD_POLICY_PREFIX,
                                         "until_tick": hold.until_tick})
@@ -93,7 +95,7 @@ class RecallMixin:
             )
             decision = Decision(
                 retreat.id, Verdict.AUTO,
-                f"{volume.id} 로 비행 중이던 경로를 회수",
+                f"route in flight recalled by {volume.id}",
                 policy_hit=volume.id, code="recalled",
                 detail={"resource": asset_id, "policy": volume.id},
             )
@@ -140,7 +142,7 @@ class RecallMixin:
             author="runtime",
         )
         decision = Decision(
-            retreat.id, Verdict.AUTO, f"{policy.id} 로 {policy.forbid_resource} 회수",
+            retreat.id, Verdict.AUTO, f"{policy.forbid_resource} recalled by {policy.id}",
             policy_hit=policy.id, code="recalled",
             detail={"resource": policy.forbid_resource, "policy": policy.id},
         )

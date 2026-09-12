@@ -106,7 +106,7 @@ def main() -> None:
                     )
             for vehicle in snapshot["assets"].values():
                 out.append({
-                    "world": "런타임" if name == "guarded" else "직접",
+                    "world": "runtime" if name == "guarded" else "direct",
                     "wiring": name,
                     "id": vehicle["id"],
                     "model": vehicle["model"],
@@ -123,19 +123,19 @@ def main() -> None:
 
     def scoreboard_rows(body, query):
         labels = [
-            ("pad_conflicts", "착륙 패드 충돌"),
-            ("post_recall_violations", "리콜 이후 금지 행동"),
-            ("unapproved_passenger_actions", "승객 영향 무단 실행"),
-            ("unrecorded_actions", "기록 없는 실행"),
-            ("batteries_dead", "방전으로 멈춤"),
-            ("spend_usd", "기단 지출 ($)"),
-            ("over_fleet_limit_usd", "기단 한도 초과 ($)"),
-            ("human_approvals", "사람이 승인한 건"),
+            ("pad_conflicts", "landing pad conflicts"),
+            ("post_recall_violations", "forbidden actions after the recall"),
+            ("unapproved_passenger_actions", "unapproved actions affecting passengers"),
+            ("unrecorded_actions", "unrecorded actions"),
+            ("batteries_dead", "stopped on a flat battery"),
+            ("spend_usd", "fleet spend ($)"),
+            ("over_fleet_limit_usd", "over the fleet limit ($)"),
+            ("human_approvals", "human approvals"),
         ]
         guarded = simulation.worlds["guarded"].score.public()
         direct = simulation.worlds["direct"].score.public()
         return 200, [
-            {"지표": label, "런타임": guarded[key], "직접": direct[key]}
+            {"metric": label, "runtime": guarded[key], "direct": direct[key]}
             for key, label in labels
         ]
 

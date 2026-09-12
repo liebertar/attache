@@ -135,24 +135,24 @@ class Volume:
         if not self.polygon:
             # A zone without a polygon is a rule that applies everywhere, like the default cap
             if self.rule == "ceiling" and self.ceiling_m is not None and alt_m > self.ceiling_m:
-                return f"{self.name} 초과 ({alt_m:.0f}m > {self.ceiling_m:.0f}m)"
+                return f"{self.name} exceeded ({alt_m:.0f} m > {self.ceiling_m:.0f} m)"
             return None
         if self.rule == "forbidden":
             if self.top_m is None or self.floor_m <= alt_m <= self.top_m:
                 band = self.band()
                 if self.clearance_m and self.ceiling_m is not None and alt_m > self.ceiling_m:
-                    return (f"{self.name} 옥상 위 {alt_m - self.ceiling_m:.0f}m "
-                            f"(이격 {self.clearance_m:.0f}m 필요)")
-                return f"{self.name} 진입 금지 ({band})"
+                    return (f"{self.name} {alt_m - self.ceiling_m:.0f} m above the roof "
+                            f"(needs {self.clearance_m:.0f} m clearance)")
+                return f"{self.name} no entry ({band})"
             return None
         if self.rule == "ceiling" and self.ceiling_m is not None and alt_m > self.ceiling_m:
-            return (f"{self.name} 허용 고도 초과 "
-                    f"({alt_m:.0f}m > {self.ceiling_m:.0f}m {self.reference})")
+            return (f"{self.name} above the ceiling "
+                    f"({alt_m:.0f} m > {self.ceiling_m:.0f} m {self.reference})")
         return None
 
     def band(self) -> str:
         """The zone's altitude band, separate so the screen doesn't have to parse the sentence."""
-        top = "제한 없음" if self.ceiling_m is None else f"{self.ceiling_m:.0f}m"
+        top = "no limit" if self.ceiling_m is None else f"{self.ceiling_m:.0f} m"
         return f"{self.floor_m:.0f}~{top} {self.reference}"
 
     def to_dict(self) -> dict:
@@ -356,9 +356,10 @@ class Airspace:
                 return volume
         if self.default_ceiling_m is not None and alt_m > self.default_ceiling_m:
             return Volume(
-                id="part107-default", name="Part 107 기본 상한",
+                id="part107-default", name="Part 107 default ceiling",
                 polygon=[], ceiling_m=self.default_ceiling_m, rule="ceiling",
-                reason="격자가 없는 곳의 기본 상한 400ft AGL", source="14 CFR 107.51",
+                reason="default ceiling 400 ft AGL where there is no grid",
+                source="14 CFR 107.51",
             )
         return None
 
@@ -388,7 +389,7 @@ def _leg_volumes(airspace: Airspace, here: dict, nxt: dict):
     rows = range(math.floor(south / INDEX_CELL_DEG), math.floor(north / INDEX_CELL_DEG) + 1)
     cols = range(math.floor(west / INDEX_CELL_DEG), math.floor(east / INDEX_CELL_DEG) + 1)
     if len(rows) * len(cols) > MAX_LEG_CELLS:
-        raise ValueError(f"선분이 너무 길어 판정할 수 없습니다 ({len(rows)}x{len(cols)} 칸)")
+        raise ValueError(f"leg too long to judge ({len(rows)}x{len(cols)} cells)")
     candidates = {v.id: v for v in airspace._everywhere}
     for row in rows:
         for col in cols:
@@ -486,26 +487,6 @@ def nearest_exit(volume: Volume, lat: float, lon: float,
     return (lat + north * push / METRES_PER_DEG_LAT, lon + east * push / METRES_PER_DEG_LON)
 
 
-def highest_roof_along(airspace: "Airspace", here: dict, nxt: dict,
-                       margin_m: float = SEPARATION_M) -> float:
-    """Highest roof below this segment (including within lateral clearance); 0 if none.
-
-    The operator uses it to set leg altitudes — a leg must fly at roof + clearance to pass
-    over, and if that exceeds the ceiling it has to go around. Judgement (first_breach)
-    doesn't trust this value and checks on its own.
-    """
-    top = 0.0
-    for volume in _leg_volumes(airspace, here, nxt):
-        if not volume.id.startswith("bldg-") or volume.ceiling_m is None or not volume.polygon:
-            continue
-        if volume.ceiling_m <= top:
-            continue
-        crosses = len(_crossing_fractions(here, nxt, volume.polygon)) > 2
-        if crosses or _clearance_m(here, nxt, volume.polygon)[0] < margin_m:
-            top = volume.ceiling_m
-    return top
-
-
 def required_top_along(airspace: "Airspace", here: dict, nxt: dict,
                        margin_m: float = SEPARATION_M) -> float:
     """Highest 'roof + that building's clearance' below this segment (including within
@@ -563,7 +544,8 @@ def first_breach(airspace: "Airspace", legs: list[dict], samples: int | None = N
                     lat = here["lat"] + (nxt["lat"] - here["lat"]) * fraction
                     lon = here["lon"] + (nxt["lon"] - here["lon"]) * fraction
                     first = (fraction, volume,
-                             f"{volume.name} 에 {gap:.0f}m 로 접근 (이격 {needed:.0f}m 필요)",
+                             f"{volume.name} approached to {gap:.0f} m "
+                             f"(needs {needed:.0f} m clearance)",
                              (lat, lon))
         # The polygon-less default ceiling is judged at the same entry point.
         start_breach = airspace.breach(here["lat"], here["lon"], altitude)
@@ -605,7 +587,8 @@ def leg_breaches(airspace: "Airspace", here: dict, nxt: dict) -> list:
             if gap < needed:
                 lat = here["lat"] + (nxt["lat"] - here["lat"]) * fraction
                 lon = here["lon"] + (nxt["lon"] - here["lon"]) * fraction
-                why = f"{volume.name} 에 {gap:.0f}m 로 접근 (이격 {needed:.0f}m 필요)"
+                why = (f"{volume.name} approached to {gap:.0f} m "
+                       f"(needs {needed:.0f} m clearance)")
                 hit = (fraction, volume, why, (lat, lon))
         if hit is not None:
             found.append(hit)

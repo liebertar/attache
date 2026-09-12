@@ -98,7 +98,7 @@ class ValidationTest(unittest.TestCase):
 
     def test_each_gate(self):
         outside = Notice(polygon=box(41.0, -73.0, 41.01, -72.99))
-        self.assertTrue(any("밖" in p for p in validate(outside, self.bbox)))
+        self.assertTrue(any("outside" in p for p in validate(outside, self.bbox)))
         huge = Notice(polygon=box(40.70, -74.02, 40.75, -73.95))
         self.assertGreater(area_m2(huge.polygon), MAX_AREA_M2)
         self.assertTrue(any("km²" in p for p in validate(huge, self.bbox)))
@@ -152,7 +152,7 @@ def ledger_lines(runtime):
 class GrammarNoticeEnforcementTest(unittest.TestCase):
     def setUp(self):
         self.runtime, self.adapter = make_runtime()
-        self.item = {"id": "nofly-t", "kind": "notam", "name": "시험 회랑",
+        self.item = {"id": "nofly-t", "kind": "notam", "name": "test corridor",
                      "text": sim_world.ZONE_TEXT, "published_tick": 525, "until_tick": 900}
 
     def test_it_applies_the_tick_it_lands_and_pulls_a_crossing_flight(self):
@@ -225,7 +225,7 @@ class ProseNoticeTest(unittest.TestCase):
              "and 1st Ave, surface to 400 ft, from 0907Z to 0912Z.")
 
     def item(self):
-        return {"id": "nofly-prose", "kind": "notam", "name": "응급헬기", "text": self.PROSE,
+        return {"id": "nofly-prose", "kind": "notam", "name": "medevac", "text": self.PROSE,
                 "published_tick": 525, "until_tick": 900}
 
     def test_without_a_model_it_is_recorded_as_unreadable_and_never_applies(self):
@@ -285,14 +285,15 @@ class ProseNoticeTest(unittest.TestCase):
         runtime.absorb([self.item()])
         self.assertEqual(len(llm.asked), 1, "the same notice is not asked again")
         # Once a person confirms, it applies from then on — on the person's word
-        decision = runtime.approve(pending[0]["id"], "관제사", allow=True)
+        decision = runtime.approve(pending[0]["id"], "controller", allow=True)
         self.assertIs(decision.verdict, Verdict.AUTO)
         self.assertEqual(decision.code, "notice_published")
         volume = runtime.airspace.breach(*inside, 60.0)
         self.assertIsNotNone(volume)
         self.assertEqual(volume.source, "human")
         notices = runtime.snapshot()["notices"]
-        self.assertEqual((notices[0]["source"], notices[0]["confirmed_by"]), ("human", "관제사"))
+        self.assertEqual((notices[0]["source"], notices[0]["confirmed_by"]),
+                         ("human", "controller"))
         self.assertEqual((notices[0]["held"], notices[0]["applied"]), (False, True))
         self.assertEqual(runtime.notices.pending(), [])
         self.assertEqual(runtime.snapshot()["awaiting_human"], [])
@@ -303,7 +304,7 @@ class ProseNoticeTest(unittest.TestCase):
         runtime.tick = 600
         runtime.absorb([self.item()])
         pending = runtime.snapshot()["awaiting_human"][0]
-        decision = runtime.approve(pending["id"], "관제사", allow=False)
+        decision = runtime.approve(pending["id"], "controller", allow=False)
         self.assertIs(decision.verdict, Verdict.DENIED)
         self.assertEqual(decision.code, "notice_refused")
         self.assertEqual(runtime.snapshot()["notices"], [])
@@ -322,7 +323,7 @@ class ProseNoticeTest(unittest.TestCase):
         unread = [e for e in ledger_lines(runtime)
                   if e["decision"].get("code") == "notice_unreadable"]
         self.assertEqual(len(unread), 1)
-        self.assertIn("밖", unread[0]["decision"]["reason"])
+        self.assertIn("outside", unread[0]["decision"]["reason"])
 
     def test_a_model_answer_that_is_not_the_schema_is_discarded(self):
         llm = self._model("north of the hospital")
@@ -381,7 +382,7 @@ class SecondNoticeTest(unittest.TestCase):
                   if e["decision"].get("code") == "notice_unreadable"]
         self.assertEqual(len(unread), 1)
         self.assertEqual(unread[0]["decision"]["detail"]["notice"], "nofly-2026-09-medevac")
-        self.assertIn("모델이 없음", unread[0]["decision"]["reason"])
+        self.assertIn("no model to structure it", unread[0]["decision"]["reason"])
         self.assertEqual(adapter.sent, [])
 
 
@@ -434,7 +435,7 @@ class HeldNoticeTest(unittest.TestCase):
                          [p["id"] for p in self.runtime.snapshot()["policies"]])
         # From a person's confirmation on: it enters the airspace, the route passing through is
         # recalled, and a new route is refused.
-        decision = self.runtime.approve(pending[0]["id"], "관제사", allow=True)
+        decision = self.runtime.approve(pending[0]["id"], "controller", allow=True)
         self.assertEqual((decision.verdict, decision.code), (Verdict.AUTO, "notice_published"))
         volume = self.runtime.airspace.breach(*self.CENTRE, 60.0)
         self.assertEqual((volume.id, volume.source), ("nofly-2026-09-medevac", "human"))
@@ -447,7 +448,7 @@ class HeldNoticeTest(unittest.TestCase):
                          (Verdict.DENIED, "nofly-2026-09-medevac"))
         shown = self.runtime.snapshot()["notices"][0]
         self.assertEqual((shown["held"], shown["applied"], shown["confirmed_by"]),
-                         (False, True, "관제사"))
+                         (False, True, "controller"))
         self.assertIn("nofly-2026-09-medevac",
                       [p["id"] for p in self.runtime.snapshot()["policies"]])
         published = [e for e in ledger_lines(self.runtime)
@@ -477,7 +478,7 @@ class HeldNoticeTest(unittest.TestCase):
     def test_a_refusal_closes_the_held_entry_instead_of_opening_another(self):
         self.runtime.absorb([medevac_item()])
         pending = self.runtime.snapshot()["awaiting_human"][0]
-        self.runtime.approve(pending["id"], "관제사", allow=False)
+        self.runtime.approve(pending["id"], "controller", allow=False)
         rows = [(e["id"], e["outcome"], e["decision"]["code"]) for e in self._lines()
                 if e["proposal"]["id"] == pending["id"]]
         self.assertEqual(rows, [(rows[0][0], "pending", "human_notice"),
@@ -500,7 +501,7 @@ class HeldNoticeTest(unittest.TestCase):
         self.runtime.absorb([medevac_item()])
         pending = self.runtime.snapshot()["awaiting_human"][0]
         self.runtime.tick = 2101
-        decision = self.runtime.approve(pending["id"], "관제사", allow=True)
+        decision = self.runtime.approve(pending["id"], "controller", allow=True)
         self.assertEqual((decision.verdict, decision.code), (Verdict.DENIED, "notice_lapsed"))
         self.assertEqual(self.runtime.snapshot()["notices"], [])
         self.assertEqual(self.runtime.airspace.all(), [])
@@ -515,7 +516,7 @@ class HeldNoticeTest(unittest.TestCase):
         self.runtime.tick = 1300
         self.runtime.absorb([medevac_item()])
         pending = self.runtime.snapshot()["awaiting_human"][0]
-        self.runtime.approve(pending["id"], "관제사", allow=True)
+        self.runtime.approve(pending["id"], "controller", allow=True)
         shown = self.runtime.snapshot()["notices"][0]
         self.assertEqual((shown["held"], shown["applied"], shown["source"]),
                          (False, False, "human"))
@@ -526,7 +527,7 @@ class HeldNoticeTest(unittest.TestCase):
         other, _ = make_runtime(fixture_super("reference"))
         other.tick = 1300
         other.absorb([medevac_item()])
-        other.approve(other.snapshot()["awaiting_human"][0]["id"], "관제사", allow=True)
+        other.approve(other.snapshot()["awaiting_human"][0]["id"], "controller", allow=True)
         other.absorb([])
         self.assertEqual(other.snapshot()["notices"], [])
 
@@ -588,7 +589,7 @@ class HeldNoticeTest(unittest.TestCase):
                           for e in lapsed], [(pending[0]["id"], "notice_lapsed", "denied")])
         self.runtime.absorb([medevac_item()])
         self.assertEqual(len(self.llm.asked), 1, "not asked again once the window closed")
-        self.assertIsNone(self.runtime.approve(pending[0]["id"], "관제사", allow=True),
+        self.assertIsNone(self.runtime.approve(pending[0]["id"], "controller", allow=True),
                           "a card that came down can't be approved")
 
     def test_a_held_notice_dropped_from_the_feed_leaves_no_card_either(self):
@@ -599,7 +600,7 @@ class HeldNoticeTest(unittest.TestCase):
         self.assertEqual(self.runtime.snapshot()["awaiting_human"], [])
         self.assertEqual([e["decision"]["reason"] for e in ledger_lines(self.runtime)
                           if e["outcome"] == "lapsed"],
-                         ["사람이 확인하기 전에 공지가 내려감 — 걸린 적 없음"])
+                         ["the notice was taken down before a human confirmed — never applied"])
 
     def test_the_local_stand_in_answer_is_held_and_a_person_can_refuse_it(self):
         """A real answer from the 30B stand-in on Ollama. It passes the form and the checks, but
@@ -616,7 +617,7 @@ class HeldNoticeTest(unittest.TestCase):
         self.assertGreater(abs(centre_lat - self.CENTRE[0]) * 110_570, 1000)
         pending = runtime.snapshot()["awaiting_human"][0]
         self.assertEqual(pending["author"], "model:nemotron-3-nano:latest")
-        decision = runtime.approve(pending["id"], "관제사", allow=False)
+        decision = runtime.approve(pending["id"], "controller", allow=False)
         self.assertEqual((decision.verdict, decision.code), (Verdict.DENIED, "notice_refused"))
         self.assertEqual(runtime.snapshot()["notices"], [])
         self.assertEqual(runtime.airspace.all(), [])

@@ -114,10 +114,6 @@ class Route:
     detoured: bool
     reason: str = ""
 
-    @property
-    def lowest_ceiling(self) -> float:
-        return min((leg.alt_m for leg in self.legs), default=0.0)
-
     def to_dict(self) -> dict:
         return {
             "legs": [leg.to_dict() for leg in self.legs],
@@ -242,20 +238,6 @@ class Router:
         """
         return self._edge(a, b) is None
 
-    def _ceiling_between(self, a: tuple[int, int], b: tuple[int, int],
-                         samples: int = 48) -> float | None:
-        """Lowest ceiling along the leg, sampled more finely than the runtime (40 samples)."""
-        lat_a, lon_a = self._coords(a)
-        lat_b, lon_b = self._coords(b)
-        ceilings = []
-        for step in range(samples + 1):
-            fraction = step / samples
-            ceiling = self.airspace.ceiling_at(lat_a + (lat_b - lat_a) * fraction,
-                                               lon_a + (lon_b - lon_a) * fraction)
-            if ceiling is not None:
-                ceilings.append(ceiling)
-        return min(ceilings) if ceilings else None
-
     # ---------- pathfinding ----------
 
     def plan(self, start: tuple[float, float], goal: tuple[float, float]) -> Route | None:
@@ -299,7 +281,7 @@ class Router:
                 continue
             legs = self._attach(self._to_legs(nodes), start, goal)
             if first_breach(self.airspace, [leg.to_dict() for leg in legs]) is None:
-                return Route(legs, detoured=True, reason="금지 구역을 피해 우회")
+                return Route(legs, detoured=True, reason="detour around a forbidden zone")
         return None
 
     def _free_nodes_near(self, point: tuple[float, float]) -> list[tuple[int, int]]:
@@ -326,10 +308,6 @@ class Router:
             if self.leg_altitude(point, self._coords(node)) is not None:
                 open_nodes.append(node)
         return open_nodes
-
-    def _free_node_near(self, point: tuple[float, float]) -> tuple[int, int] | None:
-        nodes = self._free_nodes_near(point)
-        return nodes[0] if nodes else None
 
     def _attach(self, legs: list[Leg], start: tuple[float, float],
                 goal: tuple[float, float]) -> list[Leg]:

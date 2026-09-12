@@ -196,7 +196,7 @@ export function ribbon(points, halfWidthM = RIBBON_HALF_M, thicknessM = RIBBON_T
 /** A vertical dotted column at one vertex, from altitude a to b. Same reference as the corridor
  * top (aircraft altitude − DROP). headingLonLat is the direction (degree deltas) of the leg that
  * leaves this vertex. */
-export function altitudeColumn(lat, lon, fromAltM, toAltM, headingLonLat = [0, 1]) {
+function altitudeColumn(lat, lon, fromAltM, toAltM, headingLonLat = [0, 1]) {
   const low = Math.min(fromAltM, toAltM) - RIBBON_DROP_M;
   const high = Math.max(fromAltM, toAltM) - RIBBON_DROP_M;
   const scale = Math.cos(lat * Math.PI / 180) || 1;
@@ -364,7 +364,7 @@ const SIGNAL_DASH_M = 20;
 const SIGNAL_GAP_M = 22;
 const SIGNAL_HALF_M = 2.2;
 // A lost link must look empty in the middle. No dashes are placed in this part of the line.
-export const SIGNAL_BREAK = [0.36, 0.64];
+const SIGNAL_BREAK = [0.36, 0.64];
 
 /** The runtime mast: a thin column from the roof to the link altitude and a thin head plate on top. */
 export function runtimeMast(site = RUNTIME_SITE, altM = RUNTIME_ALT_M, roofM = RUNTIME_ROOF_M) {
@@ -373,7 +373,7 @@ export function runtimeMast(site = RUNTIME_SITE, altM = RUNTIME_ALT_M, roofM = R
 }
 
 /** The point t (0–1) of the way between two 3D points. Altitude is mixed too. */
-export function signalPoint(from, to, t) {
+function signalPoint(from, to, t) {
   return {lat: from.lat + (to.lat - from.lat) * t, lon: from.lon + (to.lon - from.lon) * t,
           alt_m: Number(from.alt_m) + (Number(to.alt_m) - Number(from.alt_m)) * t};
 }
@@ -429,7 +429,7 @@ export function altitudeLift(zoom, pitchDeg, lat, altM) {
 }
 
 /** Metres on the ground per screen pixel (at the centre of the screen). */
-export function metresPerPixel(zoom, lat) {
+function metresPerPixel(zoom, lat) {
   return 40075016.686 * (Math.cos(lat * Math.PI / 180) || 1) / (512 * 2 ** zoom);
 }
 

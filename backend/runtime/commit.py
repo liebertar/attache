@@ -41,7 +41,7 @@ class Committer:
             proposal.resource, proposal.asset_id, proposal.id
         ):
             decision.verdict = Verdict.DENIED
-            decision.reason = f"{proposal.resource} 는 다른 기체가 쓰는 중입니다"
+            decision.reason = f"{proposal.resource} is in use by another aircraft"
             decision.code = "resource_held"
             decision.detail = {"resource": proposal.resource}
             return decision

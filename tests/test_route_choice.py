@@ -70,7 +70,7 @@ TELEMETRY = {"id": "drone-t", "model": "dv-x500", "lat": HERE[0], "lon": HERE[1]
              "job": "Morningside Park", "job_lat": GOAL[0], "job_lon": GOAL[1], "battery": 66.0,
              "stops_left": 2, "state": "loading"}
 REFUSAL = {"verdict": "denied", "policy_hit": "airspace", "code": "airspace",
-           "reason": "1번 구간이 규정을 어깁니다", "forbids": "bldg-x", "detail": {}}
+           "reason": "leg 1 breaks the rules", "forbids": "bldg-x", "detail": {}}
 APPROVAL = {"verdict": "auto", "policy_hit": None, "reason": "", "detail": {}}
 CANDIDATE_KEYS = ["id", "label", "legs", "length_m", "max_alt_m", "min_alt_m", "reason_tags"]
 
@@ -179,7 +179,7 @@ def _agent(llm: TieredLlm, planner: OperatorPlanner | None = None, drafter=None)
 
 def _proposal() -> Proposal:
     return Proposal(asset_id="drone-t", action="fly_route", cost_usd=12.0,
-                    blast_radius="schedule", rationale="시험", params={})
+                    blast_radius="schedule", rationale="test", params={})
 
 
 def _file(agent: GuardedAgent, runtime: FakeRuntime, state: dict | None = None,
@@ -636,7 +636,7 @@ class FiledChoiceTest(unittest.TestCase):
 
 
 class FormTraceTest(unittest.TestCase):
-    CONCERN = Concern("needs_route", "normal", "배달지 Morningside Park, 배터리 66%")
+    CONCERN = Concern("needs_route", "normal", "delivering to Morningside Park, battery 66%")
 
     def _write(self, llm) -> dict:
         proposer = Proposer(llm)
@@ -681,7 +681,7 @@ class FormTraceTest(unittest.TestCase):
         self.assertEqual((trace["model"], trace["fallback_reason"]), ("", "timeout"))
 
     def test_the_trace_stays_under_one_kilobyte_and_keeps_its_keys(self):
-        form = form_part("m", "concern " * 200, "fly_route", "여기서 " * 400, 1, True, None)
+        form = form_part("m", "concern " * 200, "fly_route", "from here " * 400, 1, True, None)
         route = route_part("choice", choice_part(_candidates(), "c", "because " * 100),
                            {"asked": True, "latency_ms": 1, "breach": "x" * 900, "used": False})
         trace = model_trace(form, route)

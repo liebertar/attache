@@ -338,16 +338,16 @@ def weather_problems(report: WeatherReport) -> list[str]:
     stop takeoffs."""
     problems = []
     if report.wind_mps is None and report.gust_mps is None and report.visibility_m is None:
-        problems.append("바람도 시정도 없음")
+        problems.append("no wind and no visibility")
     if report.wind_mps is not None and not (0.0 <= report.wind_mps <= MAX_WIND_MPS):
-        problems.append(f"바람 {report.wind_mps:.0f} m/s 가 0~{MAX_WIND_MPS:.0f} 밖")
+        problems.append(f"wind {report.wind_mps:.0f} m/s outside 0~{MAX_WIND_MPS:.0f}")
     if report.gust_mps is not None and not (0.0 <= report.gust_mps <= MAX_GUST_MPS):
-        problems.append(f"돌풍 {report.gust_mps:.0f} m/s 가 0~{MAX_GUST_MPS:.0f} 밖")
+        problems.append(f"gust {report.gust_mps:.0f} m/s outside 0~{MAX_GUST_MPS:.0f}")
     if (report.wind_mps is not None and report.gust_mps is not None
             and report.gust_mps < report.wind_mps):
-        problems.append("돌풍이 바람보다 약함")
+        problems.append("gust weaker than the wind")
     if report.visibility_m is not None and not (0.0 <= report.visibility_m <= MAX_VISIBILITY_M):
-        problems.append(f"시정 {report.visibility_m:.0f} m 가 0~{MAX_VISIBILITY_M:.0f} 밖")
+        problems.append(f"visibility {report.visibility_m:.0f} m outside 0~{MAX_VISIBILITY_M:.0f}")
     problems += _window_problems(report.from_tick, report.until_tick)
     return problems
 
@@ -359,22 +359,22 @@ def incident_problems(report: IncidentReport,
     RADIUS" is a sentence that closes Manhattan."""
     problems = []
     if report.kind not in INCIDENT_KINDS:
-        problems.append(f"모르는 사고 종류 {report.kind!r}")
+        problems.append(f"unknown incident kind {report.kind!r}")
     if not (MIN_INCIDENT_RADIUS_M <= report.radius_m <= MAX_INCIDENT_RADIUS_M):
-        problems.append(f"반경 {report.radius_m:.0f} m 가 {MIN_INCIDENT_RADIUS_M:.0f}~"
-                        f"{MAX_INCIDENT_RADIUS_M:.0f} 밖")
+        problems.append(f"radius {report.radius_m:.0f} m outside {MIN_INCIDENT_RADIUS_M:.0f}~"
+                        f"{MAX_INCIDENT_RADIUS_M:.0f}")
     if bbox is not None:
         lat_min, lon_min, lat_max, lon_max = bbox
         lat, lon = report.centre
         if not (lat_min <= lat <= lat_max and lon_min <= lon <= lon_max):
-            problems.append("서비스 영역 밖 자리")
+            problems.append("a place outside the service area")
     problems += _window_problems(report.from_tick, report.until_tick)
     return problems
 
 
 def _window_problems(from_tick: int | None, until_tick: int | None) -> list[str]:
     if from_tick is not None and until_tick is not None and until_tick <= from_tick:
-        return ["끝나는 틱이 시작 틱보다 앞"]
+        return ["end tick before the start tick"]
     return []
 
 
@@ -454,11 +454,11 @@ def _incident_from(form: dict, gazetteer: Gazetteer, clock: Clock, text: str,
         centre = gazetteer.building(building_id)
         place = str(hints.get("name") or building_id)
         if centre is None:
-            raise UnknownPlace(f"모르는 건물 {building_id}")
+            raise UnknownPlace(f"unknown building {building_id}")
     elif form.get("address"):
         found = gazetteer.address(_clean(form.get("address")))
         if found is None:
-            raise UnknownPlace(f"지명 사전에 없는 주소 {_clean(form.get('address'))!r}")
+            raise UnknownPlace(f"address not in the gazetteer {_clean(form.get('address'))!r}")
         centre, place = (float(found["lat"]), float(found["lon"])), found["label"]
     if centre is None:
         return None
@@ -475,7 +475,7 @@ def _number(value) -> float | None:
         return None
     number = float(value)
     if number != number or number in (float("inf"), float("-inf")):
-        raise ValueError("유한한 수가 아님")
+        raise ValueError("not a finite number")
     return number
 
 
@@ -595,11 +595,6 @@ OPEN_ENDED = re.compile(r"\buntil\s+further\s+notice\b", re.IGNORECASE)
 SENTENCES = re.compile(
     r"(?<=[.!?])(?<!\bSt\.)(?<!\bAve\.)(?<!\bDr\.)(?<!\bMt\.)(?<!\bJr\.)(?<!\bNo\.)"
     r"(?<!\ba\.m\.)(?<!\bp\.m\.)\s+|\n+")
-
-
-class UnknownWindow(ValueError):
-    """The time window is missing or makes no sense. A rule without a window would last
-    forever, so it can't be applied."""
 
 
 # ---------- New York local time ----------
@@ -1061,8 +1056,8 @@ def read_restriction(text: str, day: datetime.date) -> Hazard | None:
     note = ""
     bigger = [r for r in radii if r > MAX_BRIEF_RADIUS_M]
     if bigger:
-        note = (f"바깥 링 {max(bigger) / NM_TO_M_BRIEF:.0f} NM 은 코드가 그리기에 너무 큽니다 — "
-                "사람이 봐야 합니다")
+        note = (f"outer ring {max(bigger) / NM_TO_M_BRIEF:.0f} NM is too big for the code to "
+                "draw — a person must look")
     return Hazard(
         kind="restriction", place="TFR", centre=centre, radius_m=radius,
         ceiling_m=_ceiling_m(text), window=window, note=note,
@@ -1120,31 +1115,31 @@ def hazard_problems(hazard: Hazard, bbox: tuple[float, float, float, float] | No
     """Every range check on a hazard that was read, whoever read it."""
     problems = []
     if hazard.kind not in BRIEFING_KINDS:
-        problems.append(f"모르는 종류 {hazard.kind!r}")
+        problems.append(f"unknown kind {hazard.kind!r}")
     if hazard.kind == "crane":
         if hazard.height_m is None or not (MIN_CRANE_M <= hazard.height_m <= MAX_CRANE_M):
-            problems.append(f"크레인 높이가 {MIN_CRANE_M:.0f}~{MAX_CRANE_M:.0f} m 밖")
+            problems.append(f"crane height outside {MIN_CRANE_M:.0f}~{MAX_CRANE_M:.0f} m")
         if hazard.centre is None:
-            problems.append("자리를 못 찾음")
+            problems.append("no place found")
     if hazard.kind in ("event", "restriction"):
         radius = hazard.radius_m
         if radius is None or not (MIN_BRIEF_RADIUS_M <= radius <= MAX_BRIEF_RADIUS_M):
-            problems.append(f"반경이 {MIN_BRIEF_RADIUS_M:.0f}~{MAX_BRIEF_RADIUS_M:.0f} m 밖")
+            problems.append(f"radius outside {MIN_BRIEF_RADIUS_M:.0f}~{MAX_BRIEF_RADIUS_M:.0f} m")
         if hazard.centre is None:
-            problems.append("중심을 못 찾음")
+            problems.append("no centre found")
     if hazard.kind == "closure" and not hazard.landing_area:
-        problems.append("우리 착륙장이 아님")
+        problems.append("not one of our landing areas")
     if hazard.rule_kind is not None and hazard.window is None:
-        problems.append("시간 창이 없음")
+        problems.append("no time window")
     window = hazard.window
     if window is not None and window.start is not None and window.end is not None \
             and window.end <= window.start:
-        problems.append("끝이 시작보다 앞")
+        problems.append("end before the start")
     if bbox is not None and hazard.centre is not None:
         lat_min, lon_min, lat_max, lon_max = bbox
         lat, lon = hazard.centre
         if not (lat_min <= lat <= lat_max and lon_min <= lon <= lon_max):
-            problems.append("서비스 영역 밖 자리")
+            problems.append("a place outside the service area")
     return problems
 
 
@@ -1193,7 +1188,7 @@ def from_briefing_form(form: dict, gazetteer: Gazetteer, landing_areas: list[dic
     if kind == "crane":
         found = gazetteer.address(_clean(form.get("address")))
         if found is None:
-            raise UnknownPlace(f"지명 사전에 없는 주소 {_clean(form.get('address'))!r}")
+            raise UnknownPlace(f"address not in the gazetteer {_clean(form.get('address'))!r}")
         height = _number(form.get("height_m"))
         if height is None and form.get("height_ft") is not None:
             height = (_number(form.get("height_ft")) or 0.0) * FT_TO_M
@@ -1204,7 +1199,7 @@ def from_briefing_form(form: dict, gazetteer: Gazetteer, landing_areas: list[dic
     if kind == "closure":
         named = find_landing_area(_clean(form.get("park")), landing_areas)
         if named is None:
-            raise UnknownPlace(f"우리 착륙장이 아님 {_clean(form.get('park'))!r}")
+            raise UnknownPlace(f"not one of our landing areas {_clean(form.get('park'))!r}")
         area, _ = named
         return Hazard(kind="closure", place=str(area.get("name")),
                       landing_area=str(area.get("id")),
@@ -1220,7 +1215,7 @@ def from_briefing_form(form: dict, gazetteer: Gazetteer, landing_areas: list[dic
         else:
             found = gazetteer.address(venue)
             if found is None:
-                raise UnknownPlace(f"모르는 행사 장소 {venue!r}")
+                raise UnknownPlace(f"unknown event venue {venue!r}")
             place, centre = str(found["label"]), (float(found["lat"]), float(found["lon"]))
         radius = _number(form.get("radius_m")) or DEFAULT_EVENT_RADIUS_M
         return Hazard(kind="event", place=place, centre=centre, radius_m=radius, window=window,

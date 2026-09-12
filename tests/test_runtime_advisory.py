@@ -26,7 +26,7 @@ from shared.models import Proposal, Verdict
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"
-ZONE_ITEM = {"id": "nofly-t", "kind": "notam", "name": "시험 회랑", "text": sim_world.ZONE_TEXT,
+ZONE_ITEM = {"id": "nofly-t", "kind": "notam", "name": "test corridor", "text": sim_world.ZONE_TEXT,
              "published_tick": 525, "until_tick": 900}
 HERE = (40.7100, -73.9855)
 
@@ -148,7 +148,7 @@ class TriggerTest(unittest.TestCase):
         self.assertEqual(list(by_id), ["climb", "notice_window", "decline", "escalate"])
         self.assertFalse(by_id["climb"]["legal"],
                          "the zone reaches 400ft, so climbing 30m is still inside it")
-        self.assertIn("시험 회랑", by_id["climb"]["why"])
+        self.assertIn("test corridor", by_id["climb"]["why"])
         self.assertEqual((by_id["notice_window"]["legal"], by_id["notice_window"]["until_tick"]),
                          (True, 900))
         self.assertTrue(by_id["decline"]["legal"] and by_id["escalate"]["legal"])
@@ -159,7 +159,7 @@ class TriggerTest(unittest.TestCase):
 
     def test_a_decline_after_refusals_is_an_advisory_and_a_plain_decline_is_not(self):
         decline = Proposal(asset_id="drone-01", action="decline_job", cost_usd=0.0,
-                           blast_radius="none", rationale="규정상 경로 없음")
+                           blast_radius="none", rationale="no legal route")
         self.assertTrue(self.runtime.file(decline.to_dict()).committed)
         self.assertEqual(advisories(self.runtime), [], "no refusals, no advisory")
         file_route(self.runtime, THROUGH_ZONE)
@@ -182,7 +182,7 @@ class TriggerTest(unittest.TestCase):
             file_route(self.runtime, THROUGH_ZONE)
         self.assertEqual(len(advisories(self.runtime)), 1)
         # Blocked by something else (a building, not the zone) → three more make a new advisory
-        self.runtime.airspace.add(Volume(id="bldg-new", name="새 건물",
+        self.runtime.airspace.add(Volume(id="bldg-new", name="new building",
                                          polygon=box(40.7040, -73.9860, 40.7050, -73.9850),
                                          floor_m=0.0, ceiling_m=130.0, clearance_m=50.0,
                                          rule="forbidden"))
@@ -196,7 +196,7 @@ class TriggerTest(unittest.TestCase):
 
     def test_a_committed_decline_resets_the_streak(self):
         decline = Proposal(asset_id="drone-01", action="decline_job", cost_usd=0.0,
-                           blast_radius="none", rationale="규정상 경로 없음")
+                           blast_radius="none", rationale="no legal route")
         file_route(self.runtime, THROUGH_ZONE)
         self.assertTrue(self.runtime.file(decline.to_dict()).committed)
         self.assertEqual(len(advisories(self.runtime)), 1)
@@ -212,12 +212,12 @@ class TriggerTest(unittest.TestCase):
 
     def test_a_duplicate_decline_writes_no_second_advisory(self):
         decline = Proposal(asset_id="drone-01", action="decline_job", cost_usd=0.0,
-                           blast_radius="none", rationale="규정상 경로 없음")
+                           blast_radius="none", rationale="no legal route")
         file_route(self.runtime, THROUGH_ZONE)
         self.assertTrue(self.runtime.file(decline.to_dict()).committed)
         again = self.runtime.file(Proposal(asset_id="drone-01", action="decline_job",
                                            cost_usd=0.0, blast_radius="none",
-                                           rationale="규정상 경로 없음").to_dict())
+                                           rationale="no legal route").to_dict())
         self.assertEqual((again.verdict, again.code), (Verdict.DENIED, "duplicate"))
         self.assertEqual(len(advisories(self.runtime)), 1)
         self.assertEqual([s[1] for s in self.adapter.sent], ["decline_job"])
@@ -307,11 +307,11 @@ class JudgeTest(unittest.TestCase):
                                              rationale="", resource="pad:launch",
                                              params={"legs": astray}).to_dict())
             self.assertIs(decision.verdict, Verdict.DENIED)
-            self.assertIn("끝점", decision.reason)
+            self.assertIn("last point", decision.reason)
         params = advisories(runtime)[0]["proposal"]["params"]
         climb = next(o for o in params["options"] if o["id"] == "climb")
         self.assertFalse(climb["legal"], climb["why"])
-        self.assertIn("끝점", climb["why"])
+        self.assertIn("last point", climb["why"])
 
     def test_a_crossing_offers_holding_until_the_other_corridor_clears(self):
         runtime, adapter = make_runtime()

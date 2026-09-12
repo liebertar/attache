@@ -8,6 +8,10 @@
 - 드론 에이전트(Nemotron 또는 규칙)는 신청만 한다. 판정·기록·명령은 런타임이 맡는다.
 - 판정에는 모델이 끼지 않는다. 조이는 규칙은 바로 적용되고, 푸는 규칙은 사람을 기다린다.
 
+![드론이 직선을 신청하고, 런타임이 건물 이름과 함께 거절하고, NOTAM 이 허가된 경로를 회수한다](docs/demo.webp)
+
+*시드 7, 키 없이 규칙만. 직선이 114 m 건물을 스쳐 거절됐고, 틱 525 에 NOTAM 이 이스트빌리지 응급헬기 회랑을 닫아 그 안을 지나던 허가 경로가 회수됐다.*
+
 ```mermaid
 flowchart LR
     subgraph fleet [드론 에이전트 · 기체마다 프로세스 하나]
@@ -64,7 +68,7 @@ flowchart LR
 | 공지 | 공지마다 무엇을, 언제부터, 누구 말에 따라 막는지 | `backend/intake/notices.py` |
 | 권고 | 거절이 반복되면 합법 선택지를 제시. Super 모델이 하나를 추천할 수 있음 | `backend/runtime/advisory.py` |
 | 저장소 | 수집 항목과 규칙을 디스크(SQLite)에 보관 | `backend/store/intake_store.py` |
-| 재생 | 당시엔 없던 규칙으로 원장을 다시 돌려 본다 | `backend/store/replay.py`, `scripts/what_if.py` |
+| 재생 | 당시엔 없던 규칙으로 원장을 다시 돌려 본다: `python3 scripts/what_if.py --forbid-action reserve_pad` | `backend/store/replay.py`, `scripts/what_if.py` |
 
 - 에이전트 → 런타임: 신청만 오간다. 이 연결이 끊겨도 기체에는 영향이 없다.
 - 런타임 → 기체: 명령과 텔레메트리. 이 연결이 끊기면 기체는 허가받은 경로를 마저 날아 착륙하고, 그 공간은

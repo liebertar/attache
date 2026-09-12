@@ -64,7 +64,7 @@ class Clock:
 
 def _minutes(hhmm: str) -> int:
     if not re.fullmatch(r"\d{4}", hhmm) or int(hhmm[:2]) > 23 or int(hhmm[2:]) > 59:
-        raise ValueError(f"시각이 HHMM 이 아닙니다: {hhmm!r}")
+        raise ValueError(f"not an HHMM time: {hhmm!r}")
     return int(hhmm[:2]) * 60 + int(hhmm[2:])
 
 
@@ -95,11 +95,11 @@ def parse_dms(token: str) -> tuple[float, float]:
     """DDMMSS[NS]DDDMMSS[EW] → (lat, lon). Seconds may be decimal."""
     match = COORD.fullmatch(token.strip())
     if match is None:
-        raise ValueError(f"좌표가 아닙니다: {token!r}")
+        raise ValueError(f"not a coordinate: {token!r}")
     lat = _dms(match.group(1), 2) * (1 if match.group(2) == "N" else -1)
     lon = _dms(match.group(3), 3) * (1 if match.group(4) == "E" else -1)
     if abs(lat) > 90.0 or abs(lon) > 180.0:
-        raise ValueError(f"지구 위 좌표가 아닙니다: {token!r}")
+        raise ValueError(f"not a point on earth: {token!r}")
     return lat, lon
 
 
@@ -108,7 +108,7 @@ def _dms(digits: str, degree_width: int) -> float:
     minutes = int(digits[degree_width:degree_width + 2])
     seconds = float(digits[degree_width + 2:])
     if minutes >= 60 or seconds >= 60:
-        raise ValueError(f"분·초가 60 을 넘습니다: {digits!r}")
+        raise ValueError(f"minutes or seconds over 60: {digits!r}")
     return degrees + minutes / 60.0 + seconds / 3600.0
 
 
@@ -208,15 +208,15 @@ def area_m2(polygon: list[tuple[float, float]]) -> float:
 def shape_problems(polygon) -> list[str]:
     problems = []
     if not isinstance(polygon, list) or not (MIN_VERTICES <= len(polygon) <= MAX_VERTICES):
-        return [f"꼭짓점이 {MIN_VERTICES}~{MAX_VERTICES}개가 아님"]
+        return [f"not {MIN_VERTICES}~{MAX_VERTICES} vertices"]
     for point in polygon:
         try:
             lat, lon = float(point[0]), float(point[1])
         except (TypeError, ValueError, IndexError):
-            return ["꼭짓점이 (lat, lon) 이 아님"]
+            return ["a vertex is not (lat, lon)"]
         if not (math.isfinite(lat) and math.isfinite(lon)
                 and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
-            problems.append("지구 위 좌표가 아닌 꼭짓점")
+            problems.append("a vertex is not a point on earth")
             break
     return problems
 
@@ -235,17 +235,17 @@ def validate(notice: Notice, bbox: tuple[float, float, float, float] | None) -> 
         lat_min, lon_min, lat_max, lon_max = bbox
         if any(not (lat_min <= lat <= lat_max and lon_min <= lon <= lon_max)
                for lat, lon in notice.polygon):
-            problems.append("서비스 영역 밖 꼭짓점")
+            problems.append("a vertex outside the service area")
     area = area_m2(notice.polygon)
     if area > MAX_AREA_M2:
-        problems.append(f"넓이 {area / 1e6:.1f} km² > {MAX_AREA_M2 / 1e6:.0f} km²")
+        problems.append(f"area {area / 1e6:.1f} km² > {MAX_AREA_M2 / 1e6:.0f} km²")
     if not (0.0 <= notice.floor_m <= MAX_FLOOR_M):
-        problems.append(f"바닥 {notice.floor_m:.0f}m 가 0~{MAX_FLOOR_M:.1f}m 밖")
+        problems.append(f"floor {notice.floor_m:.0f} m outside 0~{MAX_FLOOR_M:.1f} m")
     if notice.ceiling_m is not None and not (notice.floor_m <= notice.ceiling_m <= MAX_CEILING_M):
-        problems.append(f"천장 {notice.ceiling_m:.0f}m 가 바닥~{MAX_CEILING_M:.0f}m 밖")
+        problems.append(f"ceiling {notice.ceiling_m:.0f} m outside floor~{MAX_CEILING_M:.0f} m")
     if (notice.from_tick is not None and notice.until_tick is not None
             and notice.until_tick <= notice.from_tick):
-        problems.append("끝나는 틱이 시작 틱보다 앞")
+        problems.append("end tick before the start tick")
     return problems
 
 

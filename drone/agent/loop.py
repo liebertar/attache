@@ -253,7 +253,7 @@ class GuardedAgent:
                      else _next_best(candidate, decision))
             route = route_part("choice" if filed.by_model else "astar",
                                choice=choice_part(outcome.candidates, filed.chosen, filed.reason))
-            proposal.rationale = f"{base} · 후보 {candidate['id']} ({candidate['label']})"
+            proposal.rationale = f"{base} · candidate {candidate['id']} ({candidate['label']})"
             decision = self._file_legs(
                 proposal, legs, f"choice:{filed.model}" if filed.by_model else "astar", route,
                 airborne=False,
@@ -272,7 +272,7 @@ class GuardedAgent:
                   if chosen is not None else None)
         legs, draft, drew = self._last_resort_draft(moved_to or here, goal, decision)
         if legs:
-            proposal.rationale = f"{proposal.rationale} · 모델 초안"
+            proposal.rationale = f"{proposal.rationale} · model draft"
             return self._file_legs(proposal, legs, drew, route_part("draft", choice, draft),
                                    airborne=False)
         if outcome.candidates:
@@ -292,7 +292,7 @@ class GuardedAgent:
             return decision
         return self._file({**proposal.to_dict(), "action": "decline_job", "cost_usd": 0.0,
                            "blast_radius": "none", "params": {}, "resource": None,
-                           "rationale": f"{proposal.rationale} · 규정상 경로 없음"},
+                           "rationale": f"{proposal.rationale} · no legal route"},
                           route_part("astar", choice, draft))
 
     def _file_legs(self, proposal, legs: list[dict], drafter: str, route: dict,
@@ -305,7 +305,7 @@ class GuardedAgent:
         proposal.params = {**kept, "legs": legs, "drafter": drafter,
                            "draft_attempts": self._draft_attempts, **(extra or {})}
         filed = {**proposal.to_dict(),
-                 "rationale": f"{proposal.rationale} · 재작성 {len(legs)}구간"}
+                 "rationale": f"{proposal.rationale} · redrawn {len(legs)} legs"}
         decision = self._file(filed, route)
         if decision and decision.get("policy_hit") == "traffic":
             # The filed route overlaps another aircraft's corridor. The route is fine, so try
@@ -375,7 +375,8 @@ class GuardedAgent:
                 **proposal.to_dict(),
                 "params": {**proposal.params, "legs": lifted, "resolution": "altitude",
                            "altitude_shift_m": ALTITUDE_SHIFT_M, "holding_for": None},
-                "rationale": f"{proposal.rationale} · {other} 회랑 위로 +{ALTITUDE_SHIFT_M:.0f}m",
+                "rationale": (f"{proposal.rationale} · +{ALTITUDE_SHIFT_M:.0f} m over "
+                              f"{other}'s corridor"),
             }, route)
             if not decision or decision.get("policy_hit") != "traffic":
                 return decision
@@ -391,7 +392,8 @@ class GuardedAgent:
                 **proposal.to_dict(),
                 "params": {**proposal.params, "legs": legs, "resolution": "delay",
                            "holding_for": other, "depart_after_tick": int(until)},
-                "rationale": f"{proposal.rationale} · {other} 지나간 뒤(틱 {int(until)}) 출발",
+                "rationale": f"{proposal.rationale} · depart after {other} passes "
+                             f"(tick {int(until)})",
             }, route)
             if not decision or decision.get("policy_hit") != "traffic":
                 return decision

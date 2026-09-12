@@ -2,9 +2,12 @@
 """Ask what a rule would have done, before you make it real.
 
     python3 scripts/what_if.py --ledger .run/ledger.jsonl \
-        --forbid-action fast_charge --model dv-x500
+        --forbid-action reserve_pad --model dv-x500
 
     python3 scripts/what_if.py --ledger .run/ledger.jsonl --per-asset 100
+
+Every row the ledger already holds is judged again under the rule, and the answer says which
+decisions would have changed. Nothing is written, and no aircraft hears about it.
 """
 
 import argparse
@@ -48,7 +51,7 @@ def main() -> int:
 
     print("What this rule would have done to the past record\n")
     for key, value in result.summary().items():
-        print(f"  {key:14} {value}")
+        print(f"  {key:17} {value}")
     for label, changes in (("newly denied", result.newly_denied),
                            ("newly to a human", result.newly_human),
                            ("newly allowed", result.newly_allowed)):

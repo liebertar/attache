@@ -69,7 +69,7 @@ class ReplyParsingTest(unittest.TestCase):
         self.assertEqual(parse_choice("2", 3), 1)
         self.assertEqual(parse_choice(" #3. ", 3), 2)
         self.assertIsNone(parse_choice("7", 3))
-        self.assertIsNone(parse_choice("7번은 안 되고 2번으로", 3))
+        self.assertIsNone(parse_choice("not 7, go with 2", 3))
         self.assertIsNone(parse_choice("", 3))
 
     def test_host_is_read_off_the_url(self):
@@ -274,13 +274,13 @@ class RecordedFormsTest(unittest.TestCase):
                      "vibration": 0.1, "autonomy_health": 1.0, "passengers": 0, "cargo": 6}
         proposer = Proposer(self.llm)
         written = proposer.write(Concern(kind="needs_route", urgency="normal",
-                                         detail="배달지 Union Square, 배터리 88%"),
+                                         detail="delivering to Union Square, battery 88%"),
                                  telemetry, "pad:launch", frozenset(), ("pad:launch",))
         self.assertEqual(written.author, "nemotron-3-nano")
         self.assertEqual(written.action, "fly_route")
         self.assertIn(written.action, ALLOWED_ACTIONS)
         # A question missing from the recording is written by the rules
-        by_rules = proposer.write(Concern(kind="motor_fault", urgency="high", detail="진동"),
+        by_rules = proposer.write(Concern(kind="motor_fault", urgency="high", detail="vibration"),
                                   telemetry, "pad:launch", frozenset(), ("pad:launch",))
         self.assertEqual(by_rules.author, "rules")
 
@@ -292,8 +292,8 @@ class RecordedFormsTest(unittest.TestCase):
             return Proposal(asset_id=asset_id, action="reserve_pad", cost_usd=28.0,
                             blast_radius=blast, rationale=why, resource="pad:launch")
 
-        candidates = [candidate("drone-01", "schedule", "정비 점검"),
-                      candidate("drone-02", "cargo", "배터리 9%")]
+        candidates = [candidate("drone-01", "schedule", "maintenance check"),
+                      candidate("drone-02", "cargo", "battery 9%")]
         choice = Arbiter(self.llm).pick(candidates, {"drone-01": {"battery": 40.0},
                                                      "drone-02": {"battery": 9.0}})
         self.assertEqual(choice.how, "ultra:nemotron-3-nano")

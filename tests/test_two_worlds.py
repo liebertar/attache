@@ -238,7 +238,7 @@ class GuardedSide:
             if decision.code in PERSON_ONLY_CARDS:
                 continue   # left to a person: model-read notices/weather, lifting a weather hold
             allow = decision.authority_hit not in BUDGET_ESCALATIONS
-            self.runtime.approve(proposal_id, "원격 관제사", allow=allow)
+            self.runtime.approve(proposal_id, "remote controller", allow=allow)
 
 
 class DirectSide:

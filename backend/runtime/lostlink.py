@@ -40,9 +40,10 @@ class LostLinkMixin:
                   "intent": standing.id if standing is not None else None,
                   "behaviour": behaviour, "reserved_until_tick": reserved_until,
                   "last_position": _position_dict(at)}
-        reason = (f"{event.asset} 텔레메트리가 틱 {event.since_tick} 부터 없음 — {behaviour}, "
-                  + (f"승인 경로 + 착륙 기둥을 틱 {reserved_until} 까지 예약"
-                     if reserved_until is not None else "예약할 의도 없음"))
+        reason = (f"no telemetry from {event.asset} since tick {event.since_tick} — "
+                  f"{behaviour}, "
+                  + (f"cleared route + landing column reserved until tick {reserved_until}"
+                     if reserved_until is not None else "nothing filed to reserve"))
         self._ledger_link("link_lost", event.asset, reason, detail, standing)
         self._raise_link_card(event.asset, detail, standing)
 
@@ -61,10 +62,11 @@ class LostLinkMixin:
                   "dark_ticks": event.tick - event.since_tick,
                   "intent": intent.id if intent is not None else None,
                   "conforming": conforming, "position": _position_dict(at)}
-        where = ("승인한 부피 안" if conforming
-                 else "승인한 부피 밖" if conforming is False else "잡아 둔 의도 없음")
-        reason = (f"{event.asset} 텔레메트리가 틱 {event.tick} 에 돌아옴 "
-                  f"({detail['dark_ticks']}틱 끊김) — {where}")
+        where = ("inside the cleared volume" if conforming
+                 else "outside the cleared volume" if conforming is False
+                 else "nothing was held")
+        reason = (f"telemetry from {event.asset} is back at tick {event.tick} "
+                  f"({detail['dark_ticks']} ticks dark) — {where}")
         self._ledger_link("link_restored", event.asset, reason, detail, intent)
         if conforming is False:
             self._ledger_link_nonconformance(event, intent, at)
@@ -86,13 +88,13 @@ class LostLinkMixin:
         """It left the cleared volume while the link was lost. Not undone, only recorded."""
         noted = Proposal(asset_id=event.asset, action="conformance", cost_usd=0.0,
                          blast_radius="none", author="runtime",
-                         rationale=f"링크가 끊긴 사이 승인한 부피 밖 (틱 {event.tick} 에 "
-                                   "다시 보임)",
+                         rationale=f"outside the cleared volume while the link was lost "
+                                   f"(seen again at tick {event.tick})",
                          params={"intent": intent.id, "kind": "lost_link",
                                  "since_tick": event.since_tick, "restored_tick": event.tick,
                                  "position": _position_dict(at)})
         decision = Decision(noted.id, Verdict.AUTO,
-                            f"{event.asset} 가 링크가 끊긴 사이 승인한 부피 밖에 있었습니다",
+                            f"{event.asset} was outside the cleared volume while the link was lost",
                             code="nonconforming",
                             detail={"resource": event.asset, "intent": intent.id,
                                     "kind": "lost_link", "restored_tick": event.tick,
@@ -114,13 +116,13 @@ class LostLinkMixin:
                 self.intents.end(asset, "released")
             self._released.add(asset)
             decision.verdict = Verdict.AUTO
-            decision.reason = f"{actor} 가 {asset} 의 잡아 둔 공간을 풀었습니다"
+            decision.reason = f"{actor} released the space held for {asset}"
             decision.code = "lost_link_released"
             self._close_card(card, proposal, decision, "done", "link:human")
             return decision
         decision.verdict = Verdict.DENIED
-        decision.reason = (f"{actor} 가 텔레메트리가 돌아올 때까지 공간을 잡아 둡니다"
-                           if self.links.lost(asset) else "링크가 이미 돌아왔습니다")
+        decision.reason = (f"{actor} keeps the space held until telemetry returns"
+                           if self.links.lost(asset) else "the link is already back")
         decision.code = "lost_link_kept"
         self._close_card(card, proposal, decision, "denied", "link:human")
         return decision

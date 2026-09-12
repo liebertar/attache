@@ -128,20 +128,20 @@ class AgentIdentity:
         """Form check: ValueError on a missing aircraft name or an unlisted world or host."""
         asset_id = " ".join(str(raw.get("asset_id") or "").split())[:80]
         if not asset_id:
-            raise ValueError("asset_id 가 비어 있습니다")
+            raise ValueError("asset_id is empty")
         world = str(raw.get("world") or "guarded")
         if world not in AGENT_WORLDS:
-            raise ValueError(f"world 는 {'|'.join(AGENT_WORLDS)} 중 하나여야 합니다")
+            raise ValueError(f"world must be one of {'|'.join(AGENT_WORLDS)}")
         host = str(raw.get("host") or "off")
         if host not in AGENT_HOSTS:
-            raise ValueError(f"host 는 {'|'.join(AGENT_HOSTS)} 중 하나여야 합니다")
+            raise ValueError(f"host must be one of {'|'.join(AGENT_HOSTS)}")
         port = raw.get("base_url_port")
         try:
             port = int(port) if port not in (None, "") else None
         except (TypeError, ValueError) as error:
-            raise ValueError("base_url_port 는 수여야 합니다") from error
+            raise ValueError("base_url_port must be a number") from error
         model_ok = raw.get("model_ok")
         if model_ok is not None and not isinstance(model_ok, bool):
-            raise ValueError("model_ok 는 true | false 여야 합니다")
+            raise ValueError("model_ok must be true | false")
         return cls(asset_id=asset_id, world=world, model=str(raw.get("model") or "")[:120],
                    host=host, base_url_port=port, model_ok=model_ok)

@@ -249,7 +249,7 @@ class DraftFlowTest(unittest.TestCase):
     def test_the_brief_reads_the_map_from_the_judge(self):
         drafter = self.drafter()
         goal = (40.7985, -73.955)
-        brief = drafter._brief(START, goal, self.bbox, {"reason": "1번 구간이 규정을 어깁니다",
+        brief = drafter._brief(START, goal, self.bbox, {"reason": "leg 1 breaks the rules",
                                                        "forbids": None})
         self.assertIn(f"origin {START[0]:.5f},{START[1]:.5f} -> goal 40.79850,-73.95500", brief)
         self.assertIn("no-fly cell", brief)          # the Midtown KLGA 0ft band
@@ -261,16 +261,18 @@ class DraftFlowTest(unittest.TestCase):
         self.assertEqual(len({v.id for _, v, _, _ in hits}), len(hits))   # nothing counted twice
 
     def test_describe_words(self):
-        tall = Volume(id="bldg-1", name="건물 157m", polygon=[(40.71, -73.97), (40.71, -73.969),
-                      (40.711, -73.969), (40.711, -73.97)], ceiling_m=157.0, clearance_m=50.0)
+        tall = Volume(id="bldg-1", name="BUILDING 157 m",
+                      polygon=[(40.71, -73.97), (40.71, -73.969),
+                               (40.711, -73.969), (40.711, -73.97)],
+                      ceiling_m=157.0, clearance_m=50.0)
         self.assertIn("go around", describe(tall))
         self.assertIn("would need 208 m", describe(tall))       # 157 + 50 + 0.5, rounded up
-        low = Volume(id="bldg-2", name="건물 44m", polygon=tall.polygon, ceiling_m=44.0,
+        low = Volume(id="bldg-2", name="BUILDING 44 m", polygon=tall.polygon, ceiling_m=44.0,
                      clearance_m=50.0)
         self.assertIn("95 m or higher", describe(low))
         # Under a ceiling cell it can't climb over
         self.assertIn("go around", describe(low, allowed_m=60.0))
-        cell = Volume(id="klga-0", name="KLGA 격자 0ft", polygon=tall.polygon, rule="forbidden")
+        cell = Volume(id="klga-0", name="KLGA cell 0 ft", polygon=tall.polygon, rule="forbidden")
         self.assertIn("every altitude", describe(cell))
 
     def test_a_deadline_clamps_each_ask_to_what_is_left(self):
@@ -334,11 +336,12 @@ class GoAroundUnderACeilingCellTest(unittest.TestCase):
             id="cell-90", name="KLGA 300ft", rule="ceiling", ceiling_m=91.4,
             polygon=box(40.7150, -73.9700, 40.7260, -73.9520)))
         self.planner.airspace.add(Volume(
-            id="bldg-101", name="건물 101m", rule="forbidden", ceiling_m=101.0, clearance_m=50.0,
+            id="bldg-101", name="BUILDING 101 m", rule="forbidden", ceiling_m=101.0,
+            clearance_m=50.0,
             polygon=box(along[0] - 0.00017, along[1] - 0.00022,
                         along[0] + 0.00017, along[1] + 0.00022)))
         self.planner.airspace.add(Volume(
-            id="bldg-60", name="건물 60m", rule="forbidden", ceiling_m=60.0, clearance_m=50.0,
+            id="bldg-60", name="BUILDING 60 m", rule="forbidden", ceiling_m=60.0, clearance_m=50.0,
             polygon=box(40.71880, -73.95700, 40.71910, -73.95660)))
         self.drafter = ModelDrafter(FixtureLlm(records=[]), self.planner, bbox=_bbox())
 

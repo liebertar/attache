@@ -8,6 +8,10 @@
 - Drone agents (Nemotron or rules) only file requests. The runtime judges, logs and commands.
 - No model in the verdict. Tightening rules apply at once; loosening waits for a person.
 
+![A drone files a straight line, the runtime refuses it by name, and a NOTAM pulls a cleared route back](docs/demo.webp)
+
+*Seed 7, rules only, no keys: a straight line clipped a 114 m building and was refused; at tick 525 a NOTAM closed the East Village medevac corridor and the routes through it were pulled back.*
+
 ```mermaid
 flowchart LR
     subgraph fleet [Drone agents · one process per aircraft]
@@ -64,7 +68,7 @@ Every filing, one at a time: form → airspace → 4D intents → policies → a
 | Notices | what each notice closes, from when, on whose word | `backend/intake/notices.py` |
 | Advisory | legal options after repeated refusals; the Super model may recommend one | `backend/runtime/advisory.py` |
 | Store | intake items and rules on disk (SQLite) | `backend/store/intake_store.py` |
-| Replay | re-runs the ledger under a rule that did not exist yet | `backend/store/replay.py`, `scripts/what_if.py` |
+| Replay | re-runs the ledger under a rule that did not exist yet: `python3 scripts/what_if.py --forbid-action reserve_pad` | `backend/store/replay.py`, `scripts/what_if.py` |
 
 - Agent → runtime: filings only. If that link drops, the aircraft is unaffected.
 - Runtime → aircraft: commands and telemetry. If that link drops, the aircraft finishes its cleared route and

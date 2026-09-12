@@ -378,7 +378,7 @@ class Reader:
         """(hazard, read by, why unreadable). Grammar → Super if needed → code checks."""
         body = f"{title}. {text}".strip(". ") if title else text
         if not body.strip():
-            return None, "", "빈 쪽"
+            return None, "", "empty page"
         hazard = read_hazard(body, self.gazetteer, list(self.landing_areas), self.day)
         read_by = "grammar"
         if hazard is None:
@@ -394,14 +394,14 @@ class Reader:
 
     def _ask_model(self, body: str) -> tuple[Hazard | None, str, str]:
         if not self._can_compile():
-            return None, "", "문법으로 못 읽었고 구조화할 모델이 없음"
+            return None, "", "the grammar could not read it and there is no model to structure it"
         reply = self.llm.ask(
             LlmTier.SUPER, BRIEFING_SYSTEM,
             f"Today is {self.day.isoformat()} in New York. Landing areas the tower uses: "
             f"{', '.join(area['name'] for area in self.landing_areas)}.\nPage: {body[:3000]}",
             max_tokens=500, json_object=True, timeout_s=BRIEFING_TIMEOUT_S)
         if reply is None:
-            return None, "", "모델 답 없음"
+            return None, "", "no answer from the model"
         form = parse_json_object(reply.text)
         try:
             hazard = None if form is None else from_briefing_form(
@@ -411,7 +411,7 @@ class Reader:
             return None, f"model:{reply.model}", str(error)
         if hazard is None:
             self.llm.discard(LlmTier.SUPER)
-            return None, f"model:{reply.model}", "모델 답이 양식이 아님"
+            return None, f"model:{reply.model}", "the model's answer is not in the form"
         return hazard, f"model:{reply.model}", ""
 
     def from_form(self, form: dict, text: str, read_by: str) -> tuple[Hazard | None, str, str]:
@@ -422,7 +422,7 @@ class Reader:
         except UnknownBriefingPlace as error:
             return None, read_by, str(error)
         if hazard is None:
-            return None, read_by, "research 답이 양식이 아님"
+            return None, read_by, "the research answer is not in the form"
         problems = hazard_problems(hazard, self.bbox)
         if problems:
             return None, read_by, "; ".join(problems)
@@ -682,18 +682,18 @@ ABBREVIATIONS = re.compile(r"\b(?:St|Ave|Blvd|Dr|Mt|No|Jr|Sr|U\.S|N\.Y|a\.m|p\.m
 
 def _summary_problem(text: str, domains: tuple) -> str:
     if not text or len(text) < 20:
-        return "너무 짧음"
+        return "too short"
     if "http" in text or "<" in text:
-        return "주소나 표시를 실었음"
+        return "carries a URL or markup"
     spoken = set(DOMAIN_TOKEN.findall(text.lower()))
     known = {d.lower() for d in domains}
     unknown = [name for name in spoken
                if not any(d == name or d.endswith("." + name) for d in known)]
     if unknown:
-        return f"목록에 없는 출처 {unknown}"
+        return f"sources not on the list {unknown}"
     plain = ABBREVIATIONS.sub("", DOMAIN_TOKEN.sub("", text))
     sentences = [part for part in re.split(r"[.!?]+(?:\s+|$)", plain) if part.strip()]
-    return "" if len(sentences) <= SUMMARY_SENTENCES else f"{len(sentences)} 문장"
+    return "" if len(sentences) <= SUMMARY_SENTENCES else f"{len(sentences)} sentences"
 
 
 def _template_summary(result: RunResult, rules: list) -> str:
@@ -871,9 +871,9 @@ class BriefingDesk:
     def request_run(self) -> tuple[int, dict]:
         """POST /briefing/run. Asks once more at the next poll."""
         if not self.enabled or self.mode == "off":
-            return 503, {"error": "브리핑이 꺼져 있습니다"}
+            return 503, {"error": "briefing is off"}
         if self._running:
-            return 409, {"error": "브리핑이 이미 돌고 있습니다"}
+            return 409, {"error": "briefing is already running"}
         self._manual = True
         return 200, {"ok": True, "queued": True, "source": self.mode}
 
@@ -1239,10 +1239,10 @@ class BriefingDesk:
 
     def _hold_why(self, reading: Reading) -> str:
         if reading.citation.read_by.startswith("model:"):
-            return (f"{reading.citation.read_by} 가 읽은 것입니다 — 사람이 확인해야 적용됩니다 "
-                    f"({reading.citation.domain})")
-        return (f"{reading.citation.domain or '출처 불명'} 은 공식 출처가 아닙니다 — "
-                "사람이 확인해야 적용됩니다")
+            return (f"{reading.citation.read_by} read it — it applies only once a human "
+                    f"confirms it ({reading.citation.domain})")
+        return (f"{reading.citation.domain or 'unknown source'} is not an official source — "
+                "it applies only once a human confirms it")
 
     def _notice(self, reading: Reading, from_tick: int, until_tick: int | None,
                 held: bool) -> BriefingNotice:
@@ -1309,9 +1309,9 @@ class BriefingDesk:
         until_tick = horizon if window.end is None else int(
             (window.end - start).total_seconds() / spt)
         if until_tick <= tick:
-            return from_tick, until_tick, "창이 이 판보다 앞에서 닫혔습니다"
+            return from_tick, until_tick, "the window closed before this round"
         if from_tick > horizon:
-            return from_tick, until_tick, "창이 이 판 뒤에 열립니다"
+            return from_tick, until_tick, "the window opens after this round"
         return max(0, from_tick), min(until_tick, horizon), ""
 
     def _round_start(self) -> datetime.datetime:
@@ -1336,7 +1336,7 @@ class BriefingDesk:
                 continue
             if record is None:
                 why = self.tower.notices.unreadable.get(reading.item_id, "")
-                if "거부" in why:
+                if "refused" in why:
                     reading.status = "refused"
                     self._store(reading)
                 elif why:
@@ -1412,8 +1412,8 @@ class BriefingDesk:
                   "summary_by": result.summary_by, "day": plan.day.isoformat()}
         ok = result.status is None or result.status.ok
         self._ledger("briefing_run", "briefing_run",
-                     f"브리핑 ({plan.trigger}, {result.source}) · 쪽 {len(result.findings)} · "
-                     f"크레딧 {result.credits:.0f}",
+                     f"briefing ({plan.trigger}, {result.source}) · {len(result.findings)} pages · "
+                     f"{result.credits:.0f} credits",
                      detail, "noted" if ok else "failed",
                      Verdict.AUTO if ok else Verdict.DENIED, result.summary)
 
@@ -1423,9 +1423,9 @@ class BriefingDesk:
                   **reading.citation.to_dict()}
         readable = reading.status not in ("unreadable", "invalid")
         self._ledger("briefing_item", "briefing_item",
-                     f"{reading.hazard.detail or reading.citation.title or '쪽'} · "
-                     f"{reading.citation.domain or '출처 불명'}"
-                     + ("" if readable else f" · 읽지 못함 — {reading.why}"),
+                     f"{reading.hazard.detail or reading.citation.title or 'page'} · "
+                     f"{reading.citation.domain or 'unknown source'}"
+                     + ("" if readable else f" · could not read — {reading.why}"),
                      detail, "noted" if readable else "unreadable",
                      Verdict.AUTO if readable else Verdict.DENIED,
                      reading.citation.title or reading.text)
@@ -1435,8 +1435,8 @@ class BriefingDesk:
                   "held": held, "from_tick": reading.from_tick, "until_tick": reading.until_tick,
                   "hazard": reading.hazard.to_dict(), **reading.citation.to_dict()}
         self._ledger("briefing_rule", "briefing_rule",
-                     f"{record.name} · 틱 {reading.from_tick}~{reading.until_tick}"
-                     + (" · 사람 확인 대기" if held else " · 적용"),
+                     f"{record.name} · ticks {reading.from_tick}~{reading.until_tick}"
+                     + (" · waiting for a human" if held else " · applied"),
                      detail, "held" if held else "applied",
                      Verdict.HUMAN if held else Verdict.AUTO, record.name,
                      params={"rule": reading.item_id, "kind": reading.hazard.kind})
@@ -1510,5 +1510,5 @@ def _borough(area: dict | None) -> str:
 
 def _no_summary(desk: BriefingDesk) -> str:
     if not desk.enabled:
-        return "브리핑이 꺼져 있습니다."
-    return "아직 브리핑하지 않았습니다."
+        return "briefing is off."
+    return "no briefing yet."

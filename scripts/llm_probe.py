@@ -51,15 +51,15 @@ def main() -> int:
     print("nemotron models listed:", ", ".join(list_models(llm.base_url, llm.api_key)) or "(none)")
 
     concern = Concern(kind="needs_route", urgency="normal",
-                      detail="배달지 Union Square, 배터리 88%")
+                      detail="delivering to Union Square, battery 88%")
     telemetry = {"id": "drone-01", "model": "dv-x500", "state": "ready", "battery": 88.0,
                  "vibration": 0.1, "autonomy_health": 1.0, "passengers": 0, "cargo": 6}
     form_user = Proposer._brief(concern, telemetry, "pad:launch")
     arbiter_user = ("Resource: pad:launch\n"
                     "1. asset=drone-01 action=reserve_pad impact=schedule battery=40% passengers=0 "
-                    "why=정비 점검\n"
+                    "why=maintenance check\n"
                     "2. asset=drone-02 action=reserve_pad impact=cargo battery=9% passengers=0 "
-                    "why=배터리 9%")
+                    "why=battery 9%")
 
     failed = []
     for tier in LlmTier:

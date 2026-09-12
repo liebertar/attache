@@ -108,10 +108,10 @@ class TrafficMixin:
             "blocked_until_tick": conflict.until_tick,
         }
         if conflict.kind == "landing":
-            return (f"착륙 지점을 {conflict.asset} 가 틱 {conflict.until_tick} 까지 씁니다 — "
-                    "한 착륙장에 두 대는 없습니다")
-        return (f"{conflict.leg}번 구간이 {conflict.asset} 의 승인 경로와 겹칩니다 "
-                f"(틱 {conflict.tick}, 상대 회랑은 틱 {conflict.until_tick} 까지)")
+            return (f"{conflict.asset} holds the landing spot until tick {conflict.until_tick} — "
+                    "no two aircraft on one landing area")
+        return (f"leg {conflict.leg} overlaps the cleared route of {conflict.asset} "
+                f"(tick {conflict.tick}, their corridor runs to tick {conflict.until_tick})")
 
     def _others(self, asset: str, exclude: list[str] | tuple[str, ...] = ()) -> list[Intent]:
         """Everything this filing must avoid: other aircraft's live intents plus the positions
@@ -192,12 +192,14 @@ class TrafficMixin:
         """
         noted = Proposal(asset_id=intent.asset, action="conformance", cost_usd=0.0,
                          blast_radius="none", author="runtime",
-                         rationale=f"승인한 출발 틱 {planned_tick} 보다 일찍 뜸 (틱 {self.tick})",
+                         rationale=f"took off before the cleared departure tick {planned_tick} "
+                                   f"(tick {self.tick})",
                          params={"intent": intent.id, "planned_depart_tick": planned_tick,
                                  "actual_depart_tick": intent.depart_tick})
         decision = Decision(noted.id, Verdict.AUTO,
-                            f"{intent.asset} 가 승인한 창보다 {planned_tick - self.tick}틱 "
-                            "일찍 떴습니다 — 의도를 실제 출발로 옮김", code="nonconforming",
+                            f"{intent.asset} took off {planned_tick - self.tick} ticks before its "
+                            "cleared window — intent moved to the actual departure",
+                            code="nonconforming",
                             detail={"resource": intent.asset, "intent": intent.id,
                                     "planned_depart_tick": planned_tick})
         entry = self.ledger.open_entry(noted, decision,
@@ -214,13 +216,14 @@ class TrafficMixin:
         """
         retreat = Proposal(
             asset_id=intent.asset, action="divert_ground", cost_usd=0.0, blast_radius="cargo",
-            rationale=f"{for_proposal.asset_id} 의 공중 재신청에 자리를 내줌",
+            rationale=f"gave way to the airborne re-filing of {for_proposal.asset_id}",
             author="runtime",
             params={"withdrawn_for": for_proposal.asset_id, "intent": intent.id},
         )
         decision = Decision(
             retreat.id, Verdict.AUTO,
-            f"{for_proposal.asset_id} 의 공중 재신청과 겹쳐 아직 안 뜬 경로를 물림",
+            f"overlaps the airborne re-filing of {for_proposal.asset_id} — the route that has "
+            f"not taken off is pulled back",
             policy_hit="traffic", code="withdrawn",
             detail={"resource": intent.asset, "for": for_proposal.asset_id, "intent": intent.id},
         )

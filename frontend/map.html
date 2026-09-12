@@ -319,7 +319,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
 <script type="module">
-import {isRemainingRoute, makeCurve, routeProgress, motionPoint, sliceCurve, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, ribbon, curveRibbon, curveShell, curveColumns, hex, droneBody, cargoStack, groundDisc, craneShape, signalDashes, signalDot, signalHalfWidth, runtimeMast, altitudeLift, RUNTIME_SITE, RUNTIME_ALT_M, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
+import {isRemainingRoute, makeCurve, routeProgress, motionPoint, stageWindow, stageFade, stagePhase, stageLife, labelAnchor, curveRibbon, curveShell, curveColumns, droneBody, cargoStack, groundDisc, craneShape, signalDashes, signalDot, signalHalfWidth, runtimeMast, altitudeLift, RUNTIME_SITE, RUNTIME_ALT_M, CARGO_MAX, GROW_MS, CHECK_MS, HOLD_MS, APPROVED_HOLD_MS} from './map-route.mjs';
 // Ports can be changed (?rt=8010&sim=8110) to watch a second stack on the same page. Default 8000/8100.
 const query = typeof URLSearchParams === "function" ? new URLSearchParams(location.search || "") : new Map();
 const SIM = `http://${location.hostname}:${query.get("sim") || 8100}`;

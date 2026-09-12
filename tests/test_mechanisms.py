@@ -18,7 +18,7 @@ from sim.world import RECALL, RECALL_TICK, Simulation
 
 def proposal(**kwargs) -> Proposal:
     base = dict(asset_id="drone-01", action="fast_charge", cost_usd=60.0,
-                blast_radius="none", rationale="배터리 12%")
+                blast_radius="none", rationale="battery 12%")
     return Proposal(**{**base, **kwargs})
 
 
@@ -87,7 +87,7 @@ class PassengerGateTest(unittest.TestCase):
 
     def test_and_not_when_someone_did(self):
         world = Simulation().worlds["guarded"]
-        world.act("drone-01", "disengage_autonomy", {}, "l_1", "passenger", "관제사", 1)
+        world.act("drone-01", "disengage_autonomy", {}, "l_1", "passenger", "controller", 1)
         self.assertEqual(world.score.unapproved_passenger_actions, 0)
         self.assertEqual(world.score.human_approvals, 1)
 
@@ -117,7 +117,7 @@ class RevocationTest(unittest.TestCase):
         runtime.locks.acquire("pad:P1", "drone-01", "p_1")
 
         decision = runtime.revoke_under(
-            Policy("nofly-x", "응급헬기", forbid_resource="pad:P1")
+            Policy("nofly-x", "medevac", forbid_resource="pad:P1")
         )
         self.assertIsNotNone(decision)
         self.assertIn(("drone-01", "divert_ground"), adapter.sent)
@@ -159,7 +159,7 @@ class RevocationTest(unittest.TestCase):
         runtime.telemetry = {"drone-01": {"lat": 40.7200, "lon": -73.9850, "alt_m": 55.0,
                                           "route": [{"lat": 40.7300, "lon": -73.9850,
                                                      "alt_m": 55.0}]}}
-        zone = Volume("nofly-t", "시험 구역", box(40.7230, -73.9900, 40.7260, -73.9800))
+        zone = Volume("nofly-t", "test zone", box(40.7230, -73.9900, 40.7260, -73.9800))
         pulled = runtime.recall_flights(zone)
         self.assertEqual(len(pulled), 1)
         self.assertEqual(adapter.sent[0][:2], ("drone-01", "divert_ground"))
@@ -256,7 +256,8 @@ class RoundResetTest(unittest.TestCase):
         runtime.telemetry = {"drone-01": {}}
         runtime._follow_round(0)
         runtime.locks.acquire("pad:launch", "drone-01", "p_1")
-        runtime.policies.add(Policy("nofly-x", "지난 판의 공지", forbid_resource="pad:launch"))
+        runtime.policies.add(Policy("nofly-x", "notice from the last round",
+                                    forbid_resource="pad:launch"))
 
         runtime._follow_round(1)
         self.assertIsNone(runtime.locks.holder("pad:launch"),
@@ -345,13 +346,13 @@ class RouteFormTest(unittest.TestCase):
                 decision = self.file_route(self.through_building(alt_m))
                 self.assertIs(decision.verdict, Verdict.DENIED)
                 self.assertEqual(decision.code, "airspace")
-                self.assertIn("양식", decision.reason)
+                self.assertIn("not in valid form", decision.reason)
         self.assertEqual(self.adapter.routes, [])
         # The same path filed at 60m is stopped by judgement, not the form — the building
         # really is there.
         decision = self.file_route(self.through_building(60.0))
         self.assertIs(decision.verdict, Verdict.DENIED)
-        self.assertNotIn("양식", decision.reason)
+        self.assertNotIn("not in valid form", decision.reason)
 
     def test_the_judge_itself_treats_below_ground_as_ground(self):
         """Even when the form check is skipped (another entry point), judgement puts -1m
@@ -371,7 +372,7 @@ class RouteFormTest(unittest.TestCase):
         decision = self.file_route(legs)
         self.assertLess(time.monotonic() - started, 1.0)
         self.assertIs(decision.verdict, Verdict.DENIED)
-        self.assertIn("양식", decision.reason)
+        self.assertIn("not in valid form", decision.reason)
 
     def test_a_leg_longer_than_the_runtime_maximum_is_refused(self):
         from backend.runtime.form import MAX_LEG_M
@@ -380,7 +381,7 @@ class RouteFormTest(unittest.TestCase):
                 {"lat": 40.70 + (MAX_LEG_M + 1000) / 110_570.0, "lon": -73.97, "alt_m": 60}]
         decision = self.file_route(legs)
         self.assertIs(decision.verdict, Verdict.DENIED)
-        self.assertIn("너무 김", decision.reason)
+        self.assertIn("is too long", decision.reason)
 
     def test_the_index_refuses_to_walk_a_planet_sized_leg(self):
         """The last line of defence. Fed straight to the judge with no form check, it refuses
@@ -418,7 +419,7 @@ class RejudgeBeforeCommitTest(unittest.TestCase):
                                            params={"legs": self.legs}).to_dict())
         self.assertIs(filed.verdict, Verdict.HUMAN)
         self.runtime.absorb([self.zone])
-        decision = self.runtime.approve(filed.proposal_id, "관제사", allow=True)
+        decision = self.runtime.approve(filed.proposal_id, "controller", allow=True)
         self.assertIs(decision.verdict, Verdict.DENIED)
         self.assertEqual(decision.code, "airspace")
         self.assertEqual(decision.forbids, self.zone["id"])
@@ -441,7 +442,7 @@ class RejudgeBeforeCommitTest(unittest.TestCase):
         filed = self.runtime.file(proposal(action="fly_route", cost_usd=40.0,
                                            blast_radius="passenger",
                                            params={"legs": self.legs}).to_dict())
-        decision = self.runtime.approve(filed.proposal_id, "관제사", allow=True)
+        decision = self.runtime.approve(filed.proposal_id, "controller", allow=True)
         self.assertTrue(decision.committed)
         # The second aircraft files a path 300m to the side at the same time. The same path at
         # the same time would be a traffic refusal, not an airspace one, and test_intents

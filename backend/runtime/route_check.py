@@ -31,14 +31,14 @@ class RouteCheckMixin:
             return None
         legs = proposal.params.get("legs")
         if not legs:
-            return None if not self.airspace.all() else "경로를 같이 내야 합니다"
+            return None if not self.airspace.all() else "a route must be filed with it"
         checks.append("form")
         malformed = _form_problem(legs)
         if malformed:
             # A form problem, caught before judgement. Non-numeric coordinates passed to the
             # judgement functions killed the request with a 500 and the operator never learned
             # why it was refused. If it is not valid form, say so.
-            return f"경로 양식이 아닙니다 ({malformed})"
+            return f"route is not in valid form ({malformed})"
         # The route's two ends must be where the aircraft is now and where it is going. The
         # autopilot drops the first point and flies from its current position to the second,
         # and after the last point it carries on to the delivery site unjudged — a first point
@@ -55,7 +55,7 @@ class RouteCheckMixin:
             # Record what was blocked and why as values. If the UI parsed the sentence back,
             # every wording change would quietly break the UI.
             self._note_block(proposal, volume, segment, volume.rule, at)
-            return f"{segment}번 구간이 규정을 어깁니다 — {why}"
+            return f"leg {segment} breaks the rules — {why}"
         # Vertical segments. The takeoff column, waypoint climbs/descents and the landing
         # column are lines through the airspace too. A 60 m building beside the route does not
         # block a 120 m cruise leg, but it does block a column climbing from 0 m to 120 m.
@@ -64,9 +64,9 @@ class RouteCheckMixin:
         if column is not None:
             kind, segment, volume, why, at = column
             self._note_block(proposal, volume, segment, kind, at)
-            what = {"takeoff": "이륙 기둥", "column": f"{segment}번 꼭짓점 승강",
-                    "landing": "착륙 기둥"}[kind]
-            return f"{what}이 규정을 어깁니다 — {why}"
+            what = {"takeoff": "takeoff column", "column": f"climb at waypoint {segment}",
+                    "landing": "landing column"}[kind]
+            return f"{what} breaks the rules — {why}"
         # The end of the route is where it touches down. A path that can pass alongside and a
         # spot that can be descended onto are different standards, so the ring around the end
         # point (LANDING_SEPARATION_M) is checked separately for buildings and restricted zones.
@@ -77,7 +77,7 @@ class RouteCheckMixin:
             volume, gap = landing
             self._note_block(proposal, volume, len(legs) - 1, "landing",
                              (float(last["lat"]), float(last["lon"])))
-            return f"착륙 지점 둘레에 {volume.name} ({gap:.0f}m) — 내려앉을 수 없습니다"
+            return f"{volume.name} around the landing spot ({gap:.0f} m) — cannot touch down"
         return None
 
     def _endpoint_problem(self, proposal: Proposal, legs: list[dict]) -> str | None:
@@ -93,8 +93,8 @@ class RouteCheckMixin:
             gap = _distance_m((float(state["lat"]), float(state["lon"])), first)
             if gap > TRAFFIC_LATERAL_M:
                 self._note_endpoint(proposal, "origin", 1, first, gap)
-                return (f"경로의 첫 점이 기체 자리에서 {gap:.0f}m 떨어져 있습니다 — "
-                        "판정한 길과 나는 길이 달라집니다")
+                return (f"the route's first point is {gap:.0f} m from the aircraft — "
+                        "the judged path and the flown path differ")
         goal = None
         if proposal.action == "fly_route" and state.get("job_lat") is not None:
             goal = (float(state["job_lat"]), float(state["job_lon"]))
@@ -104,8 +104,8 @@ class RouteCheckMixin:
             gap = _distance_m((float(goal[0]), float(goal[1])), last)
             if gap > TRAFFIC_LATERAL_M:
                 self._note_endpoint(proposal, "destination", len(legs) - 1, last, gap)
-                return (f"경로의 끝점이 목적지에서 {gap:.0f}m 떨어져 있습니다 — "
-                        "그 다음은 판정 없이 나는 길입니다")
+                return (f"the route's last point is {gap:.0f} m from the destination — "
+                        "what follows is flown unjudged")
         return None
 
     @staticmethod

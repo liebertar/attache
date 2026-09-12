@@ -78,7 +78,7 @@ class LedgerTruthTest(unittest.TestCase):
         proposal = Proposal(asset_id="drone-01", action="reserve_pad", cost_usd=28.0,
                             blast_radius="schedule", rationale="", resource="pad:launch",
                             params={"pad": "pad:launch"})
-        committer.commit(proposal, Decision(proposal.id, Verdict.AUTO, "한도 안"))
+        committer.commit(proposal, Decision(proposal.id, Verdict.AUTO, "within limits"))
 
         closed = [e for e in ledger.tail(10) if e["outcome"] != "pending"]
         self.assertEqual(len(closed), 1)
@@ -111,7 +111,7 @@ class AirspaceTest(unittest.TestCase):
         from sim.world import AIRSPACE, BUILDINGS
 
         if not BUILDINGS:
-            self.skipTest("no building data (scripts/fetch_buildings.py)")
+            self.skipTest("no building data (scripts/fetch_tile_buildings.mjs)")
         tall = max((v for v in AIRSPACE.all() if v.id.startswith("bldg-")),
                    key=lambda v: v.ceiling_m)
         inside = tall.polygon[0]
@@ -195,11 +195,11 @@ class AirspaceTest(unittest.TestCase):
                 {"lat": centre[0] + 0.02, "lon": centre[1] + 0.02, "alt_m": 60.0},
                 {"lat": centre[0], "lon": centre[1], "alt_m": 60.0},
             ]},
-            "cost_usd": 28.0, "blast_radius": "schedule", "rationale": "배터리 낮음",
+            "cost_usd": 28.0, "blast_radius": "schedule", "rationale": "low battery",
         })
         self.assertIs(decision.verdict, Verdict.DENIED)
         self.assertEqual(decision.policy_hit, "airspace")
-        self.assertIn("구간이 규정을 어깁니다", decision.reason)
+        self.assertIn("breaks the rules", decision.reason)
 
 
 class RouterAgreesWithTheJudgeTest(unittest.TestCase):

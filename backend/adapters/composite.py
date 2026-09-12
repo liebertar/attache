@@ -41,10 +41,10 @@ ROUTE_ACTIONS = ("fly_route", "reserve_pad")
 # the ground, so there is nothing to send.
 PASS_THROUGH = ("land", "disengage_autonomy")
 NO_COMMAND_WHY = {
-    "depart": "짐 싣기는 땅의 일 — 뜨는 것은 경로 임무가 합니다",
-    "decline_job": "배달을 안 받는 것은 운영사의 일",
+    "depart": "loading is ground work — the route mission does the taking off",
+    "decline_job": "turning a delivery down is the operator's business",
 }
-GROUND_WORK_WHY = "지상 설비 — 자동조종에 보낼 명령이 없습니다"
+GROUND_WORK_WHY = "ground equipment — nothing to send to the autopilot"
 
 
 class AutopilotJournal:
@@ -146,8 +146,8 @@ class AutopilotMirror:
             self._jobs.put_nowait((ledger_id, action, job))
         except queue.Full:
             return self._record(ledger_id, action, False, "dropped",
-                                "PX4 일꾼이 밀려 있어 보내지 않았습니다")
-        return {"ok": None, "result": "queued", "detail": "PX4 로 보내는 중"}
+                                "the PX4 worker is backed up — nothing was sent")
+        return {"ok": None, "result": "queued", "detail": "sending to PX4"}
 
     # ---------- worker-thread side ----------
 
@@ -157,7 +157,7 @@ class AutopilotMirror:
             if not self.autopilot.link_up(self.asset_id, within_s=LINK_SEND_S):
                 # Sending on a dead link waits out every step's reply deadline, and the
                 # commands behind it queue up.
-                self._record(ledger_id, action, False, "link_down", "PX4 하트비트가 없습니다")
+                self._record(ledger_id, action, False, "link_down", "no PX4 heartbeat")
                 continue
             try:
                 ok, result, detail = job()
@@ -174,14 +174,15 @@ class AutopilotMirror:
         if not upload["ok"]:
             return False, "upload_failed", upload
         if not start_now:
-            return True, "uploaded", {"items": len(items), "start": "시뮬 기체가 뜰 때"}
+            return True, "uploaded", {"items": len(items),
+                                      "start": "when the simulated aircraft takes off"}
         return self._start(ledger_id)
 
     def _start(self, ledger_id: str):
         with self._guard:
             mission = self._mission
         if mission is None or mission["ledger_id"] != ledger_id or not mission["uploaded"]:
-            return False, "not_started", "이 경로의 임무가 올라가 있지 않습니다"
+            return False, "not_started", "no mission for this route is uploaded"
         reply = self.autopilot.start_mission(
             self.asset_id, arm=not self.autopilot.airborne(self.asset_id))
         with self._guard:
@@ -239,7 +240,7 @@ class CompositeAdapter:
             return result
         if not result.get("ok"):
             return {**result, "autopilot": self.mirror.skip(ledger_id, action,
-                                                            "시뮬레이터가 받지 않았습니다")}
+                                                            "the simulator did not take it")}
         return {**result, "autopilot": self.mirror.submit(action, dict(params or {}), ledger_id)}
 
     def telemetry(self) -> dict:

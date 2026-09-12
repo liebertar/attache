@@ -54,7 +54,6 @@ DAY = datetime.date(2026, 9, 22)          # the day the recordings were made (fi
 BBOX = (40.669, -74.037, 40.836, -73.917)
 DEPOT = (40.7019, -73.9700)
 ST_NICHOLAS = (40.8155, -73.949)
-UNION_SQUARE = (40.7359, -73.99063)
 CRANE_AT = (40.799327, -73.968752)        # 2701 Broadway in the gazetteer
 TAVILY_ENV = ("TAVILY_API_KEY", "TAVILY_RECORDED", "TAVILY_BUDGET_PER_ROUND",
               "TAVILY_RECORD_DIR", "TAVILY_FIXTURE_DIR", "BRIEFING_DATE", "TAVILY_URL")
@@ -417,7 +416,7 @@ class GrammarTest(unittest.TestCase):
     def test_code_refuses_numbers_places_and_windows_that_do_not_add_up(self):
         low = read_hazard("A tower crane at 2701 Broadway will reach a height of 5 feet. "
                           "September 22, 2026.", self.gazetteer, self.areas, DAY)
-        self.assertIn("크레인 높이가 10~400 m 밖", hazard_problems(low, BBOX))
+        self.assertIn("crane height outside 10~400 m", hazard_problems(low, BBOX))
         tall = read_hazard("A tower crane at 2701 Broadway will reach a height of 1500 feet.",
                            self.gazetteer, self.areas, DAY)
         self.assertTrue(hazard_problems(tall, BBOX))
@@ -434,7 +433,7 @@ class GrammarTest(unittest.TestCase):
         far = read_hazard("Temporary flight restriction: Radius: 1 nautical miles. Latitude: "
                           "41.2000, Longitude: -73.9000. September 22, 2026 at 0900 UTC to "
                           "September 22, 2026 at 1100 UTC", self.gazetteer, self.areas, DAY)
-        self.assertIn("서비스 영역 밖 자리", hazard_problems(far, BBOX))
+        self.assertIn("a place outside the service area", hazard_problems(far, BBOX))
 
     def test_new_york_time_follows_daylight_saving(self):
         self.assertEqual(eastern_offset_hours(DAY), -4)
@@ -494,7 +493,7 @@ class TrustTest(QuietEnv):
         self.assertEqual([card["params"]["notice_id"] for card in cards], [kinds["event"]["id"]])
         self.assertEqual(cards[0]["params"]["notice"]["citation"]["domain"],
                          "eastvillage-bulletin.example")
-        self.assertIn("공식 출처가 아닙니다", runtime._decisions[cards[0]["id"]].reason)
+        self.assertIn("is not an official source", runtime._decisions[cards[0]["id"]].reason)
         self.assertEqual(runtime.snapshot()["briefing"]["ignored"], 2, "the two irrelevant pages")
 
     def test_every_rule_carries_its_source_into_the_ledger_the_store_and_the_state(self):
@@ -562,7 +561,7 @@ class RuleTest(FakeServerCase):
         self.assertEqual((volume.ceiling_m, volume.clearance_m), (round(230 * 0.3048, 3), 50.0))
         west, east = (CRANE_AT[0], CRANE_AT[1] - 0.008), (CRANE_AT[0], CRANE_AT[1] + 0.008)
         through = route("drone-09", [west, east], alt_m=100.0)
-        self.assertIn("구간이 규정을 어깁니다", runtime.check_route(through))
+        self.assertIn("breaks the rules", runtime.check_route(through))
         self.assertEqual(through.params["blocked_volume"], crane["id"])
         above = route("drone-09", [west, east], alt_m=121.0)   # above 70 m rooftop + 50 m margin
         self.assertIsNone(runtime.check_route(above))
@@ -574,7 +573,7 @@ class RuleTest(FakeServerCase):
         volume = runtime.airspace.get(closure["id"])
         self.assertEqual((volume.floor_m, volume.ceiling_m), (0.0, CLOSED_CEILING_M))
         landing = route("drone-09", [(40.80, -73.96), ST_NICHOLAS], alt_m=60.0)
-        self.assertIn("내려앉을 수 없습니다", runtime.check_route(landing))
+        self.assertIn("cannot touch down", runtime.check_route(landing))
         self.assertEqual(landing.params["blocked_kind"], "landing")
         takeoff = route("drone-09", [ST_NICHOLAS, (40.80, -73.96)], alt_m=60.0)
         self.assertIsNone(runtime.check_route(takeoff), "leaving a closed park is not blocked")
@@ -610,13 +609,13 @@ class RuleTest(FakeServerCase):
         runtime.absorb([])
         self.assertEqual(adapter.sent, [], "nothing is blocked before a person has looked")
         card = pending(runtime)[0]
-        runtime.approve(card["id"], "관제사", allow=True)
+        runtime.approve(card["id"], "controller", allow=True)
         self.assertIn(("drone-02", "divert_ground"), [(a, action) for a, action, _ in adapter.sent])
         runtime.absorb([])
         event = items_by_kind(runtime)["event"]
         self.assertEqual(event["status"], "approved")
         refused = route("drone-09", [(40.7300, -73.9950), (40.7420, -73.9850)], alt_m=80.0)
-        self.assertIn("구간이 규정을 어깁니다", runtime.check_route(refused))
+        self.assertIn("breaks the rules", runtime.check_route(refused))
 
 
 # ---------- Recorded and live answers ----------
@@ -751,7 +750,7 @@ class RestartTest(QuietEnv):
         cards = pending(second)
         self.assertEqual([c["params"]["notice_id"] for c in cards], [event_id],
                          "no card was lost, and only one came back")
-        second.approve(cards[0]["id"], "관제사", allow=True)
+        second.approve(cards[0]["id"], "controller", allow=True)
         second.absorb([])
         self.assertEqual(items_by_kind(second)["event"]["status"], "approved")
         third, _ = briefed_runtime(db=self.db, tick=2300)

@@ -350,7 +350,7 @@ class StoreRuntimeTest(unittest.TestCase):
                         and e["decision"]["code"] == "intake_received"]
             self.assertEqual([e["decision"]["detail"].get("reopened") for e in received], [True])
             # A person answered. The next restart does not raise it again or reread the same line.
-            second.approve(second.snapshot()["awaiting_human"][0]["id"], "관제사", allow=False)
+            second.approve(second.snapshot()["awaiting_human"][0]["id"], "controller", allow=False)
             third = make_runtime(path)
             third.submit_intake(line)
             third.absorb([])
@@ -385,8 +385,8 @@ class StoreRuntimeTest(unittest.TestCase):
         self.assertEqual({k: r["applied"] for k, r in rules.items()},
                          {"manual-a": False, "manual-b": False})
         held = {p["params"]["item"]: p["id"] for p in runtime.snapshot()["awaiting_human"]}
-        runtime.approve(held["manual-a"], "관제사", allow=True)
-        runtime.approve(held["manual-b"], "관제사", allow=False)
+        runtime.approve(held["manual-a"], "controller", allow=True)
+        runtime.approve(held["manual-b"], "controller", allow=False)
         rules = {r["item_id"]: r for r in runtime.store.rules()}
         self.assertEqual((rules["manual-a"]["applied"], rules["manual-a"]["lifted_by"]),
                          (True, None))

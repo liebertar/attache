@@ -28,7 +28,7 @@ class CommitPathMixin:
             waiting.append((proposal, decision, time.time()))
 
         decision.verdict = Verdict.QUEUED
-        decision.reason = f"{proposal.resource} 배정을 기다리는 중"
+        decision.reason = f"waiting for {proposal.resource} to be assigned"
         return decision
 
     def _settle_contended(self) -> None:
@@ -61,7 +61,7 @@ class CommitPathMixin:
             if held and held.asset_id not in {p.asset_id for p in candidates}:
                 for proposal, decision, _ in waiting:
                     decision.verdict = Verdict.DENIED
-                    decision.reason = f"{resource} 는 {held.asset_id} 가 쓰는 중입니다"
+                    decision.reason = f"{resource} is in use by {held.asset_id}"
                     decision.code = "resource_held"
                     decision.detail = {"resource": resource, "holder": held.asset_id}
                     self.ledger.close_entry(
@@ -82,7 +82,7 @@ class CommitPathMixin:
                 if proposal.id == winner.id:
                     decision.arbiter = how if len(candidates) > 1 else None
                     decision.verdict = Verdict.AUTO
-                    decision.reason = f"{resource} 배정됨"
+                    decision.reason = f"{resource} assigned"
                     decision.code = "resource_granted"
                     decision.detail = dict(detail)
                     self._checks.setdefault(proposal.id, []).append("arbiter")
@@ -93,7 +93,7 @@ class CommitPathMixin:
                 else:
                     decision.verdict = Verdict.DENIED
                     decision.arbiter = how
-                    decision.reason = f"{winner.asset_id} 가 {resource} 를 받았습니다"
+                    decision.reason = f"{winner.asset_id} was given {resource}"
                     decision.detail = dict(detail)
                     self.ledger.close_entry(
                         self.ledger.open_entry(proposal, decision, self._context(proposal)),

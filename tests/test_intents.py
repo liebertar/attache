@@ -59,7 +59,7 @@ def leg(north_m: float, east_m: float, alt_m: float) -> dict:
 
 def route(asset: str, legs: list[dict], **params) -> dict:
     return Proposal(asset_id=asset, action="fly_route", cost_usd=12.0, blast_radius="schedule",
-                    rationale="시험", params={"legs": legs, **params}).to_dict()
+                    rationale="test", params={"legs": legs, **params}).to_dict()
 
 
 class RecordingAdapter:
@@ -111,10 +111,10 @@ class VerticalColumnTest(unittest.TestCase):
     def setUp(self):
         # A building with a 60 m roof, 5 m east of the start. It blocks up to the 50 m margin,
         # so 0~110 m is that building.
-        self.building = Volume("bldg-next-door", "옆 건물",
+        self.building = Volume("bldg-next-door", "next-door building",
                                box(LAT0 - north(10), LON0 + east(5), LAT0 + north(10),
                                    LON0 + east(40)),
-                               ceiling_m=60.0, clearance_m=50.0, source="시험")
+                               ceiling_m=60.0, clearance_m=50.0, source="test")
         self.runtime, self.adapter = make_runtime([self.building])
         self.runtime.telemetry = {"drone-01": ground(0, 0)}
 
@@ -145,16 +145,16 @@ class VerticalColumnTest(unittest.TestCase):
         self.assertEqual(params["blocked_leg"], 1)
         self.assertAlmostEqual(params["blocked_at"]["lat"], LAT0, places=5)
         self.assertEqual(params["blocked_ceiling_m"], 60.0)
-        self.assertIn("이륙 기둥", decision.reason)
+        self.assertIn("takeoff column", decision.reason)
         self.assertEqual(self.adapter.sent, [])
 
     def test_a_vertex_climb_through_a_band_neither_leg_touches_is_refused(self):
         # A 50~80 m band sitting only over the vertex. The first leg is at 40 m (below) and the
         # second at 100 m (above), so both pass, but the climb from 40 → 100 at the vertex
         # goes through the band.
-        band = Volume("nofly-band", "띠", box(LAT0 + north(290), LON0 - east(20),
+        band = Volume("nofly-band", "band", box(LAT0 + north(290), LON0 - east(20),
                                               LAT0 + north(310), LON0 + east(20)),
-                      floor_m=50.0, ceiling_m=80.0, source="시험")
+                      floor_m=50.0, ceiling_m=80.0, source="test")
         runtime, adapter = make_runtime([band])
         runtime.telemetry = {"drone-01": ground(0, 0)}
         legs = [leg(0, 0, 40.0), leg(300, 0, 40.0), leg(600, 0, 100.0)]
@@ -189,9 +189,9 @@ class VerticalColumnTest(unittest.TestCase):
 
     def test_an_airborne_descent_through_a_band_is_refused_unless_already_inside_it(self):
         # A 50~80 m band only over the start. The column down from 112 m to 40 m crosses it.
-        band = Volume("nofly-band", "띠", box(LAT0 - north(10), LON0 - east(20),
+        band = Volume("nofly-band", "band", box(LAT0 - north(10), LON0 - east(20),
                                               LAT0 + north(10), LON0 + east(20)),
-                      floor_m=50.0, ceiling_m=80.0, source="시험")
+                      floor_m=50.0, ceiling_m=80.0, source="test")
         runtime, adapter = make_runtime([band])
         runtime.telemetry = {"drone-01": {**ground(0, 0), "alt_m": 112.0, "state": "cruising"}}
         legs = [leg(0, 0, 40.0), leg(600, 0, 40.0)]
@@ -488,7 +488,7 @@ class StrategicConflictTest(unittest.TestCase):
             **ground(0, 0), "alt_m": 60.0, "state": "delivering",
             "route": [{"lat": self.first[1]["lat"], "lon": self.first[1]["lon"], "alt_m": 60.0}],
         }
-        closing = Volume("nofly-t", "닫힘", box(LAT0 + north(700), LON0 + east(600),
+        closing = Volume("nofly-t", "closing", box(LAT0 + north(700), LON0 + east(600),
                                                 LAT0 + north(900), LON0 + east(900)))
         pulled = self.runtime.recall_flights(closing)
         self.assertEqual(len(pulled), 1)
@@ -779,8 +779,8 @@ class LedgerContextTest(unittest.TestCase):
     def test_policies_in_force_are_named(self):
         from shared.config import Policy
 
-        self.runtime.policies.add(Policy("ad-1", "지시", forbid_action="fast_charge"))
-        self.runtime.policies.add(Policy("later", "나중", forbid_action="charge",
+        self.runtime.policies.add(Policy("ad-1", "directive", forbid_action="fast_charge"))
+        self.runtime.policies.add(Policy("later", "later", forbid_action="charge",
                                          active_from_tick=10_000))
         self.runtime.file(route("drone-01", self.legs))
         self.assertEqual(ledger_lines(self.runtime)[-1]["context"]["policies"], ["ad-1"])
@@ -812,7 +812,7 @@ class AirbornePresenceTest(unittest.TestCase):
         self.runtime.telemetry["drone-01"] = {
             **ground(north_m, 0), "alt_m": 60.0, "state": "delivering",
             "route": [{"lat": self.first[1]["lat"], "lon": self.first[1]["lon"], "alt_m": 60.0}]}
-        closing = Volume("nofly-ahead", "닫힘", box(LAT0 + north(700), LON0 - east(100),
+        closing = Volume("nofly-ahead", "closing", box(LAT0 + north(700), LON0 - east(100),
                                                     LAT0 + north(1100), LON0 + east(100)))
         pulled = self.runtime.recall_flights(closing)
         self.assertEqual(len(pulled), 1)
@@ -884,7 +884,7 @@ class AirbornePresenceTest(unittest.TestCase):
                                               "state": "delivering"}
         self.runtime.tick += 20
         declined = Proposal(asset_id="drone-01", action="decline_job", cost_usd=0.0,
-                            blast_radius="none", rationale="규정상 경로 없음", params={})
+                            blast_radius="none", rationale="no legal route", params={})
         self.assertTrue(self.runtime.file(declined.to_dict()).committed)
         standing = self.runtime.intents.get("drone-01")
         self.assertEqual((standing.kind, standing.state), (CONTINGENCY, ACTIVATED))
@@ -921,7 +921,7 @@ class EndpointConformanceTest(unittest.TestCase):
         # Same for a pad reservation: the last point must be that pad
         self.runtime.pad_coords = {"pad:launch": (LAT0 + north(900), LON0)}
         astray = Proposal(asset_id="drone-01", action="reserve_pad", cost_usd=28.0,
-                          blast_radius="schedule", rationale="충전", resource="pad:launch",
+                          blast_radius="schedule", rationale="charge", resource="pad:launch",
                           params={"pad": "pad:launch",
                                   "legs": [leg(0, 0, 60.0), leg(900, 100, 60.0)]})
         decision = self.runtime.file(astray.to_dict())
@@ -1075,7 +1075,7 @@ class DeferredWithdrawalTest(unittest.TestCase):
 
     def _refile(self, **overrides):
         base = Proposal(asset_id="drone-02", action="fly_route", cost_usd=12.0,
-                        blast_radius="schedule", rationale="재신청", params={"legs": self.across})
+                        blast_radius="schedule", rationale="refile", params={"legs": self.across})
         return self.runtime.file({**base.to_dict(), **overrides})
 
     def _diverted(self):
@@ -1086,7 +1086,7 @@ class DeferredWithdrawalTest(unittest.TestCase):
         self.assertIs(decision.verdict, Verdict.HUMAN)
         self.assertEqual(self.first.state, ACCEPTED)
         self.assertEqual(self._diverted(), [])
-        approved = self.runtime.approve(decision.proposal_id, "관제사", allow=True)
+        approved = self.runtime.approve(decision.proposal_id, "controller", allow=True)
         self.assertTrue(approved.committed, approved.reason)
         self.assertEqual((self.first.state, self.first.ended_reason), (ENDED, "withdrawn"))
         self.assertEqual(len(self._diverted()), 1)
