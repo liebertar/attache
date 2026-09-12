@@ -12,7 +12,7 @@ from shared.notam import format_dms
 from sim import world as sim_world
 
 CONFIG = "configs/fleet.yaml"
-ZONE_ITEM = {"id": "nofly-t", "kind": "notam", "name": "시험 회랑", "text": sim_world.ZONE_TEXT,
+ZONE_ITEM = {"id": "nofly-t", "kind": "notam", "name": "test corridor", "text": sim_world.ZONE_TEXT,
              "published_tick": 525, "until_tick": 900}
 HERE = (40.7100, -73.9855)
 
@@ -59,7 +59,7 @@ class ReportTest(unittest.TestCase):
         # drone-01: the straight line is refused and a detour filed under the same id is
         # approved — one flight, four ledger lines.
         self.first = Proposal(asset_id="drone-01", action="fly_route", cost_usd=12.0,
-                              blast_radius="schedule", rationale="배달",
+                              blast_radius="schedule", rationale="delivery",
                               params={"legs": THROUGH_ZONE, "drafter": "straight",
                                       "draft_attempts": 0})
         self.assertIs(self.runtime.file(self.first.to_dict()).verdict, Verdict.DENIED)
@@ -77,7 +77,7 @@ class ReportTest(unittest.TestCase):
         corners = " ".join(format_dms(lat, lon) for lat, lon in
                            ((40.7180, -73.9970), (40.7180, -73.9930), (40.7220, -73.9930),
                             (40.7220, -73.9970)))
-        self.runtime.absorb([ZONE_ITEM, {"id": "nofly-r", "kind": "notam", "name": "둘째 구역",
+        self.runtime.absorb([ZONE_ITEM, {"id": "nofly-r", "kind": "notam", "name": "second zone",
                                          "text": f"AREA BOUNDED BY {corners} SFC-400FT AGL "
                                                  "TICK 640-800", "until_tick": 800}])
         self.assertEqual([s[:2] for s in self.adapter.sent if s[1] == "divert_ground"],

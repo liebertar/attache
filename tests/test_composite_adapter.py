@@ -300,7 +300,7 @@ class RuntimeWithAMirrorTest(unittest.TestCase):
         underground = [{**leg, "alt_m": -1.0} for leg in LEGS]
         refused = runtime.file(Proposal(
             asset_id=MIRROR, action="fly_route", cost_usd=40.0, blast_radius="cargo",
-            rationale="시험", params={"legs": underground}).to_dict())
+            rationale="test", params={"legs": underground}).to_dict())
         self.assertIs(refused.verdict, Verdict.DENIED)
         time.sleep(0.4)
         self.assertEqual(world.sent, [])
@@ -309,7 +309,7 @@ class RuntimeWithAMirrorTest(unittest.TestCase):
         # The same route filed within the rules executes, and only then is the mission uploaded.
         allowed = runtime.file(Proposal(
             asset_id=MIRROR, action="fly_route", cost_usd=40.0, blast_radius="cargo",
-            rationale="시험", params={"legs": LEGS}).to_dict())
+            rationale="test", params={"legs": LEGS}).to_dict())
         self.assertIsNot(allowed.verdict, Verdict.DENIED, allowed.reason)
         self.assertTrue(wait_until(lambda: stub.missions, 8))
         self.assertEqual(runtime.snapshot()["autopilots"][MIRROR]["role"], "mirror")
