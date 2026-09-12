@@ -99,7 +99,7 @@ def parse_dms(token: str) -> tuple[float, float]:
     lat = _dms(match.group(1), 2) * (1 if match.group(2) == "N" else -1)
     lon = _dms(match.group(3), 3) * (1 if match.group(4) == "E" else -1)
     if abs(lat) > 90.0 or abs(lon) > 180.0:
-        raise ValueError(f"not a point on earth: {token!r}")
+        raise ValueError(f"not a point on Earth: {token!r}")
     return lat, lon
 
 
@@ -216,7 +216,7 @@ def shape_problems(polygon) -> list[str]:
             return ["a vertex is not (lat, lon)"]
         if not (math.isfinite(lat) and math.isfinite(lon)
                 and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
-            problems.append("a vertex is not a point on earth")
+            problems.append("a vertex is not a point on Earth")
             break
     return problems
 
