@@ -510,7 +510,7 @@ function advisory(extra={}) {
               {tick:610, code:'airspace', blocked_kind:'traffic', blocked_asset:'drone-03', blocked_until_tick:700},
               {tick:620, code:'airspace', blocked_kind:'forbidden', blocked_volume:'bldg-1'}],
     options:[{id:'hold', label:'hold on the ground until tick 700', legal:true, why:'drone-03 clears that volume at tick 700', until_tick:700},
-             {id:'climb', label:'climb +30 m on the last filed legs', legal:false, why:'bldg-1 10 m above the roof', shift_m:30},
+             {id:'climb', label:'climb +30 m on the last filed legs', legal:false, why:'bldg-1 crossed 10 m above the roof', shift_m:30},
              {id:'decline', label:'decline the job', legal:true, why:'no aircraft flies'},
              {id:'escalate', label:'escalate to a person', legal:true, why:'a controller looks'}],
     chosen:'hold', summary:'', model:'', source:'rules', ...extra};
@@ -528,7 +528,7 @@ test('a runtime advisory card names the aircraft, lists the checked options, and
     'drone-02 was refused 3 times in a row. The rules suggest: hold on the ground until tick 700.');
   const options = ui.element('advisory-options').innerHTML;
   assert.match(options, /<li class="ok chosen">hold on the ground until tick 700 · legal<\/li>/);
-  assert.match(options, /<li class="no">climb \+30 m on the filed legs · not legal — bldg-1 10 m above the roof<\/li>/);
+  assert.match(options, /<li class="no">climb \+30 m on the filed legs · not legal — bldg-1 crossed 10 m above the roof<\/li>/);
   assert.match(options, /<li class="ok">decline the order · legal<\/li>/);
   assert.match(options, /<li class="ok">escalate to a person · legal<\/li>/);
   assert.match(ui.element('advisory-note').textContent, /information only/);
