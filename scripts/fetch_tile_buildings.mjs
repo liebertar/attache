@@ -68,18 +68,18 @@ for (let lat = BBOX.south; lat < BBOX.north; lat += STEP.lat) {
 }
 const volumes = [...seen.values()].map((r, i) => ({
   id: `bldg-t${String(i + 1).padStart(5, '0')}`,
-  name: `건물 ${Math.round(r.h)}m`,
+  name: `BUILDING ${Math.round(r.h)} m`,
   polygon: r.ring.slice(0, -1),
   floor_m: 0.0,
   ceiling_m: r.h,
   reference: 'AGL',
   rule: 'forbidden',
-  reason: `건물 관통 불가 (옥상 ${Math.round(r.h)}m AGL)`,
+  reason: `no flight through a building (roof ${Math.round(r.h)} m AGL)`,
   source: 'OpenFreeMap vector tiles (OpenStreetMap buildings, render_height)',
   tags: {render_height: r.h, render_min_height: r.min_h},
 }));
 writeFileSync('configs/airspace/nyc_buildings.json', JSON.stringify({
-  source: 'OpenFreeMap / OpenStreetMap building layer, render_height — 화면이 그리는 건물과 같은 것',
+  source: 'OpenFreeMap / OpenStreetMap building layer, render_height — the same buildings the screen draws',
   fetched: new Date().toISOString(), min_height_m: MIN_HEIGHT, bbox: BBOX, volumes,
 }));
 console.log('buildings', volumes.length, 'tallest', Math.max(...volumes.map(v => v.ceiling_m)));

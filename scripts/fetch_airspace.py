@@ -58,7 +58,7 @@ def to_volume(feature: dict) -> dict | None:
     airport = properties.get("APT1_ICAO") or properties.get("APT1_NAME") or ""
     return {
         "id": f"uasfm-{properties['OBJECTID']}",
-        "name": f"{airport} 격자 {ceiling_ft}ft".strip(),
+        "name": f"{airport} cell {ceiling_ft} ft".strip(),
         # GeoJSON is [lon, lat]; our Volume is (lat, lon)
         "polygon": [[point[1], point[0]] for point in ring[:-1]],
         "floor_m": 0.0,
@@ -67,8 +67,8 @@ def to_volume(feature: dict) -> dict | None:
         "reference": "AGL",
         "rule": "forbidden" if ceiling_m == 0 else "ceiling",
         "reason": (
-            "허가 없이 비행 불가 (UASFM 0ft)" if ceiling_m == 0
-            else f"허용 고도 {ceiling_ft}ft ({ceiling_m:.0f}m AGL)"
+            "no flight without authorisation (UASFM 0 ft)" if ceiling_m == 0
+            else f"ceiling {ceiling_ft} ft ({ceiling_m:.0f} m AGL)"
         ),
         "source": "FAA UAS Facility Map",
         "tags": {"ceiling_ft": ceiling_ft, "effective": properties.get("MAP_EFF")},
@@ -103,8 +103,8 @@ def dissolve(volumes: list[dict]) -> list[dict]:
         sample = cells[0]
         merged.append({
             "id": f"band-{rule}-{'open' if ceiling is None else int(ceiling)}",
-            "name": sample["name"].split(" 격자")[0] + (
-                " 비행 불가" if rule == "forbidden" else f" 천장 {ceiling:.0f}m"),
+            "name": sample["name"].split(" cell")[0] + (
+                " no flight" if rule == "forbidden" else f" ceiling {ceiling:.0f} m"),
             "polygon": rings[0],
             "rings": rings,
             "floor_m": 0.0, "ceiling_m": ceiling, "reference": "AGL",
