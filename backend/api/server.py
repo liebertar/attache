@@ -82,10 +82,10 @@ def main() -> None:
 
 def _approval(runtime: Runtime, body: dict, allow: bool):
     decision = runtime.approve(
-        body.get("proposal_id", ""), body.get("actor", "관제사"), allow=allow
+        body.get("proposal_id", ""), body.get("actor", "controller"), allow=allow
     )
     if decision is None:
-        return 404, {"error": "그런 신청서가 없습니다"}
+        return 404, {"error": "no such filing"}
     return 200, decision.to_dict()
 
 
