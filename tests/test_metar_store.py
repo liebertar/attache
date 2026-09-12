@@ -20,7 +20,7 @@ import unittest
 from unittest import mock
 
 from backend.service import Runtime
-from backend.store import IntakeStore
+from backend.store.intake_store import IntakeStore
 from shared.intake import parse_weather
 from shared.metar import MetarClient, MetarFailed, MetarPoller, parse_observation
 from shared.notam import Clock

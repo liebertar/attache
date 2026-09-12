@@ -54,11 +54,11 @@ class LedgerTruthTest(unittest.TestCase):
     def test_the_closing_entry_reports_what_actually_happened(self):
         import tempfile
 
-        from backend.ledger import Ledger
         from backend.runtime.authority import AuthorityCheck
         from backend.runtime.commit import Committer
         from backend.runtime.locks import LockTable
         from backend.runtime.policy import PolicyBook
+        from backend.store.ledger import Ledger
         from shared.config import Authority
         from shared.models import Decision, Proposal, Verdict
 

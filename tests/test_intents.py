@@ -786,7 +786,7 @@ class LedgerContextTest(unittest.TestCase):
         self.assertEqual(ledger_lines(self.runtime)[-1]["context"]["policies"], ["ad-1"])
 
     def test_replay_still_reads_the_ledger(self):
-        from backend.replay import read_commits
+        from backend.store.replay import read_commits
 
         self.runtime.file(route("drone-01", self.legs))
         commits = read_commits(self.runtime.ledger.path)
