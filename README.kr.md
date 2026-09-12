@@ -55,16 +55,16 @@ flowchart LR
 | 부분 | 하는 일 | 코드 |
 |---|---|---|
 | 판정 | 경로·기둥·착륙을 한 가지 검사로 본다: 건물(+50 m), FAA 고도 상한, 구역, 수평 간격 | `shared/geo.py` (`first_breach`) |
-| 의도 | 허가된 경로를 4D 볼륨으로 둔다(30 m, 25 m, ±30틱). 연락이 끊긴 기체의 공간을 예약하고 링크를 감시 | `backend/intents.py` |
-| 정책, 권한 | 회수와 기상 보류. 언제나 사람이 봐야 하는 행동 | `backend/policy.py`, `backend/authority.py` |
-| 잠금, 중재 | 패드마다 점유자는 하나. 한 자원을 두고 이미 합법인 요청들의 순서를 정함 | `backend/locks.py`, `backend/arbiter.py` |
-| 원장 | 덧붙이기만 되고 명령보다 먼저 기록. `GET /ledger/report`에서 비행마다 한 줄 | `backend/ledger.py`, `backend/reports/` |
-| 실행, 어댑터 | 기체로 가는 유일한 길: 시뮬레이터 HTTP, MAVLink(PX4), PX4 미러 | `backend/commit.py`, `backend/adapters/` |
-| 수집, 브리핑 | 피드·문장 → 문법 → Super 모델(문장만) → 코드 검사 → 규칙 | `backend/intake.py`, `backend/briefing.py` |
-| 공지 | 공지마다 무엇을, 언제부터, 누구 말에 따라 막는지 | `backend/notices.py` |
-| 권고 | 거절이 반복되면 합법 선택지를 제시. Super 모델이 하나를 추천할 수 있음 | `backend/advisory.py` |
-| 저장소 | 수집 항목과 규칙을 디스크(SQLite)에 보관 | `backend/store.py` |
-| 재생 | 당시엔 없던 규칙으로 원장을 다시 돌려 본다 | `backend/replay.py`, `scripts/what_if.py` |
+| 의도 | 허가된 경로를 4D 볼륨으로 둔다(30 m, 25 m, ±30틱). 연락이 끊긴 기체의 공간을 예약하고 링크를 감시 | `backend/runtime/intents.py` |
+| 정책, 권한 | 회수와 기상 보류. 언제나 사람이 봐야 하는 행동 | `backend/runtime/policy.py`, `backend/runtime/authority.py` |
+| 잠금, 중재 | 패드마다 점유자는 하나. 한 자원을 두고 이미 합법인 요청들의 순서를 정함 | `backend/runtime/locks.py`, `backend/runtime/arbiter.py` |
+| 원장 | 덧붙이기만 되고 명령보다 먼저 기록. `GET /ledger/report`에서 비행마다 한 줄 | `backend/store/ledger.py`, `backend/store/reports/` |
+| 실행, 어댑터 | 기체로 가는 유일한 길: 시뮬레이터 HTTP, MAVLink(PX4), PX4 미러 | `backend/runtime/commit.py`, `backend/adapters/` |
+| 수집, 브리핑 | 피드·문장 → 문법 → Super 모델(문장만) → 코드 검사 → 규칙 | `backend/intake/book.py`, `backend/intake/briefing.py` |
+| 공지 | 공지마다 무엇을, 언제부터, 누구 말에 따라 막는지 | `backend/intake/notices.py` |
+| 권고 | 거절이 반복되면 합법 선택지를 제시. Super 모델이 하나를 추천할 수 있음 | `backend/runtime/advisory.py` |
+| 저장소 | 수집 항목과 규칙을 디스크(SQLite)에 보관 | `backend/store/intake_store.py` |
+| 재생 | 당시엔 없던 규칙으로 원장을 다시 돌려 본다 | `backend/store/replay.py`, `scripts/what_if.py` |
 
 - 에이전트 → 런타임: 신청만 오간다. 이 연결이 끊겨도 기체에는 영향이 없다.
 - 런타임 → 기체: 명령과 텔레메트리. 이 연결이 끊기면 기체는 허가받은 경로를 마저 날아 착륙하고, 그 공간은
@@ -199,7 +199,10 @@ make test             # Python 테스트. 지도는 node --test tests/test_map.m
 
 ```
 frontend/   지도(MapLibre)와 수동 승인 페이지. 캐시를 끈 작은 서버가 정적 파일을 낸다
-backend/    런타임: 판정, 4D 의도, 정책, 잠금, 원장, 실행, 수집, 브리핑, 권고
+backend/    api/: 경로 표와 프로세스 입구(python -m backend.api.server)
+            runtime/: 판정, 4D 의도, 정책, 잠금, 실행, 권고 — 관제탑 그 자체
+            intake/: 접수부, 공지, 브리핑 데스크, 기상 대기
+            store/: 원장, sqlite 접수 저장소, 재생, reports/
             adapters/: 기체를 만지는 유일한 코드(시뮬레이터 HTTP, MAVLink, PX4 미러)
 drone/      agent/: 드론 에이전트 — 감지, 신청서, 계획(A* 후보), 고르기(Nemotron 도구 호출), 신청
             direct/: 비교용 배선 — 같은 에이전트가 조종장치 클라이언트를 직접 가짐

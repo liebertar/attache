@@ -55,16 +55,16 @@ flowchart LR
 | 部件 | 职责 | 代码 |
 |---|---|---|
 | 判定 | 航线、垂直柱、着陆共用同一项检查：建筑（+50 m）、FAA 高度上限、区域、横向间距 | `shared/geo.py`（`first_breach`） |
-| 意图 | 已放行航线存为 4D 空间（30 m、25 m、±30 个周期）；为失联航空器预留空间；监视链路 | `backend/intents.py` |
-| 策略、权限 | 召回与天气暂停；始终需要人批准的动作 | `backend/policy.py`、`backend/authority.py` |
-| 锁、仲裁 | 每个起降坪只有一个持有者；为争用同一资源的合法申请排序 | `backend/locks.py`、`backend/arbiter.py` |
-| 账本 | 只追加，先于指令写入；`GET /ledger/report` 每次飞行一行 | `backend/ledger.py`、`backend/reports/` |
-| 执行、适配器 | 通往航空器的唯一路径：模拟器 HTTP、MAVLink（PX4）、PX4 镜像 | `backend/commit.py`、`backend/adapters/` |
-| 接入、简报 | 数据源与文本 → 语法 → Super 模型（仅文本）→ 代码检查 → 规则 | `backend/intake.py`、`backend/briefing.py` |
-| 通告 | 每条通告关闭什么、从何时起、依据谁的说法 | `backend/notices.py` |
-| 建议 | 多次被拒后列出合法选项；Super 模型可以推荐其中一项 | `backend/advisory.py` |
-| 存储 | 接入条目与规则落盘（SQLite） | `backend/store.py` |
-| 回放 | 用当时尚不存在的规则重跑账本 | `backend/replay.py`、`scripts/what_if.py` |
+| 意图 | 已放行航线存为 4D 空间（30 m、25 m、±30 个周期）；为失联航空器预留空间；监视链路 | `backend/runtime/intents.py` |
+| 策略、权限 | 召回与天气暂停；始终需要人批准的动作 | `backend/runtime/policy.py`、`backend/runtime/authority.py` |
+| 锁、仲裁 | 每个起降坪只有一个持有者；为争用同一资源的合法申请排序 | `backend/runtime/locks.py`、`backend/runtime/arbiter.py` |
+| 账本 | 只追加，先于指令写入；`GET /ledger/report` 每次飞行一行 | `backend/store/ledger.py`、`backend/store/reports/` |
+| 执行、适配器 | 通往航空器的唯一路径：模拟器 HTTP、MAVLink（PX4）、PX4 镜像 | `backend/runtime/commit.py`、`backend/adapters/` |
+| 接入、简报 | 数据源与文本 → 语法 → Super 模型（仅文本）→ 代码检查 → 规则 | `backend/intake/book.py`、`backend/intake/briefing.py` |
+| 通告 | 每条通告关闭什么、从何时起、依据谁的说法 | `backend/intake/notices.py` |
+| 建议 | 多次被拒后列出合法选项；Super 模型可以推荐其中一项 | `backend/runtime/advisory.py` |
+| 存储 | 接入条目与规则落盘（SQLite） | `backend/store/intake_store.py` |
+| 回放 | 用当时尚不存在的规则重跑账本 | `backend/store/replay.py`、`scripts/what_if.py` |
 
 - 智能体 → 运行时：只有申请。这条链路断开时，航空器不受影响。
 - 运行时 → 航空器：指令与遥测。这条链路断开时，航空器飞完已放行航线后着陆，其空间保持预留。
@@ -197,7 +197,10 @@ make test             # Python 测试；地图测试用 node --test tests/test_m
 
 ```
 frontend/   地图（MapLibre）与人工审批页：静态文件，由一个禁用缓存的小服务器提供
-backend/    运行时：判定、4D 意图、策略、锁、账本、执行、接入、简报、建议
+backend/    api/：路由表与进程入口（python -m backend.api.server）
+            runtime/：判定、4D 意图、策略、锁、执行、建议——塔台本身
+            intake/：接入簿、通告、简报台、天气暂停
+            store/：账本、SQLite 接入存储、回放、reports/
             adapters/：唯一接触航空器的代码（模拟器 HTTP、MAVLink、PX4 镜像）
 drone/      agent/：无人机智能体——感知、填表、规划（A* 候选）、选择（Nemotron 工具调用）、提交
             direct/：对照接线——同一个智能体自带执行器客户端

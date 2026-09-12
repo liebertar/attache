@@ -55,16 +55,16 @@ Every filing, one at a time: form → airspace → 4D intents → policies → a
 | Part | Does | Code |
 |---|---|---|
 | Judge | one check for routes, columns and landings: buildings (+50 m), FAA ceilings, zones, lateral gaps | `shared/geo.py` (`first_breach`) |
-| Intents | cleared routes as 4D volumes (30 m, 25 m, ±30 ticks); reserved space for a silent aircraft; link watch | `backend/intents.py` |
-| Policies, authority | recalls and weather holds; actions that always need a person | `backend/policy.py`, `backend/authority.py` |
-| Locks, arbiter | one holder per pad; order among already-legal requests for one resource | `backend/locks.py`, `backend/arbiter.py` |
-| Ledger | append-only, written before the command; one row per flight at `GET /ledger/report` | `backend/ledger.py`, `backend/reports/` |
-| Commit, adapters | the only path to an aircraft: simulator HTTP, MAVLink (PX4), PX4 mirror | `backend/commit.py`, `backend/adapters/` |
-| Intake, briefing | feeds and prose → grammar → Super model (prose only) → code checks → rules | `backend/intake.py`, `backend/briefing.py` |
-| Notices | what each notice closes, from when, on whose word | `backend/notices.py` |
-| Advisory | legal options after repeated refusals; the Super model may recommend one | `backend/advisory.py` |
-| Store | intake items and rules on disk (SQLite) | `backend/store.py` |
-| Replay | re-runs the ledger under a rule that did not exist yet | `backend/replay.py`, `scripts/what_if.py` |
+| Intents | cleared routes as 4D volumes (30 m, 25 m, ±30 ticks); reserved space for a silent aircraft; link watch | `backend/runtime/intents.py` |
+| Policies, authority | recalls and weather holds; actions that always need a person | `backend/runtime/policy.py`, `backend/runtime/authority.py` |
+| Locks, arbiter | one holder per pad; order among already-legal requests for one resource | `backend/runtime/locks.py`, `backend/runtime/arbiter.py` |
+| Ledger | append-only, written before the command; one row per flight at `GET /ledger/report` | `backend/store/ledger.py`, `backend/store/reports/` |
+| Commit, adapters | the only path to an aircraft: simulator HTTP, MAVLink (PX4), PX4 mirror | `backend/runtime/commit.py`, `backend/adapters/` |
+| Intake, briefing | feeds and prose → grammar → Super model (prose only) → code checks → rules | `backend/intake/book.py`, `backend/intake/briefing.py` |
+| Notices | what each notice closes, from when, on whose word | `backend/intake/notices.py` |
+| Advisory | legal options after repeated refusals; the Super model may recommend one | `backend/runtime/advisory.py` |
+| Store | intake items and rules on disk (SQLite) | `backend/store/intake_store.py` |
+| Replay | re-runs the ledger under a rule that did not exist yet | `backend/store/replay.py`, `scripts/what_if.py` |
 
 - Agent → runtime: filings only. If that link drops, the aircraft is unaffected.
 - Runtime → aircraft: commands and telemetry. If that link drops, the aircraft finishes its cleared route and
@@ -200,7 +200,10 @@ make test             # Python tests; node --test tests/test_map.mjs for the map
 
 ```
 frontend/   map (MapLibre) and the manual approval page: static files behind a no-cache server
-backend/    the runtime: judge, 4D intents, policies, locks, ledger, commit, intake, briefing, advisory
+backend/    api/: the route table and the process entry point (python -m backend.api.server)
+            runtime/: judge, 4D intents, policies, locks, commit, advisory — the tower itself
+            intake/: the intake book, notices, the briefing desk, the weather hold
+            store/: the ledger, the sqlite intake store, replay, reports/
             adapters/: the only code that touches an aircraft (simulator HTTP, MAVLink, PX4 mirror)
 drone/      agent/: the drone agent — detect, form, plan (A* candidates), choose (Nemotron tool call), file
             direct/: the comparison wiring — the same agent holding its own actuator client
