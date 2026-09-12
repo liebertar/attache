@@ -493,7 +493,7 @@ class TrustTest(QuietEnv):
         self.assertEqual([card["params"]["notice_id"] for card in cards], [kinds["event"]["id"]])
         self.assertEqual(cards[0]["params"]["notice"]["citation"]["domain"],
                          "eastvillage-bulletin.example")
-        self.assertIn("공식 출처가 아닙니다", runtime._decisions[cards[0]["id"]].reason)
+        self.assertIn("is not an official source", runtime._decisions[cards[0]["id"]].reason)
         self.assertEqual(runtime.snapshot()["briefing"]["ignored"], 2, "the two irrelevant pages")
 
     def test_every_rule_carries_its_source_into_the_ledger_the_store_and_the_state(self):

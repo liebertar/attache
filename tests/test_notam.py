@@ -381,7 +381,7 @@ class SecondNoticeTest(unittest.TestCase):
                   if e["decision"].get("code") == "notice_unreadable"]
         self.assertEqual(len(unread), 1)
         self.assertEqual(unread[0]["decision"]["detail"]["notice"], "nofly-2026-09-medevac")
-        self.assertIn("모델이 없음", unread[0]["decision"]["reason"])
+        self.assertIn("no model to structure it", unread[0]["decision"]["reason"])
         self.assertEqual(adapter.sent, [])
 
 

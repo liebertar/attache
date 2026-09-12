@@ -128,7 +128,7 @@ class NoticeBook:
 
         compiled, model, problems = self.compile(text)
         if compiled is None:
-            return None, "; ".join(problems) or "모델 답 없음"
+            return None, "; ".join(problems) or "no answer from the model"
         problems = validate(compiled, bbox)
         if problems:
             return None, "; ".join(problems)
@@ -148,7 +148,7 @@ class NoticeBook:
         notice_id = str(item.get("id") or "")
         record, why = result
         if record is None:
-            self.unreadable[notice_id] = why or "모델 답 없음"
+            self.unreadable[notice_id] = why or "no answer from the model"
             return None
         self.records[notice_id] = record
         return record
@@ -172,20 +172,20 @@ class NoticeBook:
         """Text the grammar could not read goes to the model. Returns (notice, model id,
         problems). Without a model, it is unreadable."""
         if not text.strip():
-            return None, "", ["빈 문장"]
+            return None, "", ["empty text"]
         if not self.can_compile:
-            return None, "", ["문법으로 못 읽었고 구조화할 모델이 없음"]
+            return None, "", ["the grammar could not read it and there is no model to structure it"]
         reply = self.llm.ask(LlmTier.SUPER, COMPILE_SYSTEM,
                              f"Clock: tick 0 is {self.clock.epoch_z}Z, one tick is "
                              f"{self.clock.seconds_per_tick} s.\nNotice: {text}",
                              max_tokens=600, json_object=True, timeout_s=NOTICE_TIMEOUT_S)
         if reply is None:
-            return None, "", ["모델 답 없음"]
+            return None, "", ["no answer from the model"]
         form = parse_json_object(reply.text)
         notice = None if form is None else from_model_form(form, self.clock, text)
         if notice is None:
             self.llm.discard(LlmTier.SUPER)
-            return None, reply.model, ["모델 답이 양식이 아님"]
+            return None, reply.model, ["the model's answer is not in the form"]
         return notice, reply.model, []
 
     def confirm(self, notice_id: str, actor: str, allow: bool) -> NoticeRecord | None:
@@ -201,7 +201,7 @@ class NoticeBook:
             record.volume.source = "human"
         else:
             self.records.pop(notice_id)
-            self.unreadable[notice_id] = f"{actor} 가 거부"
+            self.unreadable[notice_id] = f"{actor} refused"
         return record
 
     # The lists below iterate over a copy of records. If the world thread walks the same dict

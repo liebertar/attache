@@ -651,7 +651,7 @@ class ModelPathTest(unittest.TestCase):
         runtime.absorb([{"id": "news-7", "text": GUSTY}])
         runtime.absorb([{"id": "news-7", "text": GUSTY}])
         self.assertEqual(codes(runtime), ["intake_received", "intake_unreadable"])
-        self.assertIn("모델이 없음", ledger_lines(runtime)[-1]["decision"]["reason"])
+        self.assertIn("no model to structure it", ledger_lines(runtime)[-1]["decision"]["reason"])
         self.assertEqual(runtime.snapshot()["intake"]["sources"],
                          {"tavily": "off", "sim": True, "metar": "off"})
 
@@ -915,7 +915,8 @@ class TrustBySourceTest(unittest.TestCase):
         self.assertEqual(snap["intake"]["items"][0]["trusted"], False)
         card = pending(self.runtime, "publish_weather")[0]
         self.assertEqual(self.runtime._decisions[card["id"]].reason,
-                         "tavily 에서 온 글은 관제탑 공지가 아닙니다 — 사람이 확인해야 적용됩니다")
+                         "text from tavily is not a runtime notice — it applies only "
+                         "once a human confirms it")
         self.assertEqual(codes(self.runtime), ["intake_received", "intake_read"])
         self.assertTrue(ledger_lines(self.runtime)[-1]["decision"]["detail"]["held"])
 
@@ -998,7 +999,7 @@ class WindowAndHintTest(unittest.TestCase):
         self.assertEqual(codes(self.runtime), ["intake_received", "intake_read"])
         line = ledger_lines(self.runtime)[-1]
         self.assertTrue(line["decision"]["detail"]["window_closed"])
-        self.assertIn("이미 닫힘", line["decision"]["reason"])
+        self.assertIn("window already closed", line["decision"]["reason"])
 
     def test_a_stale_incident_is_read_and_closes_nothing(self):
         self.runtime.tick = sim_world.INCIDENT_UNTIL + 50
@@ -1012,7 +1013,7 @@ class WindowAndHintTest(unittest.TestCase):
                      {"text": "FDNY FIRE AT 10 WEST 46TH STREET", "radius_m": "big"}):
             status, reply = self.runtime.submit_intake(body)
             self.assertEqual(status, 400, body)
-            self.assertIn("수여야", reply["error"])
+            self.assertIn("must be numbers", reply["error"])
         self.runtime.absorb([])
         self.assertEqual(codes(self.runtime), [])
         status, reply = self.runtime.submit_intake(

@@ -19,8 +19,8 @@ class WeatherMixin:
                   "report": report.to_dict(), "until_tick": until_tick}
         if not breaches:
             self.intake.note_report(record.id, report, breaches, self.tick, read_by)
-            self._ledger_intake(record, item, "intake_read", "noted", "날씨 보고서 · 한도 안",
-                                detail)
+            self._ledger_intake(record, item, "intake_read", "noted",
+                                "weather report · within limits", detail)
             if self.intake.hold is not None:
                 self._refresh_lift_card(self.intake.hold)
             return
@@ -28,7 +28,8 @@ class WeatherMixin:
             # A report for a past window. Opening a hold and lifting it in the same poll would
             # only pull back cleared routes that haven't taken off, for nothing.
             self._ledger_intake(record, item, "intake_read", "noted",
-                                f"날씨 보고서 · 한도 밖 · 창이 틱 {until_tick} 에 이미 닫힘",
+                                f"weather report · out of limits · window already closed "
+                                f"at tick {until_tick}",
                                 {**detail, "window_closed": True})
             return
         must_hold = self.intake.must_hold(record, read_by)
@@ -45,14 +46,16 @@ class WeatherMixin:
                 detail["extended_until"] = until_tick
             self.intake.note_report(record.id, report, breaches, self.tick, read_by)
             self._ledger_intake(record, item, "intake_read", "noted",
-                                "날씨 보고서 · 한도 밖 (대기 중)", detail)
+                                "weather report · out of limits (already holding)", detail)
             return
         if must_hold:
             self._ledger_intake(record, item, "intake_read", "noted",
-                                "날씨 보고서 · 한도 밖 (사람 확인 대기)", {**detail, "held": True})
+                                "weather report · out of limits (waiting for a human)",
+                                {**detail, "held": True})
             self._hold_weather(record, report, breaches, until_tick, read_by)
             return
-        self._ledger_intake(record, item, "intake_read", "noted", "날씨 보고서 · 한도 밖", detail)
+        self._ledger_intake(record, item, "intake_read", "noted",
+                            "weather report · out of limits", detail)
         self._open_weather_hold(record.id, report, breaches, until_tick, "grammar")
 
     def _open_weather_hold(self, record_id: str, report, breaches: list[str], until_tick: int,
@@ -92,25 +95,26 @@ class WeatherMixin:
                              else "already_held" if allow else "refused")
         if allow and self.tick > until_tick:
             decision.verdict = Verdict.DENIED
-            decision.reason = f"{actor} 가 확인했지만 창이 틱 {until_tick} 에 이미 닫혔습니다"
+            decision.reason = (f"{actor} confirmed, but the window had already closed at tick "
+                               f"{until_tick}")
             decision.code = "weather_lapsed"
             self._close_card(card, proposal, decision, "lapsed", "weather:human")
             return decision
         if allow and held is not None and self.intake.hold is None:
             decision.verdict = Verdict.AUTO
-            decision.reason = f"{actor} 가 날씨 보고서를 확인했습니다 — 이륙 정지"
+            decision.reason = f"{actor} confirmed the weather report — takeoffs stopped"
             decision.code = "weather_confirmed"
             self._close_card(card, proposal, decision, "done", "weather:human")
             self._open_weather_hold(held["id"], report, list(held["breaches"]), until_tick, "human")
             return decision
         if allow:
             decision.verdict = Verdict.AUTO
-            decision.reason = f"{actor} 가 확인 — 이미 대기 중이라 기록만"
+            decision.reason = f"{actor} confirmed — already holding, recorded only"
             decision.code = "weather_confirmed"
             self._close_card(card, proposal, decision, "done", "weather:human")
             return decision
         decision.verdict = Verdict.DENIED
-        decision.reason = f"{actor} 가 날씨 보고서를 거부했습니다"
+        decision.reason = f"{actor} refused the weather report"
         decision.code = "weather_refused"
         self._close_card(card, proposal, decision, "denied", "weather:human")
         return decision
@@ -125,13 +129,13 @@ class WeatherMixin:
         if allow and hold is not None and hold.id == proposal.params.get("hold"):
             self._lift_hold(hold, "human")
             decision.verdict = Verdict.AUTO
-            decision.reason = f"{actor} 가 기상 대기를 풀었습니다"
+            decision.reason = f"{actor} lifted the weather hold"
             decision.code = "weather_hold_lifted"
             self._close_card(card, proposal, decision, "done", "weather:human")
             return decision
         decision.verdict = Verdict.DENIED
-        decision.reason = (f"{actor} 가 풀지 않았습니다 — 창이 닫힐 때까지 대기" if hold is not None
-                           else "풀 대기가 없습니다")
+        decision.reason = (f"{actor} did not lift it — the hold stands until the window closes"
+                           if hold is not None else "there is no hold to lift")
         decision.code = "lift_refused"
         self._close_card(card, proposal, decision, "denied", "weather:human")
         return decision
@@ -149,15 +153,16 @@ class WeatherMixin:
         if hold is not None and self.tick > hold.until_tick:
             self._lift_hold(hold, "window")
             self._ledger_hold_end(hold, "weather_hold_expired",
-                                  f"틱 {hold.until_tick} 에 창이 닫혀 풀림")
+                                  f"the window closed at tick {hold.until_tick} — hold lifted")
             if hold.lift_card:
-                self._drop_card(hold.lift_card, "weather_hold_expired", "창이 닫혀 대기가 풀림")
+                self._drop_card(hold.lift_card, "weather_hold_expired",
+                                "the window closed — hold lifted")
         for key, held in list(self.intake.held_weather.items()):
             if self.tick > int(held.get("until_tick") or self.tick):
                 self.intake.held_weather.pop(key, None)
                 self._rule_close(key, "lapsed")
                 self._drop_card(held.get("card"), "weather_lapsed",
-                                "사람이 확인하기 전에 창이 닫힘")
+                                "the window closed before a human confirmed")
 
     def _ledger_hold_end(self, hold: WeatherHold, code: str, reason: str) -> None:
         """Line for a hold that ended without a human (window closed, round changed). The ledger

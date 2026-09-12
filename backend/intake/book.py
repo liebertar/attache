@@ -207,7 +207,7 @@ class IntakeBook:
         """
         text = str(item.get("text") or "")
         if not text.strip():
-            return None, "", "빈 문장"
+            return None, "", "empty text"
         compiled = self.read_grammar(item)
         if compiled is not None:
             problems = self.problems(compiled, bbox)
@@ -215,13 +215,13 @@ class IntakeBook:
                 return None, "grammar", "; ".join(problems)
             return compiled, "grammar", ""
         if not self.can_compile:
-            return None, "", "문법으로 못 읽었고 구조화할 모델이 없음"
+            return None, "", "the grammar could not read it and there is no model to structure it"
         reply = self.llm.ask(LlmTier.SUPER, INTAKE_SYSTEM,
                              f"Clock: tick 0 is {self.clock.epoch_z}Z, one tick is "
                              f"{self.clock.seconds_per_tick} s.\nText: {text[:2000]}",
                              max_tokens=600, json_object=True, timeout_s=INTAKE_TIMEOUT_S)
         if reply is None:
-            return None, "", "모델 답 없음"
+            return None, "", "no answer from the model"
         form = parse_json_object(reply.text)
         try:
             compiled = None if form is None else from_intake_form(form, self.gazetteer,
@@ -231,7 +231,7 @@ class IntakeBook:
             return None, f"model:{reply.model}", str(error)
         if compiled is None:
             self.llm.discard(LlmTier.SUPER)
-            return None, f"model:{reply.model}", "모델 답이 양식이 아님"
+            return None, f"model:{reply.model}", "the model's answer is not in the form"
         problems = self.problems(compiled, bbox)
         if problems:
             self.llm.discard(LlmTier.SUPER)
@@ -253,7 +253,7 @@ class IntakeBook:
         record.read_by = read_by
         if compiled is None:
             record.kind = None
-            record.why = why or "못 읽음"
+            record.why = why or "not read"
             return
         record.kind = compiled.kind
         record.held = compiled.kind != "none" and self.must_hold(record, read_by)
@@ -267,8 +267,9 @@ class IntakeBook:
     @staticmethod
     def held_why(record: IntakeRecord, read_by: str) -> str:
         if read_by.startswith("model:"):
-            return "모델이 읽은 것은 사람이 확인해야 적용됩니다"
-        return f"{record.source} 에서 온 글은 관제탑 공지가 아닙니다 — 사람이 확인해야 적용됩니다"
+            return "what a model read applies only once a human confirms it"
+        return (f"text from {record.source} is not a runtime notice — it applies only once "
+                "a human confirms it")
 
     # ---------- weather ----------
 

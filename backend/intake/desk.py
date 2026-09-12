@@ -59,7 +59,7 @@ class IntakeDeskMixin:
         thread would lose the rest of that poll's items too."""
         text = " ".join(str(body.get("text") or "").split())[:2000]
         if not text:
-            return 400, {"error": "text 가 비어 있습니다"}
+            return 400, {"error": "text is empty"}
         hints, problem = _intake_hints(body)
         if problem:
             return 400, {"error": problem}
@@ -87,8 +87,8 @@ class IntakeDeskMixin:
             record = self.intake.receive(item, self.tick)
             if record is None:
                 continue        # already seen: neither read nor recorded again
-            received = ("재시작 전에 사람을 기다리던 것 — 카드를 다시 올림" if item.get("reopened")
-                        else f"{record.source} 에서 받음")
+            received = ("was waiting for a human before the restart — the card goes back up"
+                        if item.get("reopened") else f"received from {record.source}")
             self._ledger_intake(record, item, "intake_received", "noted", received,
                                 {"kind_hint": item.get("kind"),
                                  **({"reopened": True} if item.get("reopened") else {})})
@@ -98,7 +98,7 @@ class IntakeDeskMixin:
             try:
                 result = self.intake.compile_item(item, bbox)
             except Exception as error:  # noqa: BLE001 — one item must not stop the poll
-                result = (None, "", f"읽기 실패 {error!r}")
+                result = (None, "", f"read failed {error!r}")
             self._settle_intake(item, record, result)
 
     def _read_intake_later(self, item: dict, record, bbox) -> None:
@@ -111,7 +111,7 @@ class IntakeDeskMixin:
             try:
                 result = self.intake.compile_item(item, bbox)
             except Exception as error:  # noqa: BLE001 — recorded as unreadable
-                result = (None, "", f"모델 읽기 실패 {error!r}")
+                result = (None, "", f"model read failed {error!r}")
             with self._guard:
                 self._read_intake.append((round_at, item, record, result))
 
@@ -134,21 +134,22 @@ class IntakeDeskMixin:
         self.intake.settle(record, compiled, read_by, why)
         if compiled is None:
             self._ledger_intake(record, item, "intake_unreadable", "unreadable",
-                                f"읽지 못했습니다 — {record.why}", {"why": record.why,
+                                f"could not read it — {record.why}", {"why": record.why,
                                                                 "read_by": read_by})
             return
         try:
             self._apply_intake(item, record, compiled, read_by)
         except Exception as error:  # noqa: BLE001 — the item broke, not the runtime
-            self.intake.settle(record, None, read_by, f"적용 실패 {error!r}")
+            self.intake.settle(record, None, read_by, f"apply failed {error!r}")
             self._ledger_intake(record, item, "intake_unreadable", "unreadable",
-                                f"읽었지만 적용하지 못했습니다 — {record.why}",
+                                f"read but could not apply — {record.why}",
                                 {"why": record.why, "read_by": read_by})
 
     def _apply_intake(self, item: dict, record, compiled, read_by: str) -> None:
         if compiled.kind == "none":
             self._ledger_intake(record, item, "intake_read", "noted",
-                                "기단과 무관한 글", {"kind": "none", "read_by": read_by})
+                                "nothing to do with the fleet",
+                                {"kind": "none", "read_by": read_by})
         elif compiled.kind == "weather":
             self._take_weather(item, record, compiled.weather, read_by)
         elif compiled.kind == "incident":
@@ -178,5 +179,5 @@ def _intake_hints(body: dict) -> tuple[dict, str]:
         if body.get("until_tick") is not None:
             hints["until_tick"] = int(body["until_tick"])
     except (TypeError, ValueError):
-        return {}, "radius_m 과 until_tick 은 수여야 합니다"
+        return {}, "radius_m and until_tick must be numbers"
     return hints, ""

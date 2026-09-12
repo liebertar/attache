@@ -34,7 +34,7 @@ class NoticeFlowMixin:
             try:
                 result = self.notices.compile_item(item, bbox)
             except Exception as error:  # noqa: BLE001 — recorded as unreadable
-                result = (None, f"모델 읽기 실패 {error!r}")
+                result = (None, f"model read failed {error!r}")
             with self._guard:
                 self._read_notices.append((round_at, item, result))
 
@@ -124,23 +124,23 @@ class NoticeFlowMixin:
         record = self.notices.get(notice_id)
         if allow and record is not None and record.until_tick is not None \
                 and self.tick > record.until_tick:
-            self.notices.forget(notice_id, "창이 닫힌 뒤에 확인")
+            self.notices.forget(notice_id, "confirmed after the window closed")
             self._rule_close(notice_id, "lapsed")
             decision.verdict = Verdict.DENIED
-            decision.reason = (f"{actor} 가 확인했지만 창이 틱 {record.until_tick} 에 이미 "
-                               "닫혔습니다 — 걸린 적 없음")
+            decision.reason = (f"{actor} confirmed, but the window had already closed at tick "
+                               f"{record.until_tick} — never applied")
             decision.code = "notice_lapsed"
             self._close_card(card, proposal, decision, "lapsed", "notice:human")
             return decision
         record = self.notices.confirm(notice_id, actor, allow)
         if allow and record is not None:
             decision.verdict = Verdict.AUTO
-            decision.reason = f"{actor} 가 공지를 확인했습니다"
+            decision.reason = f"{actor} confirmed the notice"
             decision.code = "notice_published"
         else:
             decision.verdict = Verdict.DENIED
-            decision.reason = f"{actor} 가 공지를 거부했습니다" if record is not None \
-                else "그런 공지가 없습니다"
+            decision.reason = f"{actor} refused the notice" if record is not None \
+                else "no such notice"
             decision.code = "notice_refused"
             self._rule_close(notice_id, "refused")
         self._close_card(card, proposal, decision,
@@ -154,7 +154,7 @@ class NoticeFlowMixin:
                           blast_radius="none", rationale=str(item.get("text") or "")[:180],
                           author="runtime", params={"notice_id": item["id"],
                                                     "text": item.get("text")})
-        decision = Decision(unread.id, Verdict.DENIED, f"공지를 읽지 못했습니다 — {why}",
+        decision = Decision(unread.id, Verdict.DENIED, f"the notice could not be read — {why}",
                             code="notice_unreadable", detail={"notice": item["id"], "why": why})
         self.ledger.close_entry(
             self.ledger.open_entry(unread, decision,
@@ -170,7 +170,8 @@ class NoticeFlowMixin:
                   "until_tick": until_tick}
         if until_tick <= self.tick:
             self._ledger_intake(record, item, "intake_read", "noted",
-                                f"사고 · {report.name} · 창이 틱 {until_tick} 에 이미 닫힘",
+                                f"incident · {report.name} · window already closed at tick "
+                                f"{until_tick}",
                                 {**detail, "window_closed": True})
             return
         held = self.intake.must_hold(record, read_by)
@@ -180,7 +181,7 @@ class NoticeFlowMixin:
         self._rule_open(record.id, "incident", report.from_tick or self.tick, until_tick,
                         applied=not held)
         self._ledger_intake(record, item, "intake_read", "noted",
-                            f"사고 · {report.name} · {report.radius_m:.0f} m",
+                            f"incident · {report.name} · {report.radius_m:.0f} m",
                             {**detail, "held": held})
         if held:
             self._hold_notice({"id": record.id, "text": record.text}, notice,
@@ -196,7 +197,8 @@ class NoticeFlowMixin:
         self.intake.notice_ids.add(record.id)
         self._rule_open(record.id, "notice", adopted.from_tick or self.tick, adopted.until_tick,
                         applied=not held)
-        self._ledger_intake(record, item, "intake_read", "noted", f"제한 공지 · {adopted.name}",
+        self._ledger_intake(record, item, "intake_read", "noted",
+                            f"restriction notice · {adopted.name}",
                             {"kind": "notice", "read_by": read_by, "held": held,
                              "notice": adopted.to_dict()})
         if held:

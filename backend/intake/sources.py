@@ -15,7 +15,7 @@ from shared.tavily import FetchStatus
 # How often (s) to fetch METAR. Observations come hourly (specials in between).
 METAR_PERIOD_S = float(os.getenv("METAR_PERIOD_S") or METAR_DEFAULT_PERIOD_S)
 # Names used in source failure/recovery lines.
-SOURCE_NAMES = {"tavily": "검색", METAR_SOURCE: "METAR"}
+SOURCE_NAMES = {"tavily": "search", METAR_SOURCE: "METAR"}
 
 
 class SourcesMixin:
@@ -53,8 +53,8 @@ class SourcesMixin:
                          params={"source": source, **status.to_dict()})
         decision = Decision(
             noted.id, Verdict.DENIED if failed_now else Verdict.AUTO,
-            (f"{name} 출처에 닿지 못합니다 — {status.error}" if failed_now
-             else f"{name} 출처가 다시 답합니다 (실패 {status.failures} 회 뒤)"),
+            (f"cannot reach the {name} source — {status.error}" if failed_now
+             else f"the {name} source answers again (after {status.failures} failures)"),
             code="intake_source_failed" if failed_now else "intake_source_recovered",
             detail={"source": source, **status.to_dict()})
         self.ledger.close_entry(
