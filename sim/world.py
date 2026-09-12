@@ -15,6 +15,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from shared.config import plural
 from shared.geo import (
     DEFAULT_CEILING_M,
     METRES_PER_DEG_LAT,
@@ -1110,7 +1111,8 @@ class World:
         for the next load (depart) or the charger.
         """
         if vehicle.job_label == "Warehouse" or vehicle.stops_left <= 0:
-            self._log(tick, "at the warehouse", f"{vehicle.id} brought back {vehicle.load} box(es)")
+            self._log(tick, "at the warehouse",
+                      f"{vehicle.id} brought back {plural(vehicle.load, 'box', 'boxes')}")
             vehicle.job_x = vehicle.job_y = None
             vehicle.job_label = ""
             vehicle.pickup = 0

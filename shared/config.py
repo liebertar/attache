@@ -83,6 +83,11 @@ def model_display(model_id: str | None) -> str:
     return MODEL_DISPLAY.get(key.lower(), key)
 
 
+def plural(count: int, noun: str, many: str = "") -> str:
+    """"1 page", "2 pages". These counts reach a person: the ledger, the screens, the event log."""
+    return f"{count} {noun}" if count == 1 else f"{count} {many or noun + 's'}"
+
+
 # Lost-link behaviour. The operator declares what the autopilot does when it loses the link.
 # On approval the runtime also judges the volume that behaviour sweeps (continue_and_land:
 # approved route + landing column) and keeps that volume reserved during a lost link. An

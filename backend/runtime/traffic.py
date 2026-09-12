@@ -14,6 +14,7 @@ from backend.runtime.intents import (
     landing_conflict,
     schedule,
 )
+from shared.config import plural
 from shared.models import Decision, Proposal, Verdict
 
 
@@ -197,8 +198,9 @@ class TrafficMixin:
                          params={"intent": intent.id, "planned_depart_tick": planned_tick,
                                  "actual_depart_tick": intent.depart_tick})
         decision = Decision(noted.id, Verdict.AUTO,
-                            f"{intent.asset} took off {planned_tick - self.tick} ticks before its "
-                            "cleared window — intent moved to the actual departure",
+                            f"{intent.asset} took off "
+                            f"{plural(planned_tick - self.tick, 'tick')} before its cleared "
+                            "window — intent moved to the actual departure",
                             code="nonconforming",
                             detail={"resource": intent.asset, "intent": intent.id,
                                     "planned_depart_tick": planned_tick})
