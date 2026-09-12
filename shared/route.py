@@ -281,7 +281,7 @@ class Router:
                 continue
             legs = self._attach(self._to_legs(nodes), start, goal)
             if first_breach(self.airspace, [leg.to_dict() for leg in legs]) is None:
-                return Route(legs, detoured=True, reason="금지 구역을 피해 우회")
+                return Route(legs, detoured=True, reason="detour around a forbidden zone")
         return None
 
     def _free_nodes_near(self, point: tuple[float, float]) -> list[tuple[int, int]]:
