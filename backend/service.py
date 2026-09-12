@@ -25,6 +25,7 @@ from backend.intake.entries import (
 )
 from backend.intake.notices import NoticeBook
 from backend.intake.rules import RulesMixin
+from backend.intake.sources import METAR_PERIOD_S, SourcesMixin
 from backend.runtime.advisory import AdvisoryDesk, Refusal, build_options
 from backend.runtime.arbiter import Arbiter
 from backend.runtime.authority import AuthorityCheck
@@ -63,8 +64,6 @@ from shared.geo import (
 from shared.http import JsonServer, get_json
 from shared.intake import Gazetteer
 from shared.llm.client import TieredLlm
-from shared.metar import DEFAULT_PERIOD_S as METAR_DEFAULT_PERIOD_S
-from shared.metar import SOURCE as METAR_SOURCE
 from shared.metar import MetarClient, MetarPoller
 from shared.models import AgentIdentity, Decision, Proposal, Verdict
 from shared.notam import Clock
@@ -83,19 +82,15 @@ SERVICE_MARGIN_DEG = 0.02
 ADDRESS_FILE = os.getenv(
     "ADDRESS_FILE", str(Path(__file__).resolve().parent.parent
                         / "configs/airspace/nyc_addresses.json"))
-# How often (s) to fetch METAR. Observations come hourly (specials in between).
-METAR_PERIOD_S = float(os.getenv("METAR_PERIOD_S") or METAR_DEFAULT_PERIOD_S)
 # Drop an aircraft from /state.agents when its registration goes unrenewed for this many ticks.
 # Aircraft re-announce every 30 s (drone/agent/loop.py REGISTER_PERIOD_S) — at 0.2 s/tick,
 # 600 ticks is 2 minutes, i.e. more than two missed announcements.
 AGENT_STALE_TICKS = int(os.getenv("AGENT_STALE_TICKS") or "600")
-# Names used in source failure/recovery lines.
-SOURCE_NAMES = {"tavily": "검색", METAR_SOURCE: "METAR"}
 # Fields of one /state.agents row.
 AGENT_FIELDS = ("model", "host", "world", "last_seen_tick", "display", "base_url_port", "model_ok")
 
 
-class Runtime(IntakeEntriesMixin, RulesMixin):
+class Runtime(IntakeEntriesMixin, RulesMixin, SourcesMixin):
     def __init__(self, config_path: str, sim_url: str, ledger_path: str, window_s: float = 1.5,
                  intake_db: str | None = None, metar: bool = False,
                  await_airspace: bool = False, briefing: bool = False):
@@ -1433,75 +1428,6 @@ class Runtime(IntakeEntriesMixin, RulesMixin):
 
     # ---------- Intake: weather, incidents, restrictions ----------
 
-    def take_in(self, items: list[dict], status: FetchStatus | None = None) -> None:
-        """The search thread drops off its results and cycle status. Nothing is recorded or
-        read here; the next poll does that. Only a successful cycle advances last_fetch_tick:
-        advanced by a failed, empty cycle, the screen would read 'just asked, found nothing'."""
-        with self._guard:
-            self._intake_inbox.extend(dict(item) for item in items)
-            if status is not None:
-                self._intake_fetch = status
-            if status is None or status.ok:
-                self.intake.last_fetch_tick = self.tick
-
-    def _note_fetch(self) -> None:
-        """Search source failure ↔ recovery, one line per change only: a line every cycle would
-        fill the ledger with failures."""
-        with self._guard:
-            status, self._intake_fetch = self._intake_fetch, None
-        if status is None:
-            return
-        self.intake.fetch = status.to_dict()
-        failed_now = not status.ok
-        if failed_now == self.intake.source_failed:
-            return
-        self.intake.source_failed = failed_now
-        self._ledger_source_change("tavily", status, failed_now)
-
-    def _ledger_source_change(self, source: str, status: FetchStatus, failed_now: bool) -> None:
-        """One line per source failure ↔ recovery. Search (tavily) and METAR share it."""
-        name = SOURCE_NAMES.get(source, source)
-        noted = Proposal(asset_id=INTAKE_ASSET, action="intake_source", cost_usd=0.0,
-                         blast_radius="none", author="runtime",
-                         rationale=f"{source} · {status.error or 'ok'}"[:180],
-                         params={"source": source, **status.to_dict()})
-        decision = Decision(
-            noted.id, Verdict.DENIED if failed_now else Verdict.AUTO,
-            (f"{name} 출처에 닿지 못합니다 — {status.error}" if failed_now
-             else f"{name} 출처가 다시 답합니다 (실패 {status.failures} 회 뒤)"),
-            code="intake_source_failed" if failed_now else "intake_source_recovered",
-            detail={"source": source, **status.to_dict()})
-        self.ledger.close_entry(
-            self.ledger.open_entry(noted, decision, self._context(None, ["intake:source"])),
-            "failed" if failed_now else "noted")
-
-    def take_metar(self, items: list[dict], status: FetchStatus | None = None) -> None:
-        """The METAR thread drops off observations and cycle status. Recording and reading
-        happen on the next poll (world thread)."""
-        with self._guard:
-            self._intake_inbox.extend(dict(item) for item in items)
-            if status is not None:
-                self._metar_fetch = status
-            if status is None or status.ok:
-                self.metar_last_fetch_tick = self.tick
-                # A failed cycle doesn't clear the last observations: a gust hold is lifted by
-                # the window or a human, never by a network outage.
-                self._metar_current = [dict(item) for item in items]
-
-    def _note_metar_fetch(self) -> None:
-        """METAR source on ↔ off. One line (off) when it can't be reached, one (on) when it
-        answers again."""
-        with self._guard:
-            status, self._metar_fetch = self._metar_fetch, None
-        if status is None:
-            return
-        self.metar_fetch = status.to_dict()
-        now = "on" if status.ok else "off"
-        was, self.metar_status = self.metar_status, now
-        if now == was or (was == "starting" and status.ok):
-            return      # the first success is no news: it simply started on
-        self._ledger_source_change(METAR_SOURCE, status, failed_now=not status.ok)
-
     def submit_intake(self, body: dict):
         """POST /intake. One sentence typed by a person; queue it in the inbox, return its id.
 
@@ -2342,15 +2268,6 @@ class Runtime(IntakeEntriesMixin, RulesMixin):
         # became what.
         built["intake"] = self.store.report()
         return to_markdown(built) if fmt == "md" else built
-
-    def _intake_snapshot(self) -> dict:
-        out = self.intake.snapshot(self.tavily is not None)
-        out["sources"]["metar"] = self.metar_status
-        out["metar"] = {"stations": list(self.metar.stations) if self.metar is not None else [],
-                        "period_s": METAR_PERIOD_S, "last_fetch_tick": self.metar_last_fetch_tick,
-                        "fetch": self.metar_fetch}
-        out["store"] = self.store.counts()
-        return out
 
     def _links_snapshot(self) -> dict:
         with self._link_lock:
