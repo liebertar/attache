@@ -9,7 +9,7 @@ import json
 import tempfile
 import unittest
 
-from backend.service import Runtime
+from backend.runtime.tower import Runtime
 from shared.geo import box
 from shared.llm.client import LlmReply, TieredLlm
 from shared.models import Proposal, Verdict

@@ -13,7 +13,7 @@ import json
 import tempfile
 import unittest
 
-from backend.intents import (
+from backend.runtime.intents import (
     ACTIVATED,
     ENDED,
     LOST_LINK_MARGIN_TICKS,
@@ -23,7 +23,7 @@ from backend.intents import (
     first_conflict,
     schedule,
 )
-from backend.service import Runtime
+from backend.runtime.tower import Runtime
 from shared import config as config_module
 from shared.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, Volume, box
 from shared.models import Proposal, Verdict

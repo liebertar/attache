@@ -9,7 +9,7 @@ import json
 import tempfile
 import unittest
 
-from backend.service import Runtime
+from backend.runtime.tower import Runtime
 from shared.models import Proposal, Verdict
 from sim import world as sim_world
 

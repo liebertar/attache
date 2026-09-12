@@ -97,7 +97,7 @@ intake:
     - "Manhattan building fire today"
   metar_stations: [KNYC, KLGA]
 
-# Pre-flight briefing (backend/briefing.py). When a round starts, and when a just-cleared corridor
+# Pre-flight briefing (backend/intake/briefing.py). When a round starts, and when a just-cleared corridor
 # enters a neighbourhood (a cell of about cell_km) not yet asked about this round, the runtime
 # asks Tavily about that place and time: events and crowds (in September, VIP flight restrictions
 # for UN General Assembly week), tower cranes (not in the building data), closures of the parks

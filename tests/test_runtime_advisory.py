@@ -9,7 +9,7 @@ import json
 import tempfile
 import unittest
 
-from backend.advisory import (
+from backend.runtime.advisory import (
     ADVISORY_AFTER,
     CLIMB_M,
     AdvisoryDesk,
@@ -19,7 +19,7 @@ from backend.advisory import (
     parse_advice,
     rule_pick,
 )
-from backend.service import Runtime
+from backend.runtime.tower import Runtime
 from shared.geo import Volume, box
 from shared.llm.client import LlmReply, TieredLlm
 from shared.models import Proposal, Verdict

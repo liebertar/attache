@@ -1,7 +1,7 @@
 import unittest
 
-from backend.authority import AuthorityCheck
-from backend.policy import PolicyBook
+from backend.runtime.authority import AuthorityCheck
+from backend.runtime.policy import PolicyBook
 from shared.config import Authority, Policy
 from shared.models import Proposal, Verdict
 

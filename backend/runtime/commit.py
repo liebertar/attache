@@ -5,9 +5,9 @@ lock, calls the adapter, then closes the ledger. Agents cannot import this modul
 not in their container image.
 """
 
-from backend.authority import AuthorityCheck
-from backend.ledger import Ledger
-from backend.locks import LockTable
+from backend.runtime.authority import AuthorityCheck
+from backend.runtime.locks import LockTable
+from backend.store.ledger import Ledger
 from shared.models import Decision, Proposal, Verdict
 
 # Held resources are released when the aircraft actually leaves. Releasing them when loading

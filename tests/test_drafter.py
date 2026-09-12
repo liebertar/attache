@@ -504,8 +504,13 @@ class RecordedRepliesTest(unittest.TestCase):
 class RuntimeNeverReadsTheDrafterTest(unittest.TestCase):
     def test_no_runtime_file_mentions_the_drafter(self):
         """Who drew it is kept in the ledger only and never enters the judgement. Pinned by grep."""
+        reports = RUNTIME_DIR / "store" / "reports"
         offenders = []
-        for path in RUNTIME_DIR.glob("*.py"):
+        for path in RUNTIME_DIR.rglob("*.py"):
+            # A report reads the ledger back to people, provenance included. That package is the
+            # one deliberate exemption, and it is keyed to the directory, not to a file name.
+            if reports in path.parents:
+                continue
             text = path.read_text(encoding="utf-8")
             for needle in ("drafter", "draft_attempts"):
                 if needle in text:

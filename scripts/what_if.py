@@ -9,7 +9,7 @@
 
 import argparse
 
-from backend.replay import replay
+from backend.store.replay import replay
 from shared import config as config_module
 from shared.config import Policy
 
@@ -63,7 +63,7 @@ def main() -> int:
 
 
 def _assets(ledger_path: str) -> set:
-    from backend.replay import read_commits
+    from backend.store.replay import read_commits
 
     return {e["proposal"]["asset_id"] for e in read_commits(ledger_path)}
 

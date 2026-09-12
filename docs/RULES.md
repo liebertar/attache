@@ -1,8 +1,8 @@
 # Rules the runtime enforces
 
 Every number here is enforced by code. Nothing in this table is decided by a model. Constants live in
-`shared/geo.py`, `shared/route.py`, `backend/intents.py`,
-`backend/briefing.py`, `shared/intake.py` and `configs/fleet.yaml`.
+`shared/geo.py`, `shared/route.py`, `backend/runtime/intents.py`,
+`backend/intake/briefing.py`, `shared/intake.py` and `configs/fleet.yaml`.
 
 ## Airspace
 

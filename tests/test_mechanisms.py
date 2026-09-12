@@ -8,9 +8,9 @@ for reasons that have nothing to do with the code being wrong.
 import tempfile
 import unittest
 
-from backend.authority import AuthorityCheck
-from backend.policy import PolicyBook
-from backend.service import Runtime
+from backend.runtime.authority import AuthorityCheck
+from backend.runtime.policy import PolicyBook
+from backend.runtime.tower import Runtime
 from shared.config import Authority, Policy
 from shared.models import Proposal, Verdict
 from sim.world import RECALL, RECALL_TICK, Simulation
@@ -204,7 +204,7 @@ class PadContentionTest(unittest.TestCase):
         self.assertGreater(world.score.pad_conflicts, 0)
 
     def test_a_lock_table_hands_the_pad_to_one_of_them(self):
-        from backend.locks import LockTable
+        from backend.runtime.locks import LockTable
 
         locks = LockTable(["pad:launch", "pad:launch"])
         self.assertTrue(locks.acquire("pad:launch", "drone-01", "p1"))
@@ -224,7 +224,7 @@ class RoundResetTest(unittest.TestCase):
     def _runtime(self):
         import tempfile
 
-        from backend.service import Runtime
+        from backend.runtime.tower import Runtime
 
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             return Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)
@@ -374,7 +374,7 @@ class RouteFormTest(unittest.TestCase):
         self.assertIn("양식", decision.reason)
 
     def test_a_leg_longer_than_the_runtime_maximum_is_refused(self):
-        from backend.service import MAX_LEG_M
+        from backend.runtime.form import MAX_LEG_M
 
         legs = [{"lat": 40.70, "lon": -73.97, "alt_m": 60},
                 {"lat": 40.70 + (MAX_LEG_M + 1000) / 110_570.0, "lon": -73.97, "alt_m": 60}]

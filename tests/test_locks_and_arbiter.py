@@ -3,10 +3,10 @@ import time
 import unittest
 from unittest import mock
 
-from backend import service as service_module
-from backend.arbiter import SYSTEM, Arbiter, by_rule, parse_verdict
-from backend.locks import LockTable
-from backend.service import Runtime
+from backend.runtime import world as world_module
+from backend.runtime.arbiter import SYSTEM, Arbiter, by_rule, parse_verdict
+from backend.runtime.locks import LockTable
+from backend.runtime.tower import Runtime
 from shared.llm.client import LlmReply, TieredLlm
 from shared.models import Proposal, Verdict
 
@@ -167,7 +167,7 @@ class SlowArbiterDoesNotStallTheWorldTest(unittest.TestCase):
 
         # No simulator HTTP here. Airspace and notice lookups get empty answers, and only the
         # adapter's clock is used.
-        with mock.patch.object(service_module, "get_json", lambda *a, **k: {}):
+        with mock.patch.object(world_module, "get_json", lambda *a, **k: {}):
             runtime.start_background()
             time.sleep(1.5)
             ticks_while_thinking = runtime.tick

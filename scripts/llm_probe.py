@@ -16,8 +16,8 @@ import sys
 import urllib.error
 import urllib.request
 
-from backend.arbiter import SYSTEM as ARBITER_SYSTEM
-from backend.arbiter import parse_verdict
+from backend.runtime.arbiter import SYSTEM as ARBITER_SYSTEM
+from backend.runtime.arbiter import parse_verdict
 from drone.agent.detect import Concern
 from drone.agent.propose import Proposer, system_for
 from shared.llm.client import LlmTier, TieredLlm, parse_json_object

@@ -11,4 +11,4 @@ COPY configs /app/configs
 # Recorded briefing scenes, read when TAVILY_API_KEY is absent. Hand-written and all marked
 # "recorded"; without them the recorded mode reads an empty list and the briefing is empty.
 COPY tests/fixtures/tavily /app/tests/fixtures/tavily
-CMD ["python", "-m", "backend.service"]
+CMD ["python", "-m", "backend.api.server"]

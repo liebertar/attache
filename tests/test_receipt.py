@@ -54,11 +54,11 @@ class LedgerTruthTest(unittest.TestCase):
     def test_the_closing_entry_reports_what_actually_happened(self):
         import tempfile
 
-        from backend.authority import AuthorityCheck
-        from backend.commit import Committer
-        from backend.ledger import Ledger
-        from backend.locks import LockTable
-        from backend.policy import PolicyBook
+        from backend.runtime.authority import AuthorityCheck
+        from backend.runtime.commit import Committer
+        from backend.runtime.locks import LockTable
+        from backend.runtime.policy import PolicyBook
+        from backend.store.ledger import Ledger
         from shared.config import Authority
         from shared.models import Decision, Proposal, Verdict
 
@@ -168,7 +168,7 @@ class AirspaceTest(unittest.TestCase):
     def test_the_runtime_refuses_a_route_through_restricted_airspace(self):
         import tempfile
 
-        from backend.service import Runtime
+        from backend.runtime.tower import Runtime
         from shared.geo import Volume
         from shared.models import Verdict
         from sim.world import Simulation as Sim
