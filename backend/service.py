@@ -36,10 +36,10 @@ from backend.runtime.intents import (
     ACCEPTED,
     Intent,
     IntentRegistry,
-    LinkEvent,
     LinkWatch,
 )
 from backend.runtime.locks import LockTable
+from backend.runtime.lostlink import LostLinkMixin
 from backend.runtime.policy import PolicyBook
 from backend.runtime.route_check import RouteCheckMixin
 from backend.runtime.traffic import TrafficMixin
@@ -83,8 +83,9 @@ AGENT_STALE_TICKS = int(os.getenv("AGENT_STALE_TICKS") or "600")
 AGENT_FIELDS = ("model", "host", "world", "last_seen_tick", "display", "base_url_port", "model_ok")
 
 
-class Runtime(RouteCheckMixin, TrafficMixin, IntakeDeskMixin, IntakeEntriesMixin,
-              NoticeFlowMixin, RulesMixin, SourcesMixin, WeatherMixin):
+class Runtime(RouteCheckMixin, TrafficMixin, LostLinkMixin, IntakeDeskMixin,
+              IntakeEntriesMixin, NoticeFlowMixin, RulesMixin, SourcesMixin,
+              WeatherMixin):
     def __init__(self, config_path: str, sim_url: str, ledger_path: str, window_s: float = 1.5,
                  intake_db: str | None = None, metar: bool = False,
                  await_airspace: bool = False, briefing: bool = False):
@@ -1124,42 +1125,6 @@ class Runtime(RouteCheckMixin, TrafficMixin, IntakeDeskMixin, IntakeEntriesMixin
 
     # ---------- Lost link ----------
 
-    def watch_links(self) -> list[LinkEvent]:
-        """Watch the telemetry heartbeat. The world thread (_pull_world) and the harness call it
-        every poll."""
-        with self._link_lock:
-            events = self.links.observe(self.telemetry, self.tick)
-        for event in events:
-            if event.kind == "lost":
-                self._link_lost(event)
-            else:
-                self._link_restored(event)
-        return events
-
-    def _link_lost(self, event: LinkEvent) -> None:
-        """Link lost. Nothing is sent to the aircraft (it can't hear). Its intent stays reserved
-        (position unknown, so the whole remaining route up to the nominal landing plus margin),
-        a ledger line is written and a human card goes up. Reserving tightens, so it applies on
-        that tick; releasing early is a human's call."""
-        at = _position(self.telemetry.get(event.asset) or {})
-        standing = self.intents.get(event.asset)
-        standing = standing if standing is not None and standing.live else None
-        reserved_until = None
-        if standing is not None:
-            reserved_until = standing.reserve_dark(event.last_seen_tick, at)
-            self._dark[event.asset] = standing
-        behaviour = self.performance.lost_link.behaviour
-        detail = {"resource": event.asset, "since_tick": event.since_tick,
-                  "last_seen_tick": event.last_seen_tick, "declared_tick": event.tick,
-                  "intent": standing.id if standing is not None else None,
-                  "behaviour": behaviour, "reserved_until_tick": reserved_until,
-                  "last_position": _position_dict(at)}
-        reason = (f"{event.asset} 텔레메트리가 틱 {event.since_tick} 부터 없음 — {behaviour}, "
-                  + (f"승인 경로 + 착륙 기둥을 틱 {reserved_until} 까지 예약"
-                     if reserved_until is not None else "예약할 의도 없음"))
-        self._ledger_link("link_lost", event.asset, reason, detail, standing)
-        self._raise_link_card(event.asset, detail, standing)
-
     def _raise_link_card(self, asset: str, detail: dict, intent: Intent | None) -> None:
         """Lost-link notice on the approval screen. Approval releases the held space now;
         refusal keeps it until telemetry returns. When telemetry returns, the card comes down
@@ -1183,61 +1148,6 @@ class Runtime(RouteCheckMixin, TrafficMixin, IntakeDeskMixin, IntakeEntriesMixin
             card, decision, self._context(None, ["link"], intent.id if intent else None))
         self._link_cards[asset] = card.id
 
-    def _link_restored(self, event: LinkEvent) -> None:
-        """Telemetry is back. Check whether the aircraft stayed inside the cleared volume while
-        the link was lost (conformance), undo the extended window and take the card down. It is
-        visible again, so judgement goes by telemetry from here."""
-        at = _position(self.telemetry.get(event.asset) or {})
-        intent = self._dark.pop(event.asset, None)
-        self._released.discard(event.asset)
-        conforming = intent.covers(*at) if intent is not None and at is not None else None
-        if intent is not None:
-            intent.release_dark()
-        detail = {"resource": event.asset, "since_tick": event.since_tick,
-                  "last_seen_tick": event.last_seen_tick, "restored_tick": event.tick,
-                  "dark_ticks": event.tick - event.since_tick,
-                  "intent": intent.id if intent is not None else None,
-                  "conforming": conforming, "position": _position_dict(at)}
-        where = ("승인한 부피 안" if conforming
-                 else "승인한 부피 밖" if conforming is False else "잡아 둔 의도 없음")
-        reason = (f"{event.asset} 텔레메트리가 틱 {event.tick} 에 돌아옴 "
-                  f"({detail['dark_ticks']}틱 끊김) — {where}")
-        self._ledger_link("link_restored", event.asset, reason, detail, intent)
-        if conforming is False:
-            self._ledger_link_nonconformance(event, intent, at)
-        self._drop_link_card(event.asset, detail)
-        self._observe()     # advance the intent from fresh telemetry (arrived if it has landed)
-
-    def _ledger_link(self, code: str, asset: str, reason: str, detail: dict,
-                     intent: Intent | None) -> None:
-        """One line for a lost or restored link (outcome noted). Nothing is executed: an
-        aircraft with a lost link can't hear."""
-        noted = Proposal(asset_id=asset, action=code, cost_usd=0.0, blast_radius="none",
-                         author="runtime", rationale=reason[:180], params=dict(detail))
-        decision = Decision(noted.id, Verdict.AUTO, reason, code=code, detail=dict(detail))
-        entry = self.ledger.open_entry(
-            noted, decision, self._context(None, ["link"], intent.id if intent else None))
-        self.ledger.close_entry(entry, "noted")
-
-    def _ledger_link_nonconformance(self, event: LinkEvent, intent: Intent, at) -> None:
-        """It left the cleared volume while the link was lost. Not undone, only recorded."""
-        noted = Proposal(asset_id=event.asset, action="conformance", cost_usd=0.0,
-                         blast_radius="none", author="runtime",
-                         rationale=f"링크가 끊긴 사이 승인한 부피 밖 (틱 {event.tick} 에 "
-                                   "다시 보임)",
-                         params={"intent": intent.id, "kind": "lost_link",
-                                 "since_tick": event.since_tick, "restored_tick": event.tick,
-                                 "position": _position_dict(at)})
-        decision = Decision(noted.id, Verdict.AUTO,
-                            f"{event.asset} 가 링크가 끊긴 사이 승인한 부피 밖에 있었습니다",
-                            code="nonconforming",
-                            detail={"resource": event.asset, "intent": intent.id,
-                                    "kind": "lost_link", "restored_tick": event.tick,
-                                    "position": _position_dict(at)})
-        entry = self.ledger.open_entry(noted, decision,
-                                       self._context(None, ["conformance"], intent.id))
-        self.ledger.close_entry(entry, "noted")
-
     def _drop_link_card(self, asset: str, detail: dict) -> None:
         """Telemetry is back; take the lost-link card down (lapsed). No-op if a human already
         answered."""
@@ -1253,30 +1163,6 @@ class Runtime(RouteCheckMixin, TrafficMixin, IntakeDeskMixin, IntakeEntriesMixin
         decision.detail = {**decision.detail, **detail}
         self._close_card(self._open_cards.pop(proposal.id, None), proposal, decision, "lapsed",
                          "link")
-
-    def _confirm_lost_link(self, proposal: Proposal, decision: Decision, actor: str,
-                           allow: bool, card=None) -> Decision:
-        """The human's answer. Approval releases the held space now: it means the human knows
-        where the aircraft is, and that responsibility stays on the ledger under their name.
-        Refusal keeps it until telemetry returns. Either way nothing is sent to the aircraft."""
-        asset = proposal.asset_id
-        self._link_cards.pop(asset, None)
-        if allow and self.links.lost(asset):
-            standing = self._dark.get(asset)
-            if standing is not None and standing.live:
-                self.intents.end(asset, "released")
-            self._released.add(asset)
-            decision.verdict = Verdict.AUTO
-            decision.reason = f"{actor} 가 {asset} 의 잡아 둔 공간을 풀었습니다"
-            decision.code = "lost_link_released"
-            self._close_card(card, proposal, decision, "done", "link:human")
-            return decision
-        decision.verdict = Verdict.DENIED
-        decision.reason = (f"{actor} 가 텔레메트리가 돌아올 때까지 공간을 잡아 둡니다"
-                           if self.links.lost(asset) else "링크가 이미 돌아왔습니다")
-        decision.code = "lost_link_kept"
-        self._close_card(card, proposal, decision, "denied", "link:human")
-        return decision
 
     # ---------- What the screen shows ----------
 
@@ -1342,10 +1228,6 @@ class Runtime(RouteCheckMixin, TrafficMixin, IntakeDeskMixin, IntakeEntriesMixin
         built["intake"] = self.store.report()
         return to_markdown(built) if fmt == "md" else built
 
-    def _links_snapshot(self) -> dict:
-        with self._link_lock:
-            return self.links.snapshot()
-
     def _autopilots_snapshot(self) -> dict:
         """Only an adapter with a mirror answers. Empty in the simulator-only wiring."""
         view = getattr(self.adapter, "autopilots", None)
@@ -1359,19 +1241,6 @@ def _load_addresses(path: str) -> list[dict]:
         return list(json.loads(Path(path).read_text(encoding="utf-8")).get("addresses") or [])
     except (OSError, ValueError, AttributeError):
         return []
-
-
-def _position(state: dict) -> tuple[float, float, float] | None:
-    """Position from telemetry (lat, lon, alt_m), or None if unknown."""
-    if state.get("lat") is None or state.get("lon") is None:
-        return None
-    return float(state["lat"]), float(state["lon"]), float(state.get("alt_m") or 0.0)
-
-
-def _position_dict(at: tuple[float, float, float] | None) -> dict | None:
-    if at is None:
-        return None
-    return {"lat": round(at[0], 6), "lon": round(at[1], 6), "alt_m": round(at[2], 1)}
 
 
 def main() -> None:
