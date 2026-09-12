@@ -24,6 +24,7 @@ from backend.intake.entries import (
     IntakeEntriesMixin,
 )
 from backend.intake.notices import NoticeBook
+from backend.intake.rules import RulesMixin
 from backend.runtime.advisory import AdvisoryDesk, Refusal, build_options
 from backend.runtime.arbiter import Arbiter
 from backend.runtime.authority import AuthorityCheck
@@ -94,7 +95,7 @@ SOURCE_NAMES = {"tavily": "검색", METAR_SOURCE: "METAR"}
 AGENT_FIELDS = ("model", "host", "world", "last_seen_tick", "display", "base_url_port", "model_ok")
 
 
-class Runtime(IntakeEntriesMixin):
+class Runtime(IntakeEntriesMixin, RulesMixin):
     def __init__(self, config_path: str, sim_url: str, ledger_path: str, window_s: float = 1.5,
                  intake_db: str | None = None, metar: bool = False,
                  await_airspace: bool = False, briefing: bool = False):
@@ -1952,36 +1953,6 @@ class Runtime(IntakeEntriesMixin):
                                     "radius_m": tags.get("radius_m")})
         self.ledger.close_entry(
             self.ledger.open_entry(noted, decision, self._context(None, ["incident"])), "noted")
-
-    # ---------- Rule records (sqlite) ----------
-
-    def _rule_open(self, item_id: str, kind: str, from_tick, until_tick, applied: bool) -> None:
-        self._rule_ids[item_id] = self.store.open_rule(item_id, kind, from_tick, until_tick,
-                                                       applied)
-
-    def _rule_apply(self, item_id: str, kind: str | None = None, from_tick=None,
-                    until_tick=None) -> None:
-        """A rule applied. Mark its held row applied if there is one; otherwise (given kind)
-        open a new row."""
-        self.store.decide_item(item_id, "approved")
-        rule = self._rule_ids.get(item_id)
-        if rule is not None:
-            self.store.apply_rule(rule, from_tick)
-        elif kind is not None:
-            self._rule_open(item_id, kind, from_tick, until_tick, True)
-
-    def _rule_extend(self, item_id: str, until_tick: int) -> None:
-        self.store.extend_rule(self._rule_ids.get(item_id), until_tick)
-
-    def _rule_close(self, item_id: str, lifted_by: str, until_tick: int | None = None) -> None:
-        """Close the rule row and, if the item was waiting for a human, record how it ended
-        (refused, lapsed, round changed). Otherwise a restart raises an answered card again."""
-        self.store.close_rule(self._rule_ids.pop(item_id, None), lifted_by, until_tick)
-        self.store.decide_item(item_id, lifted_by)
-
-    def _close_rules(self, lifted_by: str) -> None:
-        for key in list(self._rule_ids):
-            self._rule_close(key, lifted_by)
 
     def background(self) -> None:
         """Pulls the world in. Never on the arbitration thread (see settle_forever below)."""
