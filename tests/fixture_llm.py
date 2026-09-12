@@ -6,6 +6,10 @@ which question the reply belongs to. Matching is by tier and needle, so a small 
 prompt wording does not orphan a fixture, and a fixture never answers a question it was
 not recorded for — then the caller gets None and the rules take over, exactly as when the
 server is down.
+
+A recording keeps the wording of the day it was made, so the `brief` and `note` fields still
+quote the Korean building names the runtime wrote back then. Only `needle` and `text` matter to
+the replay, and both are English; leave the rest alone rather than edit a record after the fact.
 """
 
 import json
