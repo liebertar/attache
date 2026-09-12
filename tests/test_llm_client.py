@@ -69,7 +69,7 @@ class ReplyParsingTest(unittest.TestCase):
         self.assertEqual(parse_choice("2", 3), 1)
         self.assertEqual(parse_choice(" #3. ", 3), 2)
         self.assertIsNone(parse_choice("7", 3))
-        self.assertIsNone(parse_choice("7번은 안 되고 2번으로", 3))
+        self.assertIsNone(parse_choice("not 7, go with 2", 3))
         self.assertIsNone(parse_choice("", 3))
 
     def test_host_is_read_off_the_url(self):
@@ -292,8 +292,8 @@ class RecordedFormsTest(unittest.TestCase):
             return Proposal(asset_id=asset_id, action="reserve_pad", cost_usd=28.0,
                             blast_radius=blast, rationale=why, resource="pad:launch")
 
-        candidates = [candidate("drone-01", "schedule", "정비 점검"),
-                      candidate("drone-02", "cargo", "배터리 9%")]
+        candidates = [candidate("drone-01", "schedule", "maintenance check"),
+                      candidate("drone-02", "cargo", "battery 9%")]
         choice = Arbiter(self.llm).pick(candidates, {"drone-01": {"battery": 40.0},
                                                      "drone-02": {"battery": 9.0}})
         self.assertEqual(choice.how, "ultra:nemotron-3-nano")

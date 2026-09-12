@@ -68,20 +68,20 @@ class ArbiterTest(unittest.TestCase):
         self.assertTrue(how.startswith("ultra:"))
 
     def test_out_of_range_answer_is_discarded(self):
-        arbiter = Arbiter(StubLlm("저는 7번이 좋다고 생각합니다"))
+        arbiter = Arbiter(StubLlm("I think number 7 is the best one"))
         candidates = [make("drone-01", "passenger"), make("drone-02", "cargo")]
         winner, how = arbiter.choose(candidates, self.telemetry)
         self.assertEqual(winner.asset_id, "drone-01")  # falls back to the rule
         self.assertTrue(how.startswith("rule:"))
 
     def test_prose_answer_is_discarded(self):
-        arbiter = Arbiter(StubLlm("둘 다 착륙시키고 새 패드를 하나 더 지으세요"))
+        arbiter = Arbiter(StubLlm("land them both and build one more pad"))
         candidates = [make("drone-01", "passenger"), make("drone-02", "cargo")]
         _, how = arbiter.choose(candidates, self.telemetry)
         self.assertTrue(how.startswith("rule:"))
 
     def test_prose_with_a_number_inside_is_still_prose(self):
-        arbiter = Arbiter(StubLlm("1번은 안 되고 2번이 낫겠습니다"))
+        arbiter = Arbiter(StubLlm("not 1, 2 would be better"))
         candidates = [make("drone-01", "passenger"), make("drone-02", "cargo")]
         _, how = arbiter.choose(candidates, self.telemetry)
         self.assertTrue(how.startswith("rule:"))
