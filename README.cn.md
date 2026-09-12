@@ -1,26 +1,25 @@
-# Holdshort
+# sky-net
 
-**智能体提出申请。塔台放行。只有获准的飞行才会移动。**
+**智能体提出申请，运行时决定放行，只有获准的飞行才会执行。**
 
 [English](README.md) · [한국어](README.kr.md)
 
-Holdshort 是面向 AI 运营机队的放行权威运行时。每架无人机都有自己的智能体（小型 Nemotron 模型或纯规则），
-由它决定要做什么、申请哪条航线。在运行时依据物理世界——建筑、高度上限、关闭空域、其他航空器、天气、
-事故——完成判定、记录并执行之前，什么都不会起飞。判定路径中没有任何模型。演示用同一随机种子把同一
-机队跑两遍：一遍经过运行时，一遍由智能体直接操控自动驾驶仪，并计分对比。
+- 面向 AI 运营无人机机队的放行运行时。
+- 无人机智能体（Nemotron 或规则）只负责提交申请；判定、记录和下达指令都由运行时完成。
+- 判定环节不使用模型。收紧的规则立即生效，放宽的规则要等人确认。
 
 ```mermaid
 flowchart LR
-    subgraph fleet [机队 · 每架一个进程]
-        A1[drone-01 智能体<br/>Nemotron Nano 4B]
-        A2[drone-02 智能体]
-        A3[drone-03 智能体]
-        A4[drone-04 智能体]
+    subgraph fleet [无人机智能体 · 每架一个进程]
+        A1[drone-01<br/>Nemotron Nano]
+        A2[drone-02]
+        A3[drone-03]
+        A4[drone-04]
     end
-    subgraph tower [Holdshort 运行时 · 确定性]
-        J[判定<br/>建筑 · 上限 · 空域<br/>4D 间隔 · 着陆 · 天气]
+    subgraph runtime [sky-net 运行时 · 确定性]
+        J[判定<br/>建筑 · 高度上限 · 区域<br/>4D 间隔 · 着陆 · 天气]
         L[账本<br/>执行前写入]
-        I[信息接入与简报<br/>METAR · NOTAM · 事故 · Tavily]
+        I[接入与简报<br/>METAR · NOTAM · 事故 · Tavily]
         S[Super 模型<br/>只读文本]
     end
     subgraph world [世界]
@@ -28,132 +27,191 @@ flowchart LR
         W[天气 · FAA 网格 · 通告 · 网页]
     end
     A1 & A2 & A3 & A4 -- "申请航线" --> J
-    J -- "放行 / 拒绝 / 暂扣" --> A1 & A2 & A3 & A4
+    J -- "放行 / 拒绝 / 暂缓" --> A1 & A2 & A3 & A4
     J --> L --> AP
     AP -- 遥测 --> J
     W --> I --> S --> I --> J
 ```
 
-两条链路，两种性质。智能体只与运行时通信，且只用于申请。只有运行时能操控航空器。智能体链路断开，
-航空器毫无影响；航空器链路断开，它飞完已获准的航线并在那里着陆，运行时为它保留该空间。
+## 运行时看到什么
 
-## 演示展示的内容
-
-四架无人机从布鲁克林的仓库屋顶向曼哈顿各处的着陆区送货。一轮 5,000 拍（约 17 分钟）。空域关闭、天气暂停、
-火灾和链路丢失在固定种子下按固定时刻发生；其余场景随交通而发生。PX4 一行是可选的。
-
-| 场景 | 发生什么 | 谁决定 |
+| 输入 | 来源 | 用途 |
 |---|---|---|
-| 直线被拒 | 无人机向送货点申请直线，直线穿过一栋建筑。拒绝并点名该建筑 | 判定（代码） |
-| 航线选择 | 运营方的规划器最多画出三条合法候选：最短、高度最低、避开其他航空器与禁入区。无人机自己的 Nemotron 调用 `choose_route(id, reason)` 选出一条。运行时像判定其他申请一样判定这一选择 | 模型选择；判定放行或拒绝 |
-| 塔台简报 | 每轮开始时，以及新获准的走廊进入本轮还没人问过的约 1 km 网格时，塔台向 Tavily 询问该地点当天的情况：塔吊、活动、公园关闭、飞行限制、天气预警。由此生成的每条规则都带有来源 URL | 语法读取，代码核验。语法读取的官方页面立即生效；其余都等待人工确认 |
-| 飞行中空域关闭 | 第 525 拍，一条 NOTAM 关闭直升机坪走廊，drone-03 正在其中。它的航线被撤回，并在 22 拍的离开时限内从最近出口离开。穿过该区域的新航线被拒 | 由语法解析的 NOTAM 判定 |
-| 交叉航迹 | 两条航线会在同一时刻相距 30 m 和 25 m 以内。后者被拒并点名对方航空器；其运营方爬升 30 m、等待对方窗口过去，或改报能避开的那条候选 | 判定（4D 意图） |
-| 天气暂停 | 一行 METAR 报告阵风 28 kt。一拍之内全队暂停起飞；空中的航空器继续飞行并着陆。提前解除需要人 | 代码将数值与 `configs/fleet.yaml` 比较 |
-| 着陆区附近火灾 | 一份报告给出地址。该建筑周围出现 150 m 禁入区；Gantry Plaza 着陆区落在它的 50 m 余量之内，不能使用。种子 7 下没有已获准的走廊穿过这个圆，禁入区存在期间获准的每条航线都避开它 | 语法或 Super 模型读文本；代码核实地址并施加规则 |
-| 链路丢失 | 一架航空器失联。它飞完已获准航线并着陆。运行时为它保留剩余走廊直至到期，不向它发送任何东西；重新收到它的信号时，核对其位置是否符合获准内容 | 判定；不向失联航空器发送任何指令 |
-| 塔台建议 | 同一原因被拒三次后，运行时列出合法选项，Super 模型可推荐一项。它不执行任何动作 | 代码生成并检查选项 |
-| PX4 镜像（可选） | 设置 `ADAPTER=composite` 后，一架受守护的航空器还会由一台真实的 PX4 自动驾驶仪以 SIH 模式同步飞行。其获准航线变成 PX4 任务，撤回会传到自动驾驶仪，被拒的申请什么也不发送 | 运行时下达指令；世界状态仍以模拟器为准 |
+| 申请：动作、航段、模型记录 | 无人机智能体，`POST /proposals` | 判定并记录，然后执行或拒绝 |
+| 遥测：位置、高度、状态、时钟戳 | 航空器适配器，每 0.25 秒 | 航线符合性、提前起飞、失联（15 个时钟周期无新时间戳） |
+| 空域：34,581 栋 20 m 及以上建筑、FAA UAS 设施图网格、区域 | `configs/airspace`，首次放行前载入 | 判定 |
+| 每条已放行航线 | 各自的 4D 意图 | 间隔、着陆点、起飞柱 |
+| 官方信息源：NOTAM、召回、天气、事故 | 模拟器公告（代替官方数据源） | 禁入区、召回、暂停起飞 |
+| METAR | aviationweather.gov，每 300 秒 | 超出 `configs/fleet.yaml` 限值时全队暂停起飞 |
+| 网页：塔吊、活动、公园关闭、飞行限制 | Tavily；无密钥时使用录制的 fixture | 临时障碍与禁入区，均附来源 URL |
+| 手动提交的报告 | `POST /intake` | 经过同样的语法与检查，等人确认后才生效 |
+| 人工答复 | 人工审批页 `/approvals.html` | 提前解除规则、待定通告、失联卡片 |
+| 智能体注册 | `POST /agents/register` | 地图上的模型标签；不参与判定 |
 
-地图旁的计分板用同一套规则统计两种接线。种子 7，一轮 5,000 拍，默认接线
-（`tests/test_two_worlds.py` 中的 `run()`）：
+## 运行时内部
+
+每份申请逐一处理：表单 → 空域 → 4D 意图 → 策略 → 权限 → 账本 → 指令。
+
+| 部件 | 职责 | 代码 |
+|---|---|---|
+| 判定 | 航线、垂直柱、着陆共用同一项检查：建筑（+50 m）、FAA 高度上限、区域、横向间距 | `shared/geo.py`（`first_breach`） |
+| 意图 | 已放行航线存为 4D 空间（30 m、25 m、±30 个周期）；为失联航空器预留空间；监视链路 | `backend/intents.py` |
+| 策略、权限 | 召回与天气暂停；始终需要人批准的动作 | `backend/policy.py`、`backend/authority.py` |
+| 锁、仲裁 | 每个起降坪只有一个持有者；为争用同一资源的合法申请排序 | `backend/locks.py`、`backend/arbiter.py` |
+| 账本 | 只追加，先于指令写入；`GET /ledger/report` 每次飞行一行 | `backend/ledger.py`、`backend/reports/` |
+| 执行、适配器 | 通往航空器的唯一路径：模拟器 HTTP、MAVLink（PX4）、PX4 镜像 | `backend/commit.py`、`backend/adapters/` |
+| 接入、简报 | 数据源与文本 → 语法 → Super 模型（仅文本）→ 代码检查 → 规则 | `backend/intake.py`、`backend/briefing.py` |
+| 通告 | 每条通告关闭什么、从何时起、依据谁的说法 | `backend/notices.py` |
+| 建议 | 多次被拒后列出合法选项；Super 模型可以推荐其中一项 | `backend/advisory.py` |
+| 存储 | 接入条目与规则落盘（SQLite） | `backend/store.py` |
+| 回放 | 用当时尚不存在的规则重跑账本 | `backend/replay.py`、`scripts/what_if.py` |
+
+- 智能体 → 运行时：只有申请。这条链路断开时，航空器不受影响。
+- 运行时 → 航空器：指令与遥测。这条链路断开时，航空器飞完已放行航线后着陆，其空间保持预留。
+- 模型负责填表、在规划器给出的航线中挑选、阅读并摘要文本，从不参与判定。每份申请都带有
+  `params.model_trace`，地图的悬停卡片会显示它。
+
+## 演示
+
+四架无人机从布鲁克林的仓库屋顶出发，把货送到曼哈顿各处的着陆区。一轮 5,000 个周期（约 17 分钟）。空域关闭、
+天气暂停、火灾和失联在固定时刻发生，其余情况随交通自然出现。地图把运行时画在下曼哈顿的联邦政府大楼
+26 Federal Plaza：放行服务不属于任何一家运营方。
+
+| 场景 | 经过 | 决定方 |
+|---|---|---|
+| 直线被拒 | 通往送货点的直线穿过建筑，被拒并点名该建筑 | 判定 |
+| 选择航线 | 规划器画出最多三条合法候选；无人机上的 Nemotron 用 `choose_route(id, reason)` 选一条 | 模型挑选，判定放行 |
+| 飞行中空域关闭 | 第 525 个周期，一条 NOTAM 关闭直升机坪走廊，drone-03 正在其中。它被召回，并在 22 个周期内从最近的出口离开 | 判定，依据解析后的 NOTAM |
+| 交叉航迹 | 两条航线在同一时刻相距 30 m、25 m 以内。后申请的一方被拒并点名对方，随后爬升、等待或改报不冲突的候选 | 判定（4D 意图） |
+| 天气暂停 | METAR 报阵风 28 kt。一个周期内全队暂停起飞，空中的航空器着陆。提前解除需要人来决定 | 代码对照 `configs/fleet.yaml` |
+| 着陆区附近火灾 | 报告给出一个地址。该建筑周围 150 m 设为禁入区，Gantry Plaza 无法使用。种子 7 下没有走廊穿过这里 | 语法或 Super 读取，代码核对地址 |
+| 运行时简报 | 每轮开始时以及每进入一个新的约 1 km 网格时，用 Tavily 查询塔吊、活动、关闭和限制。每条规则都注明 URL | 语法读取，代码检查；只有官方页面立即生效 |
+| 失联 | 一架航空器失联，它飞完已放行航线后着陆。其走廊保持预留，运行时不再向它发送任何内容，恢复后核对位置 | 判定 |
+| 运行时建议 | 同一原因连续被拒三次后，列出合法选项；Super 模型可以推荐其中一项 | 代码生成并检查选项 |
+| PX4 镜像（可选） | drone-01 同时由真实 PX4（SIH）飞行。已放行航线变成任务，召回也会传到它 | 运行时；世界状态以模拟器为准 |
+
+地图的演示模式（`?demo=1`）会跟随各个场景，字幕只由账本代码和数值拼成，从不由模型撰写。动一下地图，
+它会暂停 20 秒。`./scripts/demo.sh` 会从第 0 个周期以这个模式打开地图。
+
+## 计分板
+
+同样四个智能体，在同一套规则下用两种方式接线：一种经过运行时，另一种直接连到飞控（如今大多数机队的接法）。
+种子 7，一轮（`tests/test_two_worlds.py` 中的 `run()`）：
 
 | 计数项 | 运行时 | 直连 |
 |---|---|---|
 | 空域违规 | 0 | 48 |
-| 上限突破 | 0 | 13 |
+| 超出高度上限 | 0 | 13 |
 | 无记录动作 | 0 | 36（其全部 36 个动作） |
-| 间隔丢失 | 0 | 3 |
+| 间隔丧失 | 0 | 3 |
 | 天气暂停期间起飞 | 0 | 2 |
 | 送达 | 21 | 20 |
 
-运行时一侧的其他违规计数也都是 0：起降坪冲突、闯入关闭区域、在关闭区域内滞留超过离开时限、着陆点冲突、
-闯入事故区、闯入失联保留空间，以及撤回后的违规。它执行了 45 个动作，全部有记录。各计数项的统计方法见
+运行时一侧的其余计数也都是 0：起降坪冲突、闯入区域、超过离开时限仍停留在区域内、着陆点冲突、闯入事故区、
+闯入失联预留空间、召回后违规。45 个动作全部有记录。各项的统计方法见
 [docs/RULES.md](docs/RULES.md#how-the-scoreboard-counts)。
 
-## 运行
+## 快速开始
 
-```sh
-git clone https://github.com/liebertar/holdshort && cd holdshort
-docker compose up --build          # 仅规则，无需密钥
-```
+### 最低配置
 
-地图在 http://localhost:3100/map.html。http://localhost:3100 是给人类管制员用的审批箱。
-
-有密钥时，复制示例文件，填上手头有的：
-
-```sh
-cp .env.example .env.local         # NEBIUS_API_KEY, TAVILY_API_KEY
-docker compose --env-file .env.local up --build
-```
-
-不用 Docker（需要 Python 3.12 和 `pyyaml`）：
-
-```sh
-./scripts/dev.sh      # 自行选择 Nebius、本地 Ollama 或纯规则；地图在 http://127.0.0.1:3100/map.html
-./scripts/demo.sh     # 先停掉占用端口的进程，从第 0 拍启动干净的种子 7 栈，打开 map.html?demo=1
-```
-
-`./scripts/sitl.sh` 运行同一个栈，另让 drone-01 同时由 PX4（SIH）飞行。它需要 Docker 来运行 PX4 容器；
-如果 `python3` 无法导入 `pymavlink`，首次运行会用 pip 把 `pymavlink` 和 `pyyaml` 装进 `.run/sitl-venv`。
-`docker compose -f compose.yaml -f compose.sitl.yaml up --build` 让 PX4 这条路径完全在容器中运行。
-
-模型和数据源有凭据即启用，没有凭据即关闭。其他一切不变。
-
-| 设置 | 存在时 | 缺失时 |
+| | 最低要求 | M5 Max 实测 |
 |---|---|---|
-| `NEBIUS_API_KEY` | Nebius Token Factory 上的 Nemotron（每架无人机 Nano，塔台 Super） | 本地 Ollama 机队若有响应则用之（无人机在 11435–11438，塔台在 11439，否则 11434）；否则由 11434 上的单个 Ollama 服务所有角色；再否则仅规则 |
-| `TAVILY_API_KEY` | 实时起飞前简报与定期检索 | 使用 `tests/fixtures/tavily` 中的录制简报，标注为“recorded”；按同一时刻表发出模拟通告 |
-| 网络 | aviationweather.gov 的 METAR，立即施加 | 模拟天气报告 |
+| Docker | Docker Engine 24+，Compose 2.24+（macOS 与 Windows 用 Docker Desktop） | Engine 29.7，Compose 5.5 |
+| 整个栈（仅规则，或使用 Nebius 密钥） | 2 核 CPU，给 Docker 4 GB 内存，2 GB 磁盘 | 7 个容器约占 1.5 GB 内存，CPU 远低于 1 核；镜像约 1 GB |
+| 不用密钥、改用本地模型 | Apple Silicon，64 GB 内存 | 5 个 `nemotron-3-nano:4b` 服务，每个约 7.5 GB；只需下载一次，2.8 GB |
+| PX4 SITL（可选） | 再加 1 核 CPU、3 GB 磁盘 | SIH 约占半核、10 MiB；镜像 2.95 GB |
+| 不用 Docker | Python 3.12 与 `pyyaml`；地图测试需要 Node 22 | |
 
-`scripts/ollama_fleet.sh start 4` 为每架无人机启动一个本地 `nemotron-3-nano:4b` 服务器（11435–11438），
-并启动一个塔台服务器（11439，8k 上下文），供运行时的 Nemotron 3 Super 替身使用。
-`./scripts/dev.sh` 不加参数就能找到它们。有 Nebius 密钥时不需要任何本地模型。
+### 运行
 
-有 Tavily 密钥，简报就是实时的。没有密钥时，塔台回放按 Tavily 响应格式手写的 fixture，地图、账本和
-信息接入存储都会标注“recorded”。有密钥时，它针对当天的飞行调用 search、extract、crawl 和 research。
-语法读取的官方域名页面立即生效；其余一切，包括 Tavily research 返回的结构化答案，都要等人确认。
-`TAVILY_BUDGET_PER_ROUND`（默认 20 credits）与定期检索共用；每轮开始约消耗 16。
-`curl -X POST http://127.0.0.1:8000/briefing/run` 重新询问一次。
+1. 克隆仓库。
 
-## 如何判定
+   ```sh
+   git clone https://github.com/vectordyne-temp/sky-net && cd sky-net
+   ```
 
-- 只有一个判定函数 `first_breach`，用于所有航线、垂直柱和着陆：20 m 及以上的建筑上方留 50 m 垂直净空
-  （200 ft FAA 网格下的低矮屋顶做不到 50 m，仅此情况为 20 m），距建筑横向 10 m，距关闭网格与区域 40 m，
-  巡航高度在 70 m 到 120 m 之间（网格上限更低时以其为准）。
-- 获准航线成为 4D 意图：横向 30 m，垂直 25 m，前后各 30 拍，外加起降柱与失联应急空间。新申请与所有生效中的
-  意图核对，一次只判一个：从判定到意图登记都在同一把锁内。
-- 收紧的规则到达即生效。放宽的规则等待人工或到期。
-- 触碰执行器之前先写账本：拍数、空域版本、执行过的检查、申请作者。`GET /ledger/report` 把它折叠为每次飞行一行。
-- 模型负责写申请表、在运营方规划器画出的航线中做选择、读文本、写摘要。只有在所有候选都被拒之后，
-  模型才作为最后手段自己画航点。模型返回的任何东西都经过同一判定。
-- 每份申请都带有 `params.model_trace`：申请表由谁写（模型，或规则及其原因），航线从哪来（直线、模型的选择、
-  模型草稿、A*），有哪些候选，理由是什么。运行时从不读取它；地图的悬停卡片用平实的话把它讲出来。
-- 模型在为某架航空器写申请表和选航线时，该航空器下方的标签显示模型名。如果自上次注册（每 30 s 一次）以来
-  每次询问都退回了规则，标签显示 `rules`。
+2. 以示例文件为模板创建 `.env.local`。所有值都是可选的：有 `NEBIUS_API_KEY` 和 `TAVILY_API_KEY` 就填上；
+   留空则用规则和录制的简报运行。
 
-详情：[ARCHITECTURE.md](ARCHITECTURE.md) · [docs/RULES.md](docs/RULES.md) · [docs/MODELS.md](docs/MODELS.md) ·
-[docs/DECISIONS.md](docs/DECISIONS.md) · [docs/DEMO.md](docs/DEMO.md)
+   ```sh
+   cp .env.local.example .env.local
+   ```
 
-## 定位
+3. 启动整个栈。
 
-ASTM F3269 描述运行时保证：由经验证的监视器约束未经验证的复杂功能。Holdshort 就是调度层上的这个监视器，
-复杂功能则是 LLM 智能体。ASTM F3548 描述空域服务之间的 4D 运行意图；Holdshort 的意图形状相同。两项标准都
-未规定智能体如何向权威提交意图、如何记录来源。本仓库提出的正是这一接口，并附参考实现与双世界一致性测试。
+   ```sh
+   docker compose -f docker-compose.local.yml --env-file .env.local up --build
+   ```
 
-## 仓库
+4. 打开地图：http://localhost:3100。人工审批：http://localhost:3100/approvals.html · 运行时 API：:8000 ·
+   模拟器：:8100。
 
-```
-holdshort/agent      运营方智能体：感知、申请表、规划（A* 候选）、选择（Nemotron 工具调用）、草稿、提交
-holdshort/runtime    判定、意图、账本、执行、信息接入、简报、建议、通告
-holdshort/core       几何、空域、航线规划器、配置、语法解析器、Tavily 与 METAR 客户端
-holdshort/adapters   唯一接触航空器的代码：模拟器 HTTP、MAVLink（PX4）、Flockwave、composite
-holdshort/llm        OpenAI 兼容客户端，分层、工具调用与录制
-sim/                 世界：两种接线，一个种子，计分板，规则或 cuOpt 调度
-direct_agent/        无守护接线——同一智能体代码，自带执行器
-ui/                  地图（MapLibre）与审批箱，静态文件
-configs/             机队、天气限值、简报、FAA 网格、34,581 栋建筑、地址
-tests/               Python 测试 542 项（无 pymavlink 时跳过 27 项），地图测试 73 项，种子双世界测试台
+`make up` 一次完成第 2、3 步。共享开发服务器用各自的文件，步骤相同：
+
+```sh
+cp .env.dev.example .env.dev
+docker compose -f docker-compose.dev.yml --env-file .env.dev up -d --build
 ```
 
-为 Nebius × NVIDIA Global AI Hackathon（Physical AI 赛道）构建。许可证：见 [LICENSE](LICENSE)。
+### 模型如何选择
+
+没有必填项，每种输入各自回退：
+
+| 输入 | 首选 | 其次 | 最后 |
+|---|---|---|---|
+| 无人机与运行时的模型 | `NEBIUS_API_KEY`：Nebius Token Factory 上的 Nemotron（每架无人机用 Nano，运行时用 Super） | 本地 Ollama：每架无人机一个服务（11435–11438），运行时一个（11439）；都没有则用 Ollama 应用（11434） | 仅规则 |
+| 网页简报与检索 | `TAVILY_API_KEY`：实时 Tavily | `tests/fixtures/tavily` 中的录制简报，标注 "recorded" | — |
+| 天气 | aviationweather.gov 的 METAR | 模拟天气报告 | — |
+
+- `scripts/dev.sh` 会自行探测本地 Ollama，并打印选择结果。Docker Compose 不探测宿主机：没有密钥时只用规则运行，
+  除非 `.env.local` 指向 Mac 上的 Ollama（见 `.env.local.example` 中的 "docker compose" 一段）。
+- 仅用规则也能完整跑完一轮：所有场景都会出现，地图在本该由模型填写的地方标注 "rules"。
+- 无论模型写了什么，运行时都用同一套规则判定。
+
+### 可选栈
+
+在本地文件之后叠加一个 overlay：
+`docker compose -f docker-compose.local.yml -f <overlay> --env-file .env.local up --build`
+
+| Overlay | 增加的内容 |
+|---|---|
+| `sim/docker-compose.sitl.yml` | 镜像 drone-01 的真实 PX4 飞控（SIH） |
+| `drone/docker-compose.direct.yml` | 直连接线：同样四个智能体直接操控飞控（计分板的对照一侧） |
+
+### 不用 Docker
+
+```sh
+./scripts/dev.sh      # 自动选择 Nebius、本地 Ollama 或规则
+./scripts/demo.sh     # 从第 0 个周期启动干净的种子 7 栈，以演示模式打开地图
+./scripts/sitl.sh     # 同一个栈，drone-01 另由 PX4 SIH 飞行（需要 Docker）
+make test             # Python 测试；地图测试用 node --test tests/test_map.mjs
+```
+
+- Tavily 预算：`TAVILY_BUDGET_PER_ROUND`（每轮默认 20 credits，与检索共用）。重新简报：
+  `curl -X POST http://127.0.0.1:8000/briefing/run`。
+- 常用设置都在 `.env.local.example` 中有说明。
+- 开发环境搭建、提交前要跑的检查和 PR 流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 仓库结构
+
+```
+frontend/   地图（MapLibre）与人工审批页：静态文件，由一个禁用缓存的小服务器提供
+backend/    运行时：判定、4D 意图、策略、锁、账本、执行、接入、简报、建议
+            adapters/：唯一接触航空器的代码（模拟器 HTTP、MAVLink、PX4 镜像）
+drone/      agent/：无人机智能体——感知、填表、规划（A* 候选）、选择（Nemotron 工具调用）、提交
+            direct/：对照接线——同一个智能体自带执行器客户端
+shared/     几何、空域、航线规划器、配置、语法解析器、Tavily 与 METAR 客户端、llm/
+sim/        世界：固定种子的模拟器、计分板、规则或 cuOpt 调度
+configs/    机队、天气限值、简报、FAA 网格、34,581 栋建筑、地址
+scripts/    开发与演示启动脚本、PX4 SITL、本地 Ollama 机队、数据抓取
+tests/      Python 测试、地图测试、固定种子的双世界测试台
+```
+
+每个栈目录自带 Dockerfile 和可选 overlay；根目录为每个环境各放一个 compose 文件。
+
+## 作者
+
+Changkeun Lee（[@liebertar](https://github.com/liebertar)）与 Dong Jun Kim（[@dejaikeem](https://github.com/dejaikeem)）。
+为 Nebius × NVIDIA Global AI Hackathon（Physical AI 赛道）而作。Apache-2.0：[LICENSE](LICENSE)、
+[NOTICE](NOTICE)。

@@ -1,4 +1,4 @@
-# 같은 런타임, 다른 분야. 코드는 한 줄도 안 바뀝니다.
+# Same runtime, different domain. Not one line of code changes.
 name: factory-line
 
 resources:
@@ -15,10 +15,10 @@ authority:
 
 policies: []
 
-# Nebius Token Factory 의 모델 id. super 는 확인된 값이고, ultra 는 대소문자를 못 확인했고,
-# nano 는 목록에 없으면 Nemotron 3.5 Lightning(30B-A3B, 2026-08)이 그 자리입니다.
-# 실제 목록은 `scripts/llm_probe.py` 가 GET /v1/models 로 보여줍니다. 환경 변수
-# MODEL_NANO/MODEL_SUPER/MODEL_ULTRA 가 있으면 이 값을 덮어씁니다(Ollama 로컬 = nemotron-3-nano).
+# Nebius Token Factory model ids. super is confirmed; ultra's capitalisation is unconfirmed;
+# if nano is not in the list, Nemotron 3.5 Lightning (30B-A3B, 2026-08) takes its place.
+# `scripts/llm_probe.py` shows the real list via GET /v1/models. The environment variables
+# MODEL_NANO/MODEL_SUPER/MODEL_ULTRA override these (local Ollama = nemotron-3-nano).
 models:
   nano: nvidia/Nemotron-3_5-Lightning
   super: nvidia/nemotron-3-super-120b-a12b
