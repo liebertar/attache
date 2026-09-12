@@ -63,7 +63,7 @@ PORT=$SIM_PORT TICK_SECONDS="${TICK_SECONDS:-0.2}" FLEET_LIMIT_USD=720 DIRECT_MO
 # A second stack keeps its own ledger too (LEDGER_PATH, INTAKE_DB) — two runtimes writing one
 # file mix their reports.
 PORT=$RT_PORT CONFIG=configs/fleet.yaml SIM_URL=http://$LOOPBACK:$SIM_PORT MODEL_SUPER="$RUNTIME_SUPER" \
-  LEDGER_PATH="${LEDGER_PATH:-.run/ledger.jsonl}" python3 -m backend.service & sleep 1
+  LEDGER_PATH="${LEDGER_PATH:-.run/ledger.jsonl}" python3 -m backend.api.server & sleep 1
 
 # Aircraft i uses server i (PER_ASSET_URLS, the Ollama fleet), else LLM_BASE_URL. Ollama forces
 # one concurrent request on this model family, so four sharing one server queue up and drafts get

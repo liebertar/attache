@@ -10,7 +10,7 @@ import unittest
 
 from backend.runtime.authority import AuthorityCheck
 from backend.runtime.policy import PolicyBook
-from backend.service import Runtime
+from backend.runtime.tower import Runtime
 from shared.config import Authority, Policy
 from shared.models import Proposal, Verdict
 from sim.world import RECALL, RECALL_TICK, Simulation
@@ -224,7 +224,7 @@ class RoundResetTest(unittest.TestCase):
     def _runtime(self):
         import tempfile
 
-        from backend.service import Runtime
+        from backend.runtime.tower import Runtime
 
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             return Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)

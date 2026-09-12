@@ -16,7 +16,7 @@ import unittest
 from concurrent.futures import Future
 from types import SimpleNamespace
 
-from backend.service import Runtime
+from backend.runtime.tower import Runtime
 from drone.agent.detect import detect
 from drone.agent.drafter import ModelDrafter, service_bbox
 from drone.agent.loop import ROUTE_REFUSALS, GuardedAgent

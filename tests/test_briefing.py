@@ -25,7 +25,7 @@ from backend.intake.briefing import (
     domain_of,
     trusted_domain,
 )
-from backend.service import Runtime
+from backend.runtime.tower import Runtime
 from drone.agent.planner import OperatorPlanner
 from shared.intake import (
     Gazetteer,

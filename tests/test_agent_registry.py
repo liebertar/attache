@@ -14,7 +14,7 @@ import time
 import unittest
 
 from backend.runtime import agents as agents_module
-from backend.service import Runtime
+from backend.runtime.tower import Runtime
 from drone.agent.chooser import Choice
 from drone.agent.loop import GuardedAgent, ModelHealth, Registration, identity
 from drone.agent.propose import Proposer

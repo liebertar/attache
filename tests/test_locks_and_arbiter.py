@@ -6,7 +6,7 @@ from unittest import mock
 from backend.runtime import world as world_module
 from backend.runtime.arbiter import SYSTEM, Arbiter, by_rule, parse_verdict
 from backend.runtime.locks import LockTable
-from backend.service import Runtime
+from backend.runtime.tower import Runtime
 from shared.llm.client import LlmReply, TieredLlm
 from shared.models import Proposal, Verdict
 

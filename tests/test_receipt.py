@@ -168,7 +168,7 @@ class AirspaceTest(unittest.TestCase):
     def test_the_runtime_refuses_a_route_through_restricted_airspace(self):
         import tempfile
 
-        from backend.service import Runtime
+        from backend.runtime.tower import Runtime
         from shared.geo import Volume
         from shared.models import Verdict
         from sim.world import Simulation as Sim

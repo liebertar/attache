@@ -272,7 +272,7 @@ class RuntimeWithAMirrorTest(unittest.TestCase):
     """When the runtime refuses, nothing goes to the actuator. The mirror is covered too."""
 
     def _runtime(self, adapter):
-        from backend.service import Runtime
+        from backend.runtime.tower import Runtime
 
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
             runtime = Runtime("configs/fleet.yaml", "http://unused", handle.name, 0.0)

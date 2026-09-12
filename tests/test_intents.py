@@ -23,7 +23,7 @@ from backend.runtime.intents import (
     first_conflict,
     schedule,
 )
-from backend.service import Runtime
+from backend.runtime.tower import Runtime
 from shared.config import load as config_load
 from shared.geo import (
     METRES_PER_DEG_LAT,
