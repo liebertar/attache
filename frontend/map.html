@@ -1981,7 +1981,7 @@ function briefingRunText(entry){
 /** What blocked it, in screen words. The runtime sends only values; the wording is made here. */
 const ENDPOINTS = new Set(["origin", "destination"]);
 // A blocked place rather than a leg. The label is a sentence on its own, so no "leg 3 enters" in front.
-const PLACES = new Set(["origin", "destination", "landing", "takeoff", "column"]);
+const PLACES = new Set(["origin", "destination", "landing", "takeoff", "column", "traffic"]);
 function blockedLabel(params){
   const id = params.blocked_volume || "";
   const height = Math.round(Number(params.blocked_ceiling_m) || 0);
