@@ -1337,7 +1337,7 @@ class BriefingDesk:
                 continue
             if record is None:
                 why = self.tower.notices.unreadable.get(reading.item_id, "")
-                if "refused" in why:
+                if reading.item_id in self.tower.notices.refused:
                     reading.status = "refused"
                     self._store(reading)
                 elif why:

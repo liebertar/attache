@@ -70,6 +70,9 @@ class NoticeBook:
         self.llm = llm
         self.records: dict[str, NoticeRecord] = {}
         self.unreadable: dict[str, str] = {}     # id → why unreadable, so polls do not ask again
+        # Refused by a person, kept apart from the sentence: the briefing asks this set, not the
+        # words. A reason that merely contains "refused" must never read as a person's answer.
+        self.refused: set[str] = set()
 
     def get(self, notice_id: str) -> NoticeRecord | None:
         return self.records.get(notice_id)
@@ -202,6 +205,7 @@ class NoticeBook:
         else:
             self.records.pop(notice_id)
             self.unreadable[notice_id] = f"{actor} refused"
+            self.refused.add(notice_id)
         return record
 
     # The lists below iterate over a copy of records. If the world thread walks the same dict
@@ -251,6 +255,7 @@ class NoticeBook:
     def clear(self) -> None:
         self.records.clear()
         self.unreadable.clear()
+        self.refused.clear()
 
     def snapshot(self) -> list[dict]:
         """Source of the screen banner: what applies or is scheduled, and what waits for a
