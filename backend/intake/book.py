@@ -14,7 +14,7 @@ import hashlib
 import os
 from dataclasses import dataclass, field
 
-from backend.notices import NoticeRecord
+from backend.intake.notices import NoticeRecord
 from shared.config import Policy, WeatherLimits
 from shared.geo import Volume
 from shared.intake import (
@@ -31,6 +31,7 @@ from shared.intake import (
     weather_problems,
 )
 from shared.llm.client import LlmTier, TieredLlm, parse_json_object
+from shared.metar import SOURCE as METAR_SOURCE
 from shared.notam import Clock, parse_notice, validate
 
 # Seconds the model gets to structure one item. Generous for the same reason as notices
@@ -373,6 +374,33 @@ class IntakeBook:
             "last_report": self.last_report,
             "held": list(self.held_weather.values()),
         }
+
+
+# Official observations. Like the runtime's own feed (simulator notices), a grammar reading
+# applies on that tick — code turned aviationweather.gov's numbers into text and the grammar
+# read it back; it is not a web page. A model reading still waits for human approval,
+# whatever the source.
+OFFICIAL_SOURCES = frozenset({METAR_SOURCE})
+
+
+class TowerIntake(IntakeBook):
+    """The runtime's intake book.
+
+    Adds one thing: official observations (METAR) are trusted like the runtime's own feed.
+    """
+
+    @staticmethod
+    def must_hold(record: IntakeRecord, read_by: str) -> bool:
+        if record.source in OFFICIAL_SOURCES:
+            return read_by.startswith("model:")
+        return IntakeBook.must_hold(record, read_by)
+
+    def snapshot(self, tavily_on: bool) -> dict:
+        out = super().snapshot(tavily_on)
+        for item in out["items"]:
+            if item["source"] in OFFICIAL_SOURCES:
+                item["trusted"] = True
+        return out
 
 
 def incident_snapshot(records: list[NoticeRecord], tick: int) -> list[dict]:

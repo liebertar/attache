@@ -8,17 +8,16 @@ import time
 from pathlib import Path
 
 from backend.adapters import build as build_adapter
-from backend.briefing import BriefingDesk
-from backend.intake import (
+from backend.intake.book import (
     HOLD_POLICY_PREFIX,
     INTAKE_PERIOD_S,
-    IntakeBook,
-    IntakeRecord,
+    TowerIntake,
     WeatherHold,
     incident_snapshot,
     item_id,
 )
-from backend.notices import NoticeBook
+from backend.intake.briefing import BriefingDesk
+from backend.intake.notices import NoticeBook
 from backend.runtime.advisory import AdvisoryDesk, Refusal, build_options
 from backend.runtime.arbiter import Arbiter
 from backend.runtime.authority import AuthorityCheck
@@ -97,11 +96,6 @@ METAR_PERIOD_S = float(os.getenv("METAR_PERIOD_S") or METAR_DEFAULT_PERIOD_S)
 # Aircraft re-announce every 30 s (drone/agent/loop.py REGISTER_PERIOD_S) — at 0.2 s/tick,
 # 600 ticks is 2 minutes, i.e. more than two missed announcements.
 AGENT_STALE_TICKS = int(os.getenv("AGENT_STALE_TICKS") or "600")
-# Official observations. Like the runtime's own feed (simulator notices), a grammar reading
-# applies on that tick — code turned aviationweather.gov's numbers into text and the grammar
-# read it back; it is not a web page. A model reading still waits for human approval,
-# whatever the source.
-OFFICIAL_SOURCES = frozenset({METAR_SOURCE})
 # Names used in source failure/recovery lines.
 SOURCE_NAMES = {"tavily": "검색", METAR_SOURCE: "METAR"}
 # Fields of one /state.agents row.
@@ -110,26 +104,6 @@ AGENT_FIELDS = ("model", "host", "world", "last_seen_tick", "display", "base_url
 # simulator incident notice). Re-reading after a restart from the text alone cannot place an
 # incident that arrived as an address.
 INTAKE_HINT_KEYS = ("name", "address", "building_id", "radius_m", "until_tick")
-
-
-class TowerIntake(IntakeBook):
-    """The runtime's intake book.
-
-    Adds one thing: official observations (METAR) are trusted like the runtime's own feed.
-    """
-
-    @staticmethod
-    def must_hold(record: IntakeRecord, read_by: str) -> bool:
-        if record.source in OFFICIAL_SOURCES:
-            return read_by.startswith("model:")
-        return IntakeBook.must_hold(record, read_by)
-
-    def snapshot(self, tavily_on: bool) -> dict:
-        out = super().snapshot(tavily_on)
-        for item in out["items"]:
-            if item["source"] in OFFICIAL_SOURCES:
-                item["trusted"] = True
-        return out
 
 
 class Runtime:

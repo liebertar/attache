@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 
 import yaml
 
-from backend.notices import NoticeRecord
+from backend.intake.notices import NoticeRecord
 from shared.geo import METRES_PER_DEG_LAT, METRES_PER_DEG_LON, Volume
 from shared.intake import (
     BRIEFING_SYSTEM,

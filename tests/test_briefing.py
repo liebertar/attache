@@ -18,7 +18,7 @@ import time
 import unittest
 from unittest import mock
 
-from backend.briefing import (
+from backend.intake.briefing import (
     CLOSED_CEILING_M,
     RECORDED_PREFIX,
     cell_of,
