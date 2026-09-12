@@ -13,7 +13,7 @@ import threading
 import time
 import unittest
 
-from backend import service as service_module
+from backend.runtime import agents as agents_module
 from backend.service import Runtime
 from drone.agent.chooser import Choice
 from drone.agent.loop import GuardedAgent, ModelHealth, Registration, identity
@@ -92,7 +92,7 @@ class RegistryTest(unittest.TestCase):
     def test_a_silent_agent_drops_after_the_stale_window_and_a_fresh_one_stays(self):
         self.runtime.register_agent(agent("drone-01"))
         self.runtime.register_agent(agent("drone-02"))
-        self.runtime.tick = 100 + service_module.AGENT_STALE_TICKS
+        self.runtime.tick = 100 + agents_module.AGENT_STALE_TICKS
         self.assertEqual(set(self.runtime.snapshot()["agents"]), {"drone-01", "drone-02"})
         self.runtime.register_agent(agent("drone-02"))
         self.runtime.tick += 1
@@ -109,7 +109,7 @@ class RegistryTest(unittest.TestCase):
         self.runtime._follow_round(1)
         self.assertEqual(self.runtime.snapshot()["agents"]["drone-01"]["last_seen_tick"], 3,
                          "the process lives on — a new round does not drop its registration")
-        self.runtime.tick = 3 + service_module.AGENT_STALE_TICKS + 1
+        self.runtime.tick = 3 + agents_module.AGENT_STALE_TICKS + 1
         self.assertEqual(self.runtime.snapshot()["agents"], {})
 
 
