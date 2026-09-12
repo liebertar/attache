@@ -597,11 +597,6 @@ SENTENCES = re.compile(
     r"(?<!\ba\.m\.)(?<!\bp\.m\.)\s+|\n+")
 
 
-class UnknownWindow(ValueError):
-    """The time window is missing or makes no sense. A rule without a window would last
-    forever, so it can't be applied."""
-
-
 # ---------- New York local time ----------
 
 def eastern_offset_hours(when) -> int:

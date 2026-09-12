@@ -2,15 +2,8 @@
 
 from dataclasses import dataclass
 
-BATTERY_LOW = 30.0
-BATTERY_CRITICAL = 15.0
-FAST_CHARGE_BELOW = 25.0  # below this, fast charging is wanted for turnaround
 VIBRATION_ALERT = 0.55
 AUTONOMY_ALERT = 0.35
-BATTERY_FULL = 60.0  # the fleet doesn't charge to full; turnaround matters
-CHARGE_BELOW = 40.0  # back in the yard below this: charge; else load the next job
-
-
 @dataclass
 class Concern:
     kind: str

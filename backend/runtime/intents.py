@@ -247,10 +247,6 @@ class Intent:
                 "proposal_id": self.proposal_id, "ended": self.ended_reason or None,
                 "contingency": self.contingency or None, "dark_since": self.dark_since}
 
-    def detailed(self) -> dict:
-        return {**self.to_dict(), "volumes": [v.to_dict() for v in self.volumes]}
-
-
 @dataclass
 class Conflict:
     asset: str                        # the other aircraft

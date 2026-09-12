@@ -111,7 +111,7 @@ class AirspaceTest(unittest.TestCase):
         from sim.world import AIRSPACE, BUILDINGS
 
         if not BUILDINGS:
-            self.skipTest("no building data (scripts/fetch_buildings.py)")
+            self.skipTest("no building data (scripts/fetch_tile_buildings.mjs)")
         tall = max((v for v in AIRSPACE.all() if v.id.startswith("bldg-")),
                    key=lambda v: v.ceiling_m)
         inside = tall.polygon[0]

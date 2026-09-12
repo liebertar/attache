@@ -230,7 +230,7 @@ AIRSPACE_BANDS = load_bands()
 
 # Buildings. Objects rather than regulations, but the same shape to the judgement — forbidden
 # from the ground to the roof and open above. One Volume says exactly that, so there is no new
-# judging code. scripts/fetch_buildings.py fetches them from NYC open data.
+# judging code. scripts/fetch_tile_buildings.mjs fetches them from the map tiles.
 BUILDING_FILE = os.getenv(
     "BUILDING_FILE",
     str(Path(__file__).resolve().parent.parent / "configs/airspace/nyc_buildings.json"),
@@ -329,39 +329,6 @@ def to_grid(lat: float, lon: float) -> tuple[float, float]:
 # Side, and a straight line there cuts through the band, is refused, and a detour comes back —
 # the key scene of this demo. 10 km one way is 570 ticks, so the round (ROUND_TICKS) grew too.
 SERVICE_RADIUS_M = 11_000.0
-
-
-_SERVICE_AREA: list[dict] | None = None
-
-
-def pickable_addresses() -> list[dict]:
-    """Addresses that can take a delivery: outside forbidden zones, inside the service radius.
-
-    AIRSPACE is built further down this file, so this is computed once, on the first call.
-    """
-    global _SERVICE_AREA
-    if _SERVICE_AREA is None:
-        _SERVICE_AREA = _within_service_area()
-    return _SERVICE_AREA
-
-
-def _within_service_area() -> list[dict]:
-    depot_lat, depot_lon = to_latlon(*DEPOT)
-    open_ones = []
-    for address in ADDRESSES:
-        # Skip addresses inside a forbidden zone or against a building. The last leg could not
-        # keep its clearance, no route would ever be cleared, and the order could only be declined.
-        if AIRSPACE.too_close(address["lat"], address["lon"], 0.0):
-            continue
-        north = (address["lat"] - depot_lat) * 110_570.0
-        east = (address["lon"] - depot_lon) * 84_400.0   # at latitude 40.7
-        if (north * north + east * east) ** 0.5 > SERVICE_RADIUS_M:
-            continue
-        gx, gy = to_grid(address["lat"], address["lon"])
-        if 2 <= gx <= 98 and 2 <= gy <= 58:
-            open_ones.append({**address, "gx": gx, "gy": gy})
-    return open_ones
-
 
 
 # A hospital medevac helicopter launches and the airspace above suddenly closes. It sits on the

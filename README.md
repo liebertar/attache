@@ -64,7 +64,7 @@ Every filing, one at a time: form → airspace → 4D intents → policies → a
 | Notices | what each notice closes, from when, on whose word | `backend/intake/notices.py` |
 | Advisory | legal options after repeated refusals; the Super model may recommend one | `backend/runtime/advisory.py` |
 | Store | intake items and rules on disk (SQLite) | `backend/store/intake_store.py` |
-| Replay | re-runs the ledger under a rule that did not exist yet | `backend/store/replay.py`, `scripts/what_if.py` |
+| Replay | re-runs the ledger under a rule that did not exist yet: `python3 scripts/what_if.py --forbid-action reserve_pad` | `backend/store/replay.py`, `scripts/what_if.py` |
 
 - Agent → runtime: filings only. If that link drops, the aircraft is unaffected.
 - Runtime → aircraft: commands and telemetry. If that link drops, the aircraft finishes its cleared route and

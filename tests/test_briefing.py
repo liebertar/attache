@@ -54,7 +54,6 @@ DAY = datetime.date(2026, 9, 22)          # the day the recordings were made (fi
 BBOX = (40.669, -74.037, 40.836, -73.917)
 DEPOT = (40.7019, -73.9700)
 ST_NICHOLAS = (40.8155, -73.949)
-UNION_SQUARE = (40.7359, -73.99063)
 CRANE_AT = (40.799327, -73.968752)        # 2701 Broadway in the gazetteer
 TAVILY_ENV = ("TAVILY_API_KEY", "TAVILY_RECORDED", "TAVILY_BUDGET_PER_ROUND",
               "TAVILY_RECORD_DIR", "TAVILY_FIXTURE_DIR", "BRIEFING_DATE", "TAVILY_URL")

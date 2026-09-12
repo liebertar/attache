@@ -1,7 +1,7 @@
 // Extracts the very buildings the screen draws (the building layer of OpenFreeMap vector tiles,
 // render_height) as airspace data.
 //
-// Why the tiles: judging with NYC open data (fetch_buildings.py) missed buildings that were in
+// Why the tiles: judging with NYC open data missed buildings that were in
 // the tiles but not in the data, and a cleared corridor went straight through one. The buildings
 // the judgement sees and the buildings the screen draws must be the same.
 // Usage: node scripts/fetch_tile_buildings.mjs [min_height_m]

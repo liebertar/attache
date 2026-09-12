@@ -48,11 +48,6 @@ class DirectAgent:
             from drone.direct.mav_client import MavCommander
 
             self.commander = MavCommander(mavlink_endpoint)
-        elif transport == "flockwave":
-            from drone.direct.flock_client import FlockCommander
-
-            host, port = os.environ["FLOCKWAVE_HOST"], int(os.getenv("FLOCKWAVE_PORT", "5001"))
-            self.commander = FlockCommander(host, port, os.environ["UAV_ID"])
 
     # ---------- what it can see ----------
 

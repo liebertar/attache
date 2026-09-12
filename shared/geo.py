@@ -486,26 +486,6 @@ def nearest_exit(volume: Volume, lat: float, lon: float,
     return (lat + north * push / METRES_PER_DEG_LAT, lon + east * push / METRES_PER_DEG_LON)
 
 
-def highest_roof_along(airspace: "Airspace", here: dict, nxt: dict,
-                       margin_m: float = SEPARATION_M) -> float:
-    """Highest roof below this segment (including within lateral clearance); 0 if none.
-
-    The operator uses it to set leg altitudes — a leg must fly at roof + clearance to pass
-    over, and if that exceeds the ceiling it has to go around. Judgement (first_breach)
-    doesn't trust this value and checks on its own.
-    """
-    top = 0.0
-    for volume in _leg_volumes(airspace, here, nxt):
-        if not volume.id.startswith("bldg-") or volume.ceiling_m is None or not volume.polygon:
-            continue
-        if volume.ceiling_m <= top:
-            continue
-        crosses = len(_crossing_fractions(here, nxt, volume.polygon)) > 2
-        if crosses or _clearance_m(here, nxt, volume.polygon)[0] < margin_m:
-            top = volume.ceiling_m
-    return top
-
-
 def required_top_along(airspace: "Airspace", here: dict, nxt: dict,
                        margin_m: float = SEPARATION_M) -> float:
     """Highest 'roof + that building's clearance' below this segment (including within

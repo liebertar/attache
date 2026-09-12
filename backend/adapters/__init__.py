@@ -1,4 +1,4 @@
-"""The only code that touches the world. Imported by backend.commit and nothing else."""
+"""The only code that touches the world. Imported by backend.runtime.commit and nothing else."""
 
 from backend.adapters.fleet_sim import FleetSimAdapter
 
@@ -9,10 +9,6 @@ def build(kind: str, **kwargs):
     """Which world the runtime is wired to. Everything above this line stays the same."""
     if kind == "mavlink":
         from backend.adapters.mavlink_fleet import from_env
-
-        return from_env()
-    if kind == "flockwave":
-        from backend.adapters.flockwave import from_env
 
         return from_env()
     if kind == "composite":

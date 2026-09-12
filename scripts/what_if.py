@@ -2,9 +2,12 @@
 """Ask what a rule would have done, before you make it real.
 
     python3 scripts/what_if.py --ledger .run/ledger.jsonl \
-        --forbid-action fast_charge --model dv-x500
+        --forbid-action reserve_pad --model dv-x500
 
     python3 scripts/what_if.py --ledger .run/ledger.jsonl --per-asset 100
+
+Every row the ledger already holds is judged again under the rule, and the answer says which
+decisions would have changed. Nothing is written, and no aircraft hears about it.
 """
 
 import argparse

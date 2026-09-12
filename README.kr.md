@@ -64,7 +64,7 @@ flowchart LR
 | 공지 | 공지마다 무엇을, 언제부터, 누구 말에 따라 막는지 | `backend/intake/notices.py` |
 | 권고 | 거절이 반복되면 합법 선택지를 제시. Super 모델이 하나를 추천할 수 있음 | `backend/runtime/advisory.py` |
 | 저장소 | 수집 항목과 규칙을 디스크(SQLite)에 보관 | `backend/store/intake_store.py` |
-| 재생 | 당시엔 없던 규칙으로 원장을 다시 돌려 본다 | `backend/store/replay.py`, `scripts/what_if.py` |
+| 재생 | 당시엔 없던 규칙으로 원장을 다시 돌려 본다: `python3 scripts/what_if.py --forbid-action reserve_pad` | `backend/store/replay.py`, `scripts/what_if.py` |
 
 - 에이전트 → 런타임: 신청만 오간다. 이 연결이 끊겨도 기체에는 영향이 없다.
 - 런타임 → 기체: 명령과 텔레메트리. 이 연결이 끊기면 기체는 허가받은 경로를 마저 날아 착륙하고, 그 공간은
