@@ -28,7 +28,8 @@ def detect(telemetry: dict) -> Concern | None:
             "motor_fault", "high", f"motor vibration {telemetry.get('vibration'):.2f}"
         )
 
-    battery = telemetry.get("battery", 100.0)
+    # A flat pack reads as a small negative number, which rounds to the nonsense "-0%" on screen.
+    battery = max(telemetry.get("battery", 100.0), 0.0)
     idle = not telemetry.get("assigned_pad") and not telemetry.get("route")
 
     # A delivery order (or a return to the depot) with no approved route yet: file to be
